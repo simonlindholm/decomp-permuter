@@ -1,0 +1,4 @@
+/compile.sh
+*.o
+*.s
+*.c
