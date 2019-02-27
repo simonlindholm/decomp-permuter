@@ -201,68 +201,81 @@ def permute_ast(ast):
     sumprob = 0
     targetprob = None
     found = None
-    def rec(block):
+    def rec(block, reuse_cands):
         assert isinstance(block, (c_ast.Compound, c_ast.Case, c_ast.Default))
-        after = []
+        reuse_cands = reuse_cands[:]
+        assignment_cands = []
         past_decls = False
         items = get_block_items(block, False)
         for index, item in enumerate(items):
-            if not isinstance(item, c_ast.Decl):
+            if isinstance(item, c_ast.Decl):
+                if not isinstance(item.type, c_ast.ArrayDecl):
+                    reuse_cands.append(item.name)
+                    if not isinstance(item.type, c_ast.PtrDecl):
+                        # Make non-pointers more common
+                        reuse_cands.append(item.name)
+            else:
                 past_decls = True
             if past_decls:
-                after.append((block, index))
+                assignment_cands.append((block, index))
             if isinstance(item, c_ast.Compound):
-                rec(item)
+                rec(item, reuse_cands)
             elif isinstance(item, (c_ast.For, c_ast.While, c_ast.DoWhile)):
-                rec(item.stmt)
+                rec(item.stmt, reuse_cands)
             elif isinstance(item, c_ast.If):
                 if item.iftrue:
-                    rec(item.iftrue)
+                    rec(item.iftrue, reuse_cands)
                 if item.iffalse:
-                    rec(item.iffalse)
+                    rec(item.iffalse, reuse_cands)
             elif isinstance(item, c_ast.Switch):
                 if item.stmt:
-                    rec(item.stmt)
+                    rec(item.stmt, reuse_cands)
             elif isinstance(item, (c_ast.Case, c_ast.Default)):
-                rec(item)
+                rec(item, reuse_cands)
             def visitor(expr):
                 nonlocal sumprob
                 nonlocal found
                 eind = einds.get(id(expr), 0)
-                for place in after[::-1]:
+                for place in assignment_cands[::-1]:
                     prob = 1 / (1 + eind)
                     if isinstance(expr, (c_ast.ID, c_ast.Constant)):
                         prob *= 0.5
                     sumprob += prob
                     if phase == 1 and found is None and sumprob > targetprob:
-                        var = c_ast.ID('new_var')
-                        found = (place, expr, var)
+                        if random.randint(0,1) or not reuse_cands:
+                            var = c_ast.ID('new_var')
+                            reused = False
+                        else:
+                            var = c_ast.ID(random.choice(reuse_cands))
+                            reused = True
+                        found = (place, expr, var, reused)
                         return var
                     eind += 1
                 einds[id(expr)] = eind
                 return None
             visit_subexprs(item, visitor)
-        after.append((block, len(items)))
+        assignment_cands.append((block, len(items)))
 
-    rec(fn.body)
+    rec(fn.body, [])
     phase = 1
     targetprob = random.uniform(0, sumprob)
     sumprob = 0
     einds = {}
-    rec(fn.body)
+    rec(fn.body, [])
 
     assert found is not None
-    location, expr, var = found
+    location, expr, var, reused = found
+    # print("replacing:", to_c(expr))
     block, index = location
     assignment = c_ast.Assignment('=', var, expr)
     items = get_block_items(block, True)
     items[index:index] = [assignment]
-    typ = c_ast.TypeDecl(declname=var.name, quals=[],
-            type=c_ast.IdentifierType(names=['int']))
-    decl = c_ast.Decl(name=var.name, quals=[], storage=[], funcspec=[],
-            type=typ, init=None, bitsize=None)
-    insert_decl(fn, decl)
-    # print("replacing:", to_c(expr))
+    if not reused:
+        typ = c_ast.TypeDecl(declname=var.name, quals=[],
+                type=c_ast.IdentifierType(names=['int']))
+        decl = c_ast.Decl(name=var.name, quals=[], storage=[], funcspec=[],
+                type=typ, init=None, bitsize=None)
+        insert_decl(fn, decl)
     return ast
 
 def main():
