@@ -175,63 +175,66 @@ def visit_subexprs(top_node, callback):
     rec(top_node, True)
 
 def insert_decl(fn, decl):
-    for index, item in enumerate(fn.body.block_items):
-        if not isinstance(item, c_ast.Decl):
+    for index, stmt in enumerate(fn.body.block_items):
+        if not isinstance(stmt, c_ast.Decl):
             break
     else:
         index = len(fn.body.block_items)
     fn.body.block_items[index:index] = [decl]
 
-def get_block_items(block, force):
+def get_block_stmts(block, force):
     if isinstance(block, c_ast.Compound):
         ret = block.block_items or []
         if force and not block.block_items:
             block.block_items = ret
     else:
+        assert isinstance(block, (c_ast.Case, c_ast.Default))
         ret = block.stmts or []
         if force and not block.stmts:
             block.stmts = ret
     return ret
 
-def permute_ast(ast):
-    ast = copy.deepcopy(ast)
-    fn = find_fn(ast)
+def for_nested_blocks(stmt, callback):
+    if isinstance(stmt, c_ast.Compound):
+        callback(stmt)
+    elif isinstance(stmt, (c_ast.For, c_ast.While, c_ast.DoWhile)):
+        callback(stmt.stmt)
+    elif isinstance(stmt, c_ast.If):
+        if stmt.iftrue:
+            callback(stmt.iftrue)
+        if stmt.iffalse:
+            callback(stmt.iffalse)
+    elif isinstance(stmt, c_ast.Switch):
+        if stmt.stmt:
+            callback(stmt.stmt)
+    elif isinstance(stmt, (c_ast.Case, c_ast.Default)):
+        callback(stmt)
+
+def perm_temp_for_expr(fn):
     phase = 0
     einds = {}
     sumprob = 0
     targetprob = None
     found = None
     def rec(block, reuse_cands):
-        assert isinstance(block, (c_ast.Compound, c_ast.Case, c_ast.Default))
+        stmts = get_block_stmts(block, False)
         reuse_cands = reuse_cands[:]
         assignment_cands = []
         past_decls = False
-        items = get_block_items(block, False)
-        for index, item in enumerate(items):
-            if isinstance(item, c_ast.Decl):
-                if not isinstance(item.type, c_ast.ArrayDecl):
-                    reuse_cands.append(item.name)
-                    if not isinstance(item.type, c_ast.PtrDecl):
+        for index, stmt in enumerate(stmts):
+            if isinstance(stmt, c_ast.Decl):
+                if not isinstance(stmt.type, c_ast.ArrayDecl):
+                    reuse_cands.append(stmt.name)
+                    if not isinstance(stmt.type, c_ast.PtrDecl):
                         # Make non-pointers more common
-                        reuse_cands.append(item.name)
+                        reuse_cands.append(stmt.name)
             else:
                 past_decls = True
             if past_decls:
                 assignment_cands.append((block, index))
-            if isinstance(item, c_ast.Compound):
-                rec(item, reuse_cands)
-            elif isinstance(item, (c_ast.For, c_ast.While, c_ast.DoWhile)):
-                rec(item.stmt, reuse_cands)
-            elif isinstance(item, c_ast.If):
-                if item.iftrue:
-                    rec(item.iftrue, reuse_cands)
-                if item.iffalse:
-                    rec(item.iffalse, reuse_cands)
-            elif isinstance(item, c_ast.Switch):
-                if item.stmt:
-                    rec(item.stmt, reuse_cands)
-            elif isinstance(item, (c_ast.Case, c_ast.Default)):
-                rec(item, reuse_cands)
+
+            for_nested_blocks(stmt, lambda b: rec(b, reuse_cands))
+
             def visitor(expr):
                 nonlocal sumprob
                 nonlocal found
@@ -253,8 +256,8 @@ def permute_ast(ast):
                     eind += 1
                 einds[id(expr)] = eind
                 return None
-            visit_subexprs(item, visitor)
-        assignment_cands.append((block, len(items)))
+            visit_subexprs(stmt, visitor)
+        assignment_cands.append((block, len(stmts)))
 
     rec(fn.body, [])
     phase = 1
@@ -268,14 +271,19 @@ def permute_ast(ast):
     # print("replacing:", to_c(expr))
     block, index = location
     assignment = c_ast.Assignment('=', var, expr)
-    items = get_block_items(block, True)
-    items[index:index] = [assignment]
+    stmts = get_block_stmts(block, True)
+    stmts[index:index] = [assignment]
     if not reused:
         typ = c_ast.TypeDecl(declname=var.name, quals=[],
                 type=c_ast.IdentifierType(names=['int']))
         decl = c_ast.Decl(name=var.name, quals=[], storage=[], funcspec=[],
                 type=typ, init=None, bitsize=None)
         insert_decl(fn, decl)
+
+def permute_ast(ast):
+    ast = copy.deepcopy(ast)
+    fn = find_fn(ast)
+    perm_temp_for_expr(fn)
     return ast
 
 def main():
