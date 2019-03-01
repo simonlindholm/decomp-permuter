@@ -17,7 +17,28 @@ DISPLAY_ERRORS = False
 assert target_o.endswith('.o')
 
 def to_c(ast):
-    return c_generator.CGenerator().visit(ast)
+    source = c_generator.CGenerator().visit(ast)
+    if '#pragma' not in source:
+        return source
+    lines = source.split('\n')
+    out = []
+    same_line = 0
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith('#pragma'):
+            if stripped == '#pragma sameline start':
+                same_line += 1
+                continue
+            elif stripped == '#pragma sameline end':
+                same_line -= 1
+                if same_line == 0:
+                    out.append('\n')
+                continue
+        if not same_line:
+            line += '\n'
+        out.append(line)
+    assert same_line == 0
+    return ''.join(out).rstrip() + '\n'
 
 def compile_ast(ast):
     source = to_c(ast)
@@ -164,7 +185,7 @@ def visit_subexprs(top_node, callback):
             if node.iffalse:
                 node.iffalse = rec(node.iffalse, True)
         elif isinstance(node, (c_ast.TypeDecl, c_ast.PtrDecl, c_ast.ArrayDecl,
-                c_ast.Typename, c_ast.EmptyStatement)):
+                c_ast.Typename, c_ast.EmptyStatement, c_ast.Pragma)):
             pass
         else:
             print("Node with unknown type!", file=sys.stderr)
@@ -173,14 +194,6 @@ def visit_subexprs(top_node, callback):
         return node
 
     rec(top_node, True)
-
-def insert_decl(fn, decl):
-    for index, stmt in enumerate(fn.body.block_items):
-        if not isinstance(stmt, c_ast.Decl):
-            break
-    else:
-        index = len(fn.body.block_items)
-    fn.body.block_items[index:index] = [decl]
 
 def get_block_stmts(block, force):
     if isinstance(block, c_ast.Compound):
@@ -193,6 +206,18 @@ def get_block_stmts(block, force):
         if force and not block.stmts:
             block.stmts = ret
     return ret
+
+def insert_decl(fn, decl):
+    for index, stmt in enumerate(fn.body.block_items):
+        if not isinstance(stmt, c_ast.Decl):
+            break
+    else:
+        index = len(fn.body.block_items)
+    fn.body.block_items[index:index] = [decl]
+
+def insert_statement(block, index, stmt):
+    stmts = get_block_stmts(block, True)
+    stmts[index:index] = [stmt]
 
 def for_nested_blocks(stmt, callback):
     if isinstance(stmt, c_ast.Compound):
@@ -271,8 +296,7 @@ def perm_temp_for_expr(fn):
     # print("replacing:", to_c(expr))
     block, index = location
     assignment = c_ast.Assignment('=', var, expr)
-    stmts = get_block_stmts(block, True)
-    stmts[index:index] = [assignment]
+    insert_statement(block, index, assignment)
     if not reused:
         typ = c_ast.TypeDecl(declname=var.name, quals=[],
                 type=c_ast.IdentifierType(names=['int']))
@@ -280,10 +304,38 @@ def perm_temp_for_expr(fn):
                 type=typ, init=None, bitsize=None)
         insert_decl(fn, decl)
 
+def perm_sameline(fn):
+    cands = []
+    def rec(block):
+        stmts = get_block_stmts(block, False)
+        for index, stmt in enumerate(stmts):
+            cands.append((block, index))
+            for_nested_blocks(stmt, rec)
+        cands.append((block, len(stmts)))
+    rec(fn.body)
+    n = len(cands)
+    assert n >= 3
+    # Generate a small random interval
+    le = n - 2
+    for i in range(4):
+        le *= random.uniform(0, 1)
+    le = int(le) + 2
+    i = random.randrange(n - le)
+    j = i + le
+    # Insert the second statement first, since inserting a statement may cause
+    # later indices to move.
+    insert_statement(cands[j][0], cands[j][1], c_ast.Pragma("sameline end"))
+    insert_statement(cands[i][0], cands[i][1], c_ast.Pragma("sameline start"))
+
 def permute_ast(ast):
     ast = copy.deepcopy(ast)
     fn = find_fn(ast)
-    perm_temp_for_expr(fn)
+    methods = [
+        (perm_temp_for_expr, 90),
+        (perm_sameline, 10),
+    ]
+    method = random.choice([x for (elem, prob) in methods for x in [elem]*prob])
+    method(fn)
     return ast
 
 def main():
