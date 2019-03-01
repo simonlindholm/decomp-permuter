@@ -1,11 +1,8 @@
 import sys
-import os
-import tempfile
-import subprocess
 import random
 import copy
-import hashlib
 from compiler import Compiler
+from scorer import Scorer
 
 from pycparser import parse_file, c_ast, c_parser, c_generator
 
@@ -13,9 +10,10 @@ filename = sys.argv[1]
 target_o = sys.argv[2]
 compile_cmd = sys.argv[3]
 
-compiler = Compiler(compile_cmd, False)
-
 assert target_o.endswith('.o')
+
+compiler = Compiler(compile_cmd, False)
+scorer = Scorer(target_o)
 
 def to_c(ast):
     source = c_generator.CGenerator().visit(ast)
@@ -45,54 +43,9 @@ def compile_ast(ast):
     source = to_c(ast)
     return compiler.compile(source)
 
-PENALTY_INF = 10**9
-
-PENALTY_REGALLOC = 10
-PENALTY_SPLIT_DIFF = 20
-PENALTY_REORDERING = 60
-PENALTY_INSERTION = 100
-PENALTY_DELETION = 100
-
 def score(ast):
     cand_o = compile_ast(ast)
-    if cand_o is None:
-        return PENALTY_INF, None
-    try:
-        diff = subprocess.check_output(['./diff.sh', target_o, cand_o]).decode()
-    finally:
-        os.remove(cand_o)
-    diffs = 0
-    deletions = []
-    insertions = []
-    for line in diff.split('\n'):
-        deletion = '[-' in line
-        insertion = '{+' in line
-        if not deletion and not insertion:
-            continue
-        # print(line)
-        if deletion and insertion:
-            # probably regalloc difference, or signed vs unsigned
-            diffs += PENALTY_REGALLOC
-        elif (line.startswith('[-') and line.endswith('-]')) or (line.startswith('{+') and line.endswith('+}')):
-            # reordering or totally different codegen
-            # defer this until later when we can tell
-            line = line[2:-2]
-            if deletion:
-                deletions.append(line)
-            else:
-                insertions.append(line)
-        else:
-            # insertion/deletion split across lines, ugh
-            diffs += PENALTY_SPLIT_DIFF
-    common = set(deletions) & set(insertions)
-    diffs += len(common) * PENALTY_REORDERING
-    for change in deletions:
-        if change not in common:
-            diffs += PENALTY_DELETION
-    for change in insertions:
-        if change not in common:
-            diffs += PENALTY_INSERTION
-    return (diffs, hashlib.sha256(diff.encode()).hexdigest())
+    return scorer.score(cand_o)
 
 def find_fn(ast):
     for node in ast.ext:
@@ -327,7 +280,7 @@ def main():
 
     base_score, base_hash = score(start_ast)
     hashes = {base_hash}
-    if base_score == PENALTY_INF:
+    if base_score == scorer.PENALTY_INF:
         print("unable to compile original .c file")
         exit(1)
     print(f"base score = {base_score}")
@@ -341,7 +294,7 @@ def main():
         iteration += 1
         if new_hash is None:
             errors += 1
-        disp_score = 'inf' if new_score == PENALTY_INF else new_score
+        disp_score = 'inf' if new_score == scorer.PENALTY_INF else new_score
         sys.stdout.write("\b"*10 + " "*10 + f"\riteration {iteration}, {errors} errors, score = {disp_score}")
         sys.stdout.flush()
         if new_score < base_score or (new_score == base_score and new_hash not in hashes):
