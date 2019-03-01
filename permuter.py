@@ -5,6 +5,7 @@ import subprocess
 import random
 import copy
 import hashlib
+from compiler import Compiler
 
 from pycparser import parse_file, c_ast, c_parser, c_generator
 
@@ -12,7 +13,7 @@ filename = sys.argv[1]
 target_o = sys.argv[2]
 compile_cmd = sys.argv[3]
 
-DISPLAY_ERRORS = False
+compiler = Compiler(compile_cmd, False)
 
 assert target_o.endswith('.o')
 
@@ -42,24 +43,7 @@ def to_c(ast):
 
 def compile_ast(ast):
     source = to_c(ast)
-
-    with tempfile.NamedTemporaryFile(prefix='permuter', suffix='.c', mode='w', delete=False) as f:
-        c_name = f.name
-        f.write(source)
-
-    with tempfile.NamedTemporaryFile(prefix='permuter', suffix='.o', delete=False) as f:
-        o_name = f.name
-
-    try:
-        stderr = None if DISPLAY_ERRORS else subprocess.DEVNULL
-        subprocess.check_call(compile_cmd + " " + c_name + " -o " + o_name, shell=True, stderr=stderr)
-    except subprocess.CalledProcessError:
-        if not DISPLAY_ERRORS:
-            os.remove(c_name)
-        return None
-
-    os.remove(c_name)
-    return o_name
+    return compiler.compile(source)
 
 PENALTY_INF = 10**9
 
