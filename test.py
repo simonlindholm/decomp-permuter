@@ -9,6 +9,6 @@ if len(sys.argv) < 2:
 
 # ast = c_parser.CParser().parse(src)
 ast = parse_file(sys.argv[1], use_cpp=True)
-ast.show()
+# ast.show()
 # print(c_generator.CGenerator().visit(ast))
-# print(ast)
+print(ast)
