@@ -20,7 +20,7 @@ class Permuter:
         self.ast = ast
         self.base_score = base_score
         self.base_hash = base_hash
-        self.same_score_hashes = {base_hash}
+        self.hashes = {base_hash}
 
     def compile(self, ast):
         source = to_c(ast)
@@ -341,7 +341,6 @@ def main():
             perm.unique_name += f" ({perm.dir})"
         print(f"[{perm.unique_name}] base score = {perm.base_score}")
 
-    ctr = 0
     iteration = 0
     errors = 0
     perm_ind = 0
@@ -364,20 +363,20 @@ def main():
         sys.stdout.write("\b"*10 + " "*10 + f"\riteration {iteration}, {errors} errors, score = {disp_score}")
         sys.stdout.flush()
 
-        if new_score < perm.base_score or (new_score == perm.base_score and
-                new_hash not in perm.same_score_hashes):
-            perm.same_score_hashes.add(new_hash)
+        if new_score <= perm.base_score and new_hash not in perm.hashes:
+            perm.hashes.add(new_hash)
             print()
             if new_score < perm.base_score:
-                print(f"[{perm.unique_name}] found a better score!!")
+                print(f"[{perm.unique_name}] found a better score!")
             else:
-                print(f"[{perm.unique_name}] found different asm with same score", new_hash)
+                print(f"[{perm.unique_name}] found different asm with same score")
 
             source = to_c(ast)
+            ctr = 0
             while True:
                 ctr += 1
                 try:
-                    fname = f'output-{ctr}.c'
+                    fname = f'output-{perm.fn_name}-{ctr}.c'
                     with open(fname, 'x') as f:
                         f.write(source)
                     break
