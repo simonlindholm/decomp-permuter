@@ -31,8 +31,20 @@ class Permuter:
         return self.scorer.score(cand_o)
 
 
+class PatchedCGenerator(c_generator.CGenerator):
+    """Like a CGenerator, except it keeps else if's prettier despite
+    the terrible things we've done to them in normalize_ast."""
+    def visit_If(self, n):
+        n2 = n
+        if (n.iffalse and isinstance(n.iffalse, c_ast.Compound) and
+                len(n.iffalse.block_items or []) == 1 and
+                isinstance(n.iffalse.block_items[0], c_ast.If)):
+            n2 = c_ast.If(cond=n.cond, iftrue=n.iftrue,
+                    iffalse=n.iffalse.block_items[0])
+        return super().visit_If(n2)
+
 def to_c(ast):
-    source = c_generator.CGenerator().visit(ast)
+    source = PatchedCGenerator().visit(ast)
     if '#pragma' not in source:
         return source
     lines = source.split('\n')
@@ -55,10 +67,6 @@ def to_c(ast):
     assert same_line == 0
     return ''.join(out).rstrip() + '\n'
 
-def compile_ast(compiler, ast):
-    source = to_c(ast)
-    return compiler.compile(source)
-
 def find_fns(ast):
     ret = []
     for node in ast.ext:
@@ -68,12 +76,15 @@ def find_fns(ast):
 
 def visit_subexprs(top_node, callback):
     def rec(node, toplevel=False):
+        assert node is not None
+        TODO = False # issue #12: process loop header fields (as soon as there's a point in doing so)
         if isinstance(node, c_ast.Assignment):
             node.rvalue = rec(node.rvalue)
         elif isinstance(node, c_ast.StructRef):
             node.name = rec(node.name)
         elif isinstance(node, (c_ast.Return, c_ast.Cast)):
-            node.expr = rec(node.expr)
+            if node.expr:
+                node.expr = rec(node.expr)
         elif isinstance(node, (c_ast.Constant, c_ast.ID)):
             if not toplevel:
                 x = callback(node)
@@ -101,8 +112,13 @@ def visit_subexprs(top_node, callback):
                 x = callback(node)
                 if x: return x
             if node.args:
-                for i in range(len(node.args.exprs)):
-                    node.args.exprs[i] = rec(node.args.exprs[i])
+                rec(node.args, True)
+        elif isinstance(node, c_ast.ExprList):
+            if not toplevel:
+                x = callback(node)
+                if x: return x
+            for i in range(len(node.exprs)):
+                node.exprs[i] = rec(node.exprs[i])
         elif isinstance(node, c_ast.ArrayRef):
             if not toplevel:
                 x = callback(node)
@@ -115,6 +131,10 @@ def visit_subexprs(top_node, callback):
         elif isinstance(node, c_ast.For):
             if node.init:
                 node.init = rec(node.init)
+            if node.cond:
+                if TODO: node.cond = rec(node.cond)
+            if node.next:
+                node.next = rec(node.next, True)
             node.stmt = rec(node.stmt, True)
         elif isinstance(node, c_ast.TernaryOp):
             if not toplevel:
@@ -123,19 +143,25 @@ def visit_subexprs(top_node, callback):
             node.cond = rec(node.cond)
             node.iftrue = rec(node.iftrue)
             node.iffalse = rec(node.iffalse)
-        elif isinstance(node, (c_ast.While, c_ast.DoWhile)):
+        elif isinstance(node, c_ast.While):
+            if TODO: node.cond = rec(node.cond)
             node.stmt = rec(node.stmt, True)
+        elif isinstance(node, c_ast.DoWhile):
+            node.stmt = rec(node.stmt, True)
+            if TODO: node.cond = rec(node.cond)
         elif isinstance(node, c_ast.Switch):
             node.cond = rec(node.cond)
             node.stmt = rec(node.stmt, True)
+        elif isinstance(node, c_ast.Label):
+            node.stmt = rec(node.stmt, True)
         elif isinstance(node, c_ast.If):
             node.cond = rec(node.cond)
-            if node.iftrue:
-                node.iftrue = rec(node.iftrue, True)
+            node.iftrue = rec(node.iftrue, True)
             if node.iffalse:
                 node.iffalse = rec(node.iffalse, True)
         elif isinstance(node, (c_ast.TypeDecl, c_ast.PtrDecl, c_ast.ArrayDecl,
-                c_ast.Typename, c_ast.EmptyStatement, c_ast.Pragma)):
+                c_ast.Typename, c_ast.EmptyStatement, c_ast.Pragma, c_ast.Break,
+                c_ast.Continue, c_ast.Goto)):
             pass
         else:
             print("Node with unknown type!", file=sys.stderr)
@@ -169,6 +195,22 @@ def insert_statement(block, index, stmt):
     stmts = get_block_stmts(block, True)
     stmts[index:index] = [stmt]
 
+def brace_nested_blocks(stmt):
+    def brace(stmt):
+        if isinstance(stmt, (c_ast.Compound, c_ast.Case, c_ast.Default)):
+            return stmt
+        return c_ast.Compound([stmt])
+    if isinstance(stmt, (c_ast.For, c_ast.While, c_ast.DoWhile)):
+        stmt.stmt = brace(stmt.stmt)
+    elif isinstance(stmt, c_ast.If):
+        stmt.iftrue = brace(stmt.iftrue)
+        if stmt.iffalse:
+            stmt.iffalse = brace(stmt.iffalse)
+    elif isinstance(stmt, c_ast.Switch):
+        stmt.stmt = brace(stmt.stmt)
+    elif isinstance(stmt, c_ast.Label):
+        brace_nested_blocks(stmt.stmt)
+
 def for_nested_blocks(stmt, callback):
     if isinstance(stmt, c_ast.Compound):
         callback(stmt)
@@ -180,10 +222,11 @@ def for_nested_blocks(stmt, callback):
         if stmt.iffalse:
             callback(stmt.iffalse)
     elif isinstance(stmt, c_ast.Switch):
-        if stmt.stmt:
-            callback(stmt.stmt)
+        callback(stmt.stmt)
     elif isinstance(stmt, (c_ast.Case, c_ast.Default)):
         callback(stmt)
+    elif isinstance(stmt, c_ast.Label):
+        for_nested_blocks(stmt.stmt, callback)
 
 def perm_temp_for_expr(fn):
     phase = 0
@@ -279,9 +322,7 @@ def perm_sameline(fn):
 
 def permute_ast(ast):
     ast = copy.deepcopy(ast)
-    fns = find_fns(ast)
-    assert len(fns) == 1
-    fn = fns[0]
+    fn = find_fns(ast)[0]
     methods = [
         (perm_temp_for_expr, 90),
         (perm_sameline, 10),
@@ -289,6 +330,16 @@ def permute_ast(ast):
     method = random.choice([x for (elem, prob) in methods for x in [elem]*prob])
     method(fn)
     return ast
+
+def normalize_ast(ast):
+    # Add braces to all ifs/fors/etc., to make it easier to insert statements.
+    fn = find_fns(ast)[0]
+    def rec(block):
+        stmts = get_block_stmts(block, False)
+        for stmt in stmts:
+            brace_nested_blocks(stmt)
+            for_nested_blocks(stmt, rec)
+    rec(fn.body)
 
 def main():
     parser = argparse.ArgumentParser(
@@ -323,6 +374,7 @@ def main():
         if len(fns) != 1:
             print(f"{base_c} must contain exactly one function. (Use strip_other_fns.py.)", file=sys.stderr)
             exit(1)
+        normalize_ast(start_ast)
         fn_name = fns[0].decl.name
         sys.stdout.write(f" {base_c}")
         sys.stdout.flush()
