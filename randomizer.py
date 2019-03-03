@@ -117,7 +117,6 @@ def find_var_reads(top_node):
 def replace_subexprs(top_node, callback):
     def rec(node, toplevel=False):
         assert node is not None
-        TODO = False # issue #12: process loop header fields (as soon as there's a point in doing so)
         if isinstance(node, c_ast.Assignment):
             node.rvalue = rec(node.rvalue)
         elif isinstance(node, c_ast.StructRef):
@@ -172,7 +171,7 @@ def replace_subexprs(top_node, callback):
             if node.init:
                 node.init = rec(node.init)
             if node.cond:
-                if TODO: node.cond = rec(node.cond)
+                node.cond = rec(node.cond)
             if node.next:
                 node.next = rec(node.next, True)
             node.stmt = rec(node.stmt, True)
@@ -184,11 +183,11 @@ def replace_subexprs(top_node, callback):
             node.iftrue = rec(node.iftrue)
             node.iffalse = rec(node.iffalse)
         elif isinstance(node, c_ast.While):
-            if TODO: node.cond = rec(node.cond)
+            node.cond = rec(node.cond)
             node.stmt = rec(node.stmt, True)
         elif isinstance(node, c_ast.DoWhile):
             node.stmt = rec(node.stmt, True)
-            if TODO: node.cond = rec(node.cond)
+            node.cond = rec(node.cond)
         elif isinstance(node, c_ast.Switch):
             node.cond = rec(node.cond)
             node.stmt = rec(node.stmt, True)
