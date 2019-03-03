@@ -4,12 +4,22 @@ import re
 import string
 
 ign_regs = False
+ign_branch_targets = True
 num_re = re.compile(r'[0-9]+')
 comments = re.compile(r'<.*?>')
 regs = re.compile(r'\b(a[0-3]|t[0-9]|s[0-7]|at|v[01])\b')
 sprel = re.compile(r',([1-9][0-9]*|0x[1-9a-f][0-9a-f]*)\((sp|s8)\)')
+includes_sp = re.compile(r'\b(sp|s8)\b')
 forbidden = set(string.ascii_letters + '_')
 skip_lines = 1
+branch_likely_instructions = [
+    'beql', 'bnel', 'beqzl', 'bnezl', 'bgezl', 'bgtzl', 'blezl', 'bltzl',
+    'bc1tl', 'bc1fl'
+]
+branch_instructions = [
+    'b', 'beq', 'bne', 'beqz', 'bnez', 'bgez', 'bgtz', 'blez', 'bltz',
+    'bc1t', 'bc1f'
+] + branch_likely_instructions
 
 def fn(pat):
     full = pat.group(0)
@@ -66,11 +76,25 @@ for index, row in enumerate(sys.stdin):
     row = re.sub(comments, '', row)
     row = row.rstrip()
     row = '\t'.join(row.split('\t')[2:]) # [20:]
+    if not row:
+        continue
     if ign_regs:
         row = re.sub(regs, '<reg>', row)
-    if 'addiu' in row and ('$sp' in row or '$s8' in row):
+    row_parts = row.split('\t')
+    if len(row_parts) == 1:
+        row_parts.append('')
+    mnemonic, instr_args = row_parts
+    if mnemonic == 'addiu' and includes_sp.search(instr_args):
         row = re.sub(num_re, 'imm', row)
-    row = re.sub(num_re, fn, row)
+    if mnemonic in branch_instructions:
+        if ign_branch_targets:
+            instr_parts = instr_args.split(',')
+            instr_parts[-1] = '<target>'
+            instr_args = ','.join(instr_parts)
+            row = f'{mnemonic}\t{instr_args}'
+        # The last part is in hex, so skip the dec->hex conversion
+    else:
+        row = re.sub(num_re, fn, row)
     row = re.sub(sprel, ',addr(sp)', row)
     # row = row.replace(',', ', ')
     if row == 'nop':
