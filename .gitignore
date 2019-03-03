@@ -1,5 +1,6 @@
-/compile.sh
 *.o
 *.s
 *.c
-*.pyc
+*.py[cod]
+.mypy_cache/
+__pycache__/
