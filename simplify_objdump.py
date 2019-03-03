@@ -3,8 +3,18 @@ import sys
 import re
 import string
 
+# Ignore registers, for cleaner output. (We don't do this right now, but it can
+# be useful for debugging.)
 ign_regs = False
+
+# Don't include branch targets in the output. Assuming our input is semantically
+# equivalent skipping it shouldn't be an issue, and it makes insertions have too
+# large effect.
 ign_branch_targets = True
+
+# Skip branch-likely delay slots. (They aren't interesting on IDO.)
+skip_bl_delay_slots = True
+
 num_re = re.compile(r'[0-9]+')
 comments = re.compile(r'<.*?>')
 regs = re.compile(r'\b(a[0-3]|t[0-9]|s[0-7]|at|v[01])\b')
@@ -50,6 +60,7 @@ def parse_relocated_line(line):
 
 output = []
 nops = 0
+skip_next = False
 for index, row in enumerate(sys.stdin):
     if index < skip_lines:
         continue
@@ -58,6 +69,8 @@ for index, row in enumerate(sys.stdin):
         continue
     if 'R_MIPS_' in row:
         prev = output[-1]
+        if prev == '<skipped>':
+            continue
         before, imm, after = parse_relocated_line(prev)
         repl = row.split()[-1]
         if imm != '0':
@@ -78,6 +91,9 @@ for index, row in enumerate(sys.stdin):
     row = '\t'.join(row.split('\t')[2:]) # [20:]
     if not row:
         continue
+    if skip_next:
+        skip_next = False
+        row = '<skipped>'
     if ign_regs:
         row = re.sub(regs, '<reg>', row)
     row_parts = row.split('\t')
@@ -95,6 +111,8 @@ for index, row in enumerate(sys.stdin):
         # The last part is in hex, so skip the dec->hex conversion
     else:
         row = re.sub(num_re, fn, row)
+    if mnemonic in branch_likely_instructions and skip_bl_delay_slots:
+        skip_next = True
     row = re.sub(sprel, ',addr(sp)', row)
     # row = row.replace(',', ', ')
     if row == 'nop':
