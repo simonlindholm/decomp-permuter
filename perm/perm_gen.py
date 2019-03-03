@@ -37,6 +37,7 @@ def perm_gen(input):
     remain = input
     head_perm = None
     cur_perm = None
+    macro_search = r'(PERM_.+?)\('
     
     def append_perm(p):
         nonlocal head_perm, cur_perm
@@ -47,8 +48,13 @@ def perm_gen(input):
 
         cur_perm = p
 
+    if re.search(macro_search, input) == None:
+        head_perm = perm.RandomizerPerm(input)
+        print("No perm macros found. Defaulting to randomization")
+        return head_perm
+
     while len(remain) > 0:
-        match = re.search(r'(PERM_.+?)\(', remain)
+        match = re.search(macro_search, remain)
 
         # No match found; return remaining
         if match == None:
