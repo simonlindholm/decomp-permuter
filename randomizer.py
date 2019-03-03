@@ -1,6 +1,7 @@
 import sys
 import random
 import copy
+import bisect
 
 from pycparser import c_ast, c_parser, c_generator
 
@@ -47,7 +48,73 @@ def find_fns(ast):
             ret.append(node)
     return ret
 
-def visit_subexprs(top_node, callback):
+def compute_node_indices(top_node):
+    indices = {}
+    cur_index = 0
+    class Visitor(c_ast.NodeVisitor):
+        def generic_visit(self, node):
+            nonlocal cur_index
+            indices[node] = cur_index
+            cur_index += 1
+            super().generic_visit(node)
+    Visitor().visit(top_node)
+    return indices
+
+def compute_write_locations(top_node, indices):
+    writes = {}
+    def add_write(var_name, loc):
+        if var_name not in writes:
+            writes[var_name] = []
+        else:
+            assert loc > writes[var_name][-1], \
+                    "consistent traversal order should guarantee monotonicity here"
+        writes[var_name].append(loc)
+    class Visitor(c_ast.NodeVisitor):
+        def visit_Decl(self, node):
+            add_write(node.name, indices[node])
+            self.generic_visit(node)
+        def visit_UnaryOp(self, node):
+            if node.op in ['p++', 'p--', '++', '--'] and isinstance(node.expr, c_ast.ID):
+                add_write(node.expr.name, indices[node])
+            self.generic_visit(node)
+        def visit_Assignment(self, node):
+            if isinstance(node.lvalue, c_ast.ID):
+                add_write(node.lvalue.name, indices[node])
+            self.generic_visit(node)
+    Visitor().visit(top_node)
+    return writes
+
+def compute_read_locations(top_node, indices):
+    reads = {}
+    for node in find_var_reads(top_node):
+        var_name = node.name
+        loc = indices[node]
+        if var_name not in reads:
+            reads[var_name] = []
+        else:
+            assert loc > reads[var_name][-1], \
+                    "consistent traversal order should guarantee monotonicity here"
+        reads[var_name].append(loc)
+    return reads
+
+def find_var_reads(top_node):
+    ret = []
+    class Visitor(c_ast.NodeVisitor):
+        def visit_Decl(self, node):
+            if node.init:
+                self.visit(node.init)
+        def visit_ID(self, node):
+            ret.append(node)
+        def visit_StructRef(self, node):
+            self.visit(node.name)
+        def visit_Assignment(self, node):
+            if isinstance(node.lvalue, c_ast.ID):
+                return
+            self.generic_visit(node)
+    Visitor().visit(top_node)
+    return ret
+
+def replace_subexprs(top_node, callback):
     def rec(node, toplevel=False):
         assert node is not None
         TODO = False # issue #12: process loop header fields (as soon as there's a point in doing so)
@@ -207,10 +274,14 @@ def perm_temp_for_expr(fn):
     sumprob = 0
     targetprob = None
     found = None
+    indices = compute_node_indices(fn)
+    writes = compute_write_locations(fn, indices)
+    reads = compute_read_locations(fn, indices)
+
     def rec(block, reuse_cands):
         stmts = get_block_stmts(block, False)
         reuse_cands = reuse_cands[:]
-        assignment_cands = []
+        assignment_cands = [] # places to insert before
         past_decls = False
         for index, stmt in enumerate(stmts):
             if isinstance(stmt, c_ast.Decl):
@@ -222,20 +293,43 @@ def perm_temp_for_expr(fn):
             else:
                 past_decls = True
             if past_decls:
-                assignment_cands.append((block, index))
+                assignment_cands.append((block, index, stmt))
 
             for_nested_blocks(stmt, lambda b: rec(b, reuse_cands))
 
-            def visitor(expr):
+            def replacer(expr):
                 nonlocal sumprob
                 nonlocal found
+                if found is not None:
+                    return None
+
                 eind = einds.get(id(expr), 0)
+                sub_reads = find_var_reads(expr)
+                latest_write = -1
+                for sub_read in sub_reads:
+                    var_name = sub_read.name
+                    if var_name not in writes:
+                        continue
+                    # Find the first write that is strictly before indices[expr]
+                    ind = bisect.bisect_left(writes[var_name], indices[expr])
+                    if ind == 0:
+                        continue
+                    latest_write = max(latest_write, writes[var_name][ind - 1])
+
                 for place in assignment_cands[::-1]:
+                    # If expr contains an ID which is written to within
+                    # [place, expr), bail out; we're trying to move the
+                    # assignment too high up.
+                    # TODO: also fail on moving past function calls, or
+                    # possibly-aliasing writes.
+                    if indices[place[2]] <= latest_write:
+                        break
+
                     prob = 1 / (1 + eind)
                     if isinstance(expr, (c_ast.ID, c_ast.Constant)):
                         prob *= 0.5
                     sumprob += prob
-                    if phase == 1 and found is None and sumprob > targetprob:
+                    if phase == 1 and sumprob > targetprob:
                         if random.randint(0,1) or not reuse_cands:
                             var = c_ast.ID('new_var')
                             reused = False
@@ -247,8 +341,7 @@ def perm_temp_for_expr(fn):
                     eind += 1
                 einds[id(expr)] = eind
                 return None
-            visit_subexprs(stmt, visitor)
-        assignment_cands.append((block, len(stmts)))
+            replace_subexprs(stmt, replacer)
 
     rec(fn.body, [])
     phase = 1
@@ -260,7 +353,7 @@ def perm_temp_for_expr(fn):
     assert found is not None
     location, expr, var, reused = found
     # print("replacing:", to_c(expr))
-    block, index = location
+    block, index, _ = location
     assignment = c_ast.Assignment('=', var, expr)
     insert_statement(block, index, assignment)
     if not reused:
