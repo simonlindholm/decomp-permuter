@@ -18,9 +18,8 @@ def get_perm_candiates(context):
             #os.remove(cand_o)
             pass
 
-ctr = 0
 def write_candidate(fn_name, source):
-    global ctr
+    ctr = 0
     while True:
         ctr += 1
         try:
@@ -114,7 +113,6 @@ def main(dirs, display_errors):
         context.run()
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Permutate')
     parser = argparse.ArgumentParser(
             description="Randomly permute C files to better match a target binary.")
     parser.add_argument('directory', nargs='+',

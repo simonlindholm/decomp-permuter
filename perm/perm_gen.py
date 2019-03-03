@@ -30,7 +30,7 @@ def get_parenthesis_args(s):
                         remain = s[i+1:]
                     break
             current += c
-    assert(level == 0, "Error, no closing parenthesis found")
+    assert level == 0, "Error, no closing parenthesis found"
     return args, remain
 
 def perm_gen(input):
