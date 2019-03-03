@@ -6,11 +6,17 @@ from scorer import Scorer
 import os
 import sys
 import re
+from pycparser import preprocess_file, CParser
+from randomizer import Randomizer
 
 def get_perm_candiates(context):
     permutations = perm.perm_gen(context.c_source)
+    parser = CParser()
     for cand_c in perm.perm_evaluate_all(permutations):
         try:
+            ast = parser.parse(cand_c)
+            randomizer = Randomizer(ast)
+            cand_c = randomizer.get_current_source()
             cand_o = context.compiler.compile(cand_c)
             score = context.scorer.score(cand_o)
             yield (score, cand_c, cand_o)
@@ -87,7 +93,8 @@ def init_contexts(dir):
         compiler = Compiler(compile_cmd, args.display_errors)
         scorer = Scorer(target_o)
 
-        c_source = Path(base_c).read_text()
+        c_source = preprocess_file(base_c)
+        c_source = re.sub(r'#.*', '', c_source)
 
         fns = find_fns(c_source)
         if len(fns) != 1:

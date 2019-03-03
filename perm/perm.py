@@ -32,9 +32,15 @@ class TextPerm(Perm):
         return self.text
 
 class RandomizerPerm(Perm):
+    def _pragmate_text(self, text):
+        return ("\n"
+        + "#pragma randomizer_start\n" 
+        + text + "\n"
+        + "#pragma randomizer_end\n")
+
     def __init__(self, text):
         super().__init__()
-        self.text = text
+        self.text = self._pragmate_text(text)
         self.perm_count = math.inf
 
     def _evaluate_self(self, seed):
