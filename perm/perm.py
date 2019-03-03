@@ -47,10 +47,11 @@ class RandomizerPerm(Perm):
         return self.text
 
 class GeneralPerm(Perm):
-    def __init__(self, candiates):
+    def __init__(self, candidates):
         super().__init__()
-        self.perm_count = len(candiates)
-        self.candiates = candiates
+        self.perm_count = len(candidates)
+        self.candidates = candidates
 
     def _evaluate_self(self, seed):
-        return self.candiates[seed]
+        return self.candidates[seed]
+        

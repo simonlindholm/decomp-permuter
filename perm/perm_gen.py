@@ -2,8 +2,8 @@ import perm
 import re
 
 perm_create = {
-    'PERM_GENERAL' : lambda args : perm.GeneralPerm(*args),
-    'PERM_RANDOMIZE' : lambda args : perm.RandomizerPerm(*args),
+    'PERM_GENERAL' : lambda args : perm.GeneralPerm(args),
+    'PERM_RANDOMIZE' : lambda args : perm.RandomizerPerm(args[0]),
 }
 
 def get_parenthesis_args(s):

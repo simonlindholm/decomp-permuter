@@ -1,35 +1,77 @@
-import perm
-from pathlib import Path
+import sys
+import os
+from randomizer import Randomizer
 import argparse
+import traceback
+import perm
+import re
+from pycparser import CParser, preprocess_file
+
 from compiler import Compiler
 from scorer import Scorer
-import os
-import sys
-import re
-from pycparser import preprocess_file, CParser
-from randomizer import Randomizer
 
-def get_perm_candiates(context):
-    permutations = perm.perm_gen(context.c_source)
-    parser = CParser()
-    for cand_c in perm.perm_evaluate_all(permutations):
-        try:
-            ast = parser.parse(cand_c)
-            randomizer = Randomizer(ast)
-            cand_c = randomizer.get_current_source()
-            cand_o = context.compiler.compile(cand_c)
-            score = context.scorer.score(cand_o)
-            yield (score, cand_c, cand_o)
-        finally:
-            #os.remove(cand_o)
-            pass
+def find_fns(source):
+    fns = re.findall(r'(\w+)\(.*\)\s*?{', source)
+    return fns
 
-def write_candidate(fn_name, source):
+class Permuter:
+    def __init__(self, dir, compiler, scorer, source_file, source):
+        self.dir = dir
+        self.compiler = compiler
+        self.scorer = scorer
+        self.source_file = source_file
+        self.original_source = source
+
+        fns = find_fns(self.original_source)
+        if len(fns) != 1:
+            raise Exception(f"{self.source_file} must contain exactly one function. (Use strip_other_fns.py.)")
+        self.fn_name = fns[0]
+        self.unique_name = self.fn_name
+
+        self.permutations = perm.perm_gen(source)
+        self.base_score, self.base_hash = self.score_base()
+        self.hashes = {self.base_hash}
+
+        self.parser = CParser()
+        self.iterator = perm.perm_evaluate_all(self.permutations)
+
+    def score_base(self):
+        base_seed = [0] * len(self.permutations.get_counts())
+        base_source = self.permutations.evaluate(base_seed)
+
+        start_o = self.compiler.compile(base_source)
+        if start_o is None:
+            raise Exception(f"Unable to compile {self.source_file}")
+
+        return self.scorer.score(start_o)
+
+    def permutate_next(self):
+        cand_c = next(self.iterator, None)
+        if cand_c == None:
+            return False
+
+        ast = self.parser.parse(cand_c)
+        randomizer = Randomizer(ast)
+        randomizer.randomize()
+        self.cur_cand = randomizer.get_current_source()
+        return True
+
+    def get_source(self):
+        return self.cur_cand
+
+    def compile(self):
+        return self.compiler.compile(self.cur_cand)
+
+    def score(self):
+        cand_o = self.compile()
+        return self.scorer.score(cand_o)
+
+def write_candidate(perm, source):
     ctr = 0
     while True:
         ctr += 1
         try:
-            fname = f'output-{fn_name}-{ctr}.c'
+            fname = f'output-{perm.fn_name}-{ctr}.c'
             with open(fname, 'x') as f:
                 f.write(source)
             break
@@ -37,48 +79,12 @@ def write_candidate(fn_name, source):
             pass
     print(f"wrote to {fname}")
 
-def find_fns(source):
-    fns = re.findall(r'(\w+)\(.*\)\s*?{', source)
-    return fns
-
-class Context():
-    def __init__(self, dir, fn_name, compiler, scorer, c_source):
-        self.dir = dir
-        self.fn_name = fn_name
-        self.unique_name = fn_name
-        self.compiler = compiler
-        self.scorer = scorer
-        self.c_source = c_source
-        self.hashes = []
-
-    def run(self):
-        iteration = 0
-        errors = 0
-        perm_ind = 0
-        cur_score = self.scorer.PENALTY_INF
-        for (new_score, new_hash), cand_c, cand_o in get_perm_candiates(self):
-            iteration += 1
-            if new_hash is None:
-                errors += 1
-            disp_score = 'inf' if new_score == self.scorer.PENALTY_INF else new_score
-            print("\b"*10 + " "*10 + f"\riteration {iteration}, {errors} errors, score = {disp_score}")
-
-            if new_score <= cur_score and new_hash not in self.hashes:
-                self.hashes.append(new_hash)
-                print()
-                if new_score < cur_score:
-                    cur_score = new_score
-                    print(f"[{self.unique_name}] found a better score!")
-                else:
-                    print(f"[{self.unique_name}] found different asm with same score")
-
-                write_candidate(self.unique_name, cand_c)
-
-def init_contexts(dir):
+def main(directories, display_errors=False):
     name_counts = {}
-    contexts = []
-
-    for d in args.directory:
+    permuters = []
+    sys.stdout.write("Loading...")
+    sys.stdout.flush()
+    for d in directories:
         compile_cmd = os.path.join(d, 'compile.sh')
         target_o = os.path.join(d, 'target.o')
         base_c = os.path.join(d, 'base.c')
@@ -90,34 +96,62 @@ def init_contexts(dir):
             print(f"{compile_cmd} must be marked executable.", file=sys.stderr)
             exit(1)
 
-        compiler = Compiler(compile_cmd, args.display_errors)
+        sys.stdout.write(f" {base_c}")
+        sys.stdout.flush()
+
+        compiler = Compiler(compile_cmd, display_errors)
         scorer = Scorer(target_o)
-
         c_source = preprocess_file(base_c)
-        c_source = re.sub(r'#.*', '', c_source)
 
-        fns = find_fns(c_source)
-        if len(fns) != 1:
-            raise Exception(f"{base_c} must contain exactly one function. (Use strip_other_fns.py.)")
-            
-        fn_name = fns[0]
-        print(f"\t{base_c}")
+        try:
+            permuter = Permuter(d, compiler, scorer, base_c, c_source)
+        except Exception as e:
+            print(f"{e}", file=sys.stderr)
+            exit(1)
 
-        contexts.append(Context(d, fn_name, compiler, scorer, c_source))
-        name_counts[fn_name] = name_counts.get(fn_name, 0) + 1
+        permuters.append(permuter)
+        name_counts[permuter.fn_name] = name_counts.get(permuter.fn_name, 0) + 1
+    print()
 
-    for c in contexts:
-        if name_counts[c.fn_name] > 1:
-            c.unique_name += f" ({c.dir})"
+    for perm in permuters:
+        if name_counts[perm.fn_name] > 1:
+            perm.unique_name += f" ({perm.dir})"
+        print(f"[{perm.unique_name}] base score = {perm.base_score}")
 
-    return contexts
+    iteration = 0
+    errors = 0
+    perm_ind = -1
+    while len(permuters) > 0:
+        perm_ind = (perm_ind + 1) % len(permuters)
+        perm = permuters[perm_ind]
 
-def main(dirs, display_errors):
-    print("Loading...")
-    contexts = init_contexts(dirs)  
+        try:
+            if not perm.permutate_next():
+                permuters.remove(perm)
 
-    for context in contexts:
-        context.run()
+            new_score, new_hash = perm.score()
+        except Exception:
+            print(f"[{perm.unique_name}] internal permuter failure.")
+            traceback.print_exc()
+            exit(1)
+
+        iteration += 1
+        if new_hash is None:
+            errors += 1
+        disp_score = 'inf' if new_score == scorer.PENALTY_INF else new_score
+        sys.stdout.write("\b"*10 + " "*10 + f"\riteration {iteration}, {errors} errors, score = {disp_score}")
+        sys.stdout.flush()
+
+        if new_score <= perm.base_score and new_hash not in perm.hashes:
+            perm.hashes.add(new_hash)
+            print()
+            if new_score < perm.base_score:
+                print(f"[{perm.unique_name}] found a better score!")
+            else:
+                print(f"[{perm.unique_name}] found different asm with same score")
+
+            source = perm.get_source()
+            write_candidate(perm, source)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -128,4 +162,4 @@ if __name__ == "__main__":
             help="Display compiler error/warning messages, and keep .c files for failed compiles.")
     args = parser.parse_args()
 
-    main(args.directory, args.display_errors)
+    main(args.directory, True if args.display_errors else False)
