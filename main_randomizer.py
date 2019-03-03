@@ -27,9 +27,8 @@ class Permuter:
         cand_o = self.compile()
         return self.scorer.score(cand_o)
 
-ctr = 0
-def write_candidate(source):
-    global ctr
+def write_candidate(perm, source):
+    ctr = 0
     while True:
         ctr += 1
         try:
@@ -125,6 +124,6 @@ def main():
                 print(f"[{perm.unique_name}] found different asm with same score")
 
             source = perm.randomizer.get_current_source()
-            write_candidate(source)
+            write_candidate(perm, source)
 
 main()
