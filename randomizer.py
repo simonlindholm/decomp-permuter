@@ -5,6 +5,13 @@ import bisect
 
 from pycparser import c_ast, c_parser, c_generator
 
+from ast_types import (SimpleType, build_typemap, decayed_expr_type, same_type,
+        set_decl_name)
+
+# Set to true to perform expression type detection eagerly. This can help when
+# debugging crashes in the ast_types code.
+DEBUG_EAGER_TYPES = False
+
 class PatchedCGenerator(c_generator.CGenerator):
     """Like a CGenerator, except it keeps else if's prettier despite
     the terrible things we've done to them in normalize_ast."""
@@ -267,7 +274,7 @@ def for_nested_blocks(stmt, callback):
     elif isinstance(stmt, c_ast.Label):
         for_nested_blocks(stmt.stmt, callback)
 
-def perm_temp_for_expr(fn):
+def perm_temp_for_expr(fn, ast):
     phase = 0
     einds = {}
     sumprob = 0
@@ -276,6 +283,7 @@ def perm_temp_for_expr(fn):
     indices = compute_node_indices(fn)
     writes = compute_write_locations(fn, indices)
     reads = compute_read_locations(fn, indices)
+    typemap = build_typemap(ast)
 
     def rec(block, reuse_cands):
         stmts = get_block_stmts(block, False)
@@ -301,6 +309,9 @@ def perm_temp_for_expr(fn):
                 nonlocal found
                 if found is not None:
                     return None
+
+                if DEBUG_EAGER_TYPES:
+                    decayed_expr_type(expr, typemap)
 
                 eind = einds.get(id(expr), 0)
                 sub_reads = find_var_reads(expr)
@@ -329,13 +340,16 @@ def perm_temp_for_expr(fn):
                         prob *= 0.5
                     sumprob += prob
                     if phase == 1 and sumprob > targetprob:
-                        if random.randint(0,1) or not reuse_cands:
-                            var = c_ast.ID('new_var')
-                            reused = False
-                        else:
+                        type: SimpleType = decayed_expr_type(expr, typemap)
+                        reused = False
+                        if random.randint(0,1) and reuse_cands:
                             var = c_ast.ID(random.choice(reuse_cands))
-                            reused = True
-                        found = (place, expr, var, reused)
+                            var_type: SimpleType = decayed_expr_type(var, typemap)
+                            if same_type(var_type, type, typemap, allow_similar=True):
+                                reused = True
+                        if not reused:
+                            var = c_ast.ID('new_var')
+                        found = (place, expr, var, type, reused)
                         return var
                     eind += 1
                 einds[id(expr)] = eind
@@ -350,19 +364,18 @@ def perm_temp_for_expr(fn):
     rec(fn.body, [])
 
     assert found is not None
-    location, expr, var, reused = found
+    location, expr, var, type, reused = found
     # print("replacing:", to_c(expr))
     block, index, _ = location
     assignment = c_ast.Assignment('=', var, expr)
     insert_statement(block, index, assignment)
     if not reused:
-        typ = c_ast.TypeDecl(declname=var.name, quals=[],
-                type=c_ast.IdentifierType(names=['int']))
         decl = c_ast.Decl(name=var.name, quals=[], storage=[], funcspec=[],
-                type=typ, init=None, bitsize=None)
+                type=copy.deepcopy(type), init=None, bitsize=None)
+        set_decl_name(decl)
         insert_decl(fn, decl)
 
-def perm_sameline(fn):
+def perm_sameline(fn, ast):
     cands = []
     def rec(block):
         stmts = get_block_stmts(block, False)
@@ -412,5 +425,5 @@ class Randomizer():
             #(perm_sameline, 10),
         ]
         method = random.choice([x for (elem, prob) in methods for x in [elem]*prob])
-        method(fn)
+        method(fn, ast)
         self.ast = ast

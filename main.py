@@ -1,9 +1,12 @@
+from typing import List, Optional
+import random
 import sys
 import time
 import os
 import argparse
 import traceback
 import re
+
 from pycparser import CParser, preprocess_file
 
 from compiler import Compiler
@@ -67,7 +70,7 @@ class Permuter:
         cand_o = self.compile()
         return self.scorer.score(cand_o)
 
-def write_candidate(perm, source):
+def write_candidate(perm: Permuter, source: str) -> None:
     ctr = 0
     while True:
         ctr += 1
@@ -80,8 +83,10 @@ def write_candidate(perm, source):
             pass
     print(f"wrote to {fname}")
 
-def main(directories, display_errors):
+def main(directories: List[str], display_errors: bool, seed: Optional[int]):
     last_time = time.time()
+    if seed is not None:
+        random.seed(seed)
     try:
         def heartbeat():
             nonlocal last_time
@@ -96,11 +101,11 @@ def main(directories, display_errors):
         print()
         print("Exiting.")
 
-def wrapped_main(directories, display_errors, heartbeat):
+def wrapped_main(directories: List[str], display_errors: bool, heartbeat):
     print("Loading...")
 
-    name_counts = {}
-    permuters = []
+    name_counts: Dict[str, int] = {}
+    permuters: List[Permuter] = []
     for d in directories:
         heartbeat()
         compile_cmd = os.path.join(d, 'compile.sh')
@@ -183,6 +188,8 @@ if __name__ == "__main__":
             help="Directory containing base.c, target.o and compile.sh. Multiple directories may be given.")
     parser.add_argument('--display-errors', dest='display_errors', action='store_true',
             help="Display compiler error/warning messages, and keep .c files for failed compiles.")
+    parser.add_argument('--seed', dest='seed', type=int,
+            help="Base all randomness on this initial seed.")
     args = parser.parse_args()
 
-    main(args.directory, args.display_errors)
+    main(args.directory, args.display_errors, args.seed)
