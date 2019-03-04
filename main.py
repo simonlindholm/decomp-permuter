@@ -1,14 +1,15 @@
 import sys
+import time
 import os
-from randomizer import Randomizer
 import argparse
 import traceback
-import perm
 import re
 from pycparser import CParser, preprocess_file
 
 from compiler import Compiler
+from randomizer import Randomizer
 from scorer import Scorer
+import perm
 
 def find_fns(source):
     fns = re.findall(r'(\w+)\(.*\)\s*?{', source)
@@ -79,12 +80,29 @@ def write_candidate(perm, source):
             pass
     print(f"wrote to {fname}")
 
-def main(directories, display_errors=False):
+def main(directories, display_errors):
+    last_time = time.time()
+    try:
+        def heartbeat():
+            nonlocal last_time
+            last_time = time.time()
+        wrapped_main(directories, display_errors, heartbeat)
+    except KeyboardInterrupt:
+        if time.time() - last_time > 5:
+            print()
+            print("Aborting stuck process.")
+            traceback.print_exc()
+            exit(1)
+        print()
+        print("Exiting.")
+
+def wrapped_main(directories, display_errors, heartbeat):
     name_counts = {}
     permuters = []
     sys.stdout.write("Loading...")
     sys.stdout.flush()
     for d in directories:
+        heartbeat()
         compile_cmd = os.path.join(d, 'compile.sh')
         target_o = os.path.join(d, 'target.o')
         base_c = os.path.join(d, 'base.c')
@@ -122,6 +140,7 @@ def main(directories, display_errors=False):
     errors = 0
     perm_ind = -1
     while len(permuters) > 0:
+        heartbeat()
         perm_ind = (perm_ind + 1) % len(permuters)
         perm = permuters[perm_ind]
 
@@ -162,4 +181,4 @@ if __name__ == "__main__":
             help="Display compiler error/warning messages, and keep .c files for failed compiles.")
     args = parser.parse_args()
 
-    main(args.directory, True if args.display_errors else False)
+    main(args.directory, args.display_errors)
