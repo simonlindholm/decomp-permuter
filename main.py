@@ -86,7 +86,7 @@ def main(directories, display_errors):
         def heartbeat():
             nonlocal last_time
             last_time = time.time()
-        wrapped_main(directories, display_errors, heartbeat)
+        return wrapped_main(directories, display_errors, heartbeat)
     except KeyboardInterrupt:
         if time.time() - last_time > 5:
             print()
@@ -138,6 +138,8 @@ def wrapped_main(directories, display_errors, heartbeat):
     iteration = 0
     errors = 0
     perm_ind = -1
+
+    high_scores = [p.base_score for p in permuters]
     while len(permuters) > 0:
         heartbeat()
         perm_ind = (perm_ind + 1) % len(permuters)
@@ -164,12 +166,15 @@ def wrapped_main(directories, display_errors, heartbeat):
             perm.hashes.add(new_hash)
             print()
             if new_score < perm.base_score:
+                high_scores[perm_ind] = new_score
                 print(f"[{perm.unique_name}] found a better score!")
             else:
                 print(f"[{perm.unique_name}] found different asm with same score")
 
             source = perm.get_source()
             write_candidate(perm, source)
+    
+    return high_scores
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
