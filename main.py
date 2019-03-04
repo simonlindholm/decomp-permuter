@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Dict, Optional
 import random
 import sys
 import time

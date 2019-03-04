@@ -16,11 +16,18 @@ DEBUG_EAGER_TYPES = False
 
 Indices = Dict[ca.Node, int]
 Block = Union[ca.Compound, ca.Case, ca.Default]
+if typing.TYPE_CHECKING:
+    # ca.Expression and ca.Statement don't actually exist, they live only in
+    # the stubs file.
+    Expression = ca.Expression
+    Statement = ca.Statement
+else:
+    Expression = Statement = None
 
 class PatchedCGenerator(c_generator.CGenerator):
     """Like a CGenerator, except it keeps else if's prettier despite
     the terrible things we've done to them in normalize_ast."""
-    def visit_If(self, n: ca.If) -> None:
+    def visit_If(self, n: ca.If) -> str:
         n2 = n
         if (n.iffalse and isinstance(n.iffalse, ca.Compound) and
                 n.iffalse.block_items and
@@ -28,7 +35,7 @@ class PatchedCGenerator(c_generator.CGenerator):
                 isinstance(n.iffalse.block_items[0], ca.If)):
             n2 = ca.If(cond=n.cond, iftrue=n.iftrue,
                     iffalse=n.iffalse.block_items[0])
-        super().visit_If(n2) # type: ignore
+        return super().visit_If(n2) # type: ignore
 
 def to_c(node: ca.Node) -> str:
     source = PatchedCGenerator().visit(node)
@@ -134,10 +141,10 @@ def find_var_reads(top_node: ca.Node) -> List[ca.ID]:
 
 def replace_subexprs(
     top_node: ca.Node,
-    callback: Callable[[ca.Expression], Any]
+    callback: Callable[[Expression], Any]
 ) -> None:
     def rec(orig_node: ca.Node, toplevel: bool=False) -> Any:
-        node: ca.AnyNode = typing.cast(ca.AnyNode, orig_node)
+        node: 'ca.AnyNode' = typing.cast('ca.AnyNode', orig_node)
         if isinstance(node, ca.Assignment):
             node.rvalue = rec(node.rvalue)
         elif isinstance(node, ca.StructRef):
@@ -235,7 +242,7 @@ def replace_subexprs(
 
     rec(top_node, True)
 
-def get_block_stmts(block: Block, force: bool) -> List[ca.Statement]:
+def get_block_stmts(block: Block, force: bool) -> List[Statement]:
     if isinstance(block, ca.Compound):
         ret = block.block_items or []
         if force and not block.block_items:
@@ -255,12 +262,12 @@ def insert_decl(fn: ca.FuncDef, decl: ca.Decl) -> None:
         index = len(fn.body.block_items)
     fn.body.block_items[index:index] = [decl]
 
-def insert_statement(block: Block, index: int, stmt: ca.Statement) -> None:
+def insert_statement(block: Block, index: int, stmt: Statement) -> None:
     stmts = get_block_stmts(block, True)
     stmts[index:index] = [stmt]
 
-def brace_nested_blocks(stmt: ca.Statement) -> None:
-    def brace(stmt: ca.Statement) -> Block:
+def brace_nested_blocks(stmt: Statement) -> None:
+    def brace(stmt: Statement) -> Block:
         if isinstance(stmt, (ca.Compound, ca.Case, ca.Default)):
             return stmt
         return ca.Compound([stmt])
@@ -276,10 +283,10 @@ def brace_nested_blocks(stmt: ca.Statement) -> None:
         brace_nested_blocks(stmt.stmt)
 
 def for_nested_blocks(
-    stmt: ca.Statement,
+    stmt: Statement,
     callback: Callable[[Block], None]
 ) -> None:
-    def invoke(stmt: ca.Statement) -> None:
+    def invoke(stmt: Statement) -> None:
         assert isinstance(stmt, (ca.Compound, ca.Case, ca.Default)), \
                 "brace_nested_blocks should have turned nested statements into blocks"
         callback(stmt)
@@ -300,11 +307,11 @@ def for_nested_blocks(
         for_nested_blocks(stmt.stmt, callback)
 
 def perm_temp_for_expr(fn: ca.FuncDef, ast: ca.FileAST) -> None:
-    Place = Tuple[Block, int, ca.Statement]
+    Place = Tuple[Block, int, Statement]
     einds: Dict[int, int] = {}
     sumprob: float = 0
     targetprob: Optional[float] = None
-    found: Optional[Tuple[Place, ca.Expression, ca.ID, SimpleType, bool]] = None
+    found: Optional[Tuple[Place, Expression, ca.ID, SimpleType, bool]] = None
     indices = compute_node_indices(fn)
     writes = compute_write_locations(fn, indices)
     reads = compute_read_locations(fn, indices)
@@ -330,7 +337,7 @@ def perm_temp_for_expr(fn: ca.FuncDef, ast: ca.FileAST) -> None:
 
             for_nested_blocks(stmt, lambda b: rec(b, reuse_cands))
 
-            def replacer(expr: ca.Expression) -> Optional[ca.Expression]:
+            def replacer(expr: Expression) -> Optional[Expression]:
                 nonlocal sumprob
                 nonlocal found
                 if found is not None:
