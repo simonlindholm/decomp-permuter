@@ -97,10 +97,10 @@ def main(directories, display_errors):
         print("Exiting.")
 
 def wrapped_main(directories, display_errors, heartbeat):
+    print("Loading...")
+
     name_counts = {}
     permuters = []
-    sys.stdout.write("Loading...")
-    sys.stdout.flush()
     for d in directories:
         heartbeat()
         compile_cmd = os.path.join(d, 'compile.sh')
@@ -114,8 +114,7 @@ def wrapped_main(directories, display_errors, heartbeat):
             print(f"{compile_cmd} must be marked executable.", file=sys.stderr)
             exit(1)
 
-        sys.stdout.write(f" {base_c}")
-        sys.stdout.flush()
+        print(base_c)
 
         compiler = Compiler(compile_cmd, display_errors)
         scorer = Scorer(target_o)
