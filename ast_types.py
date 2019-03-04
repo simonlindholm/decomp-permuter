@@ -47,6 +47,9 @@ def pointer_decay(type: Type, typemap: TypeMap) -> SimpleType:
         return PtrDecl(quals=[], type=real_type.type)
     if isinstance(real_type, FuncDecl):
         return PtrDecl(quals=[], type=type)
+    if (isinstance(real_type, TypeDecl) and
+            isinstance(real_type.type, c_ast.Enum)):
+        return basic_type('int')
     assert not isinstance(type, (ArrayDecl, FuncDecl)), \
             "resolve_typedefs can't hide arrays/functions"
     return type
@@ -183,10 +186,14 @@ def same_type(type1: Type, type2: Type, typemap: TypeMap, allow_similar: bool=Fa
                 return sub1.name == sub2.name
             if isinstance(sub1, c_ast.Union) and isinstance(sub2, c_ast.Union):
                 return sub1.name == sub2.name
+            if (allow_similar and
+                    isinstance(sub1, (IdentifierType, c_ast.Enum)) and
+                    isinstance(sub2, (IdentifierType, c_ast.Enum))):
+                # All int-ish types are similar
+                return True
+            if isinstance(sub1, c_ast.Enum) and isinstance(sub2, c_ast.Enum):
+                return sub1.name == sub2.name
             if isinstance(sub1, IdentifierType) and isinstance(sub2, IdentifierType):
-                if allow_similar:
-                    # Int-ish types are similar
-                    return True
                 return sorted(sub1.names) == sorted(sub2.names)
         return False
 
@@ -221,6 +228,8 @@ def build_typemap(ast: c_ast.FileAST) -> TypeMap:
                 # Do not visit declarations in parameter lists of functions
                 # other than our own.
                 self.visit(decl.type)
+        def visit_Enumerator(self, enumerator: c_ast.Enumerator) -> None:
+            ret.var_types[enumerator.name] = basic_type('int')
         def visit_FuncDef(self, fn: c_ast.FuncDef) -> None:
             defined_function_decls.add(fn.decl)
             self.generic_visit(fn)
