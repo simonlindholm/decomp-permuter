@@ -2,7 +2,6 @@
 
 They make a number of simplifying assumptions:
  - const and volatile doesn't matter.
- - function pointers don't exist.
  - arithmetic promotes all int-like types to 'int'.
  - no two variables can have the same name, even across functions.
 
@@ -13,10 +12,9 @@ import sys
 
 import attr
 from pycparser import c_ast
-from pycparser.c_ast import ArrayDecl, TypeDecl, PtrDecl, IdentifierType
+from pycparser.c_ast import ArrayDecl, TypeDecl, PtrDecl, FuncDecl, IdentifierType
 
-# (For simplicity we ignore FuncDecl)
-Type = Union[PtrDecl, ArrayDecl, TypeDecl]
+Type = Union[PtrDecl, ArrayDecl, TypeDecl, FuncDecl]
 SimpleType = Union[PtrDecl, TypeDecl]
 
 StructUnion = Union[c_ast.Struct, c_ast.Union]
@@ -47,6 +45,10 @@ def pointer_decay(type: Type, typemap: TypeMap) -> SimpleType:
     real_type = resolve_typedefs(type, typemap)
     if isinstance(real_type, ArrayDecl):
         return PtrDecl(quals=[], type=real_type.type)
+    if isinstance(real_type, FuncDecl):
+        return PtrDecl(quals=[], type=type)
+    assert not isinstance(type, (ArrayDecl, FuncDecl)), \
+            "resolve_typedefs can't hide arrays/functions"
     return type
 
 def deref_type(type: Type, typemap: TypeMap) -> Type:
@@ -59,6 +61,7 @@ def struct_member_type(struct: StructUnion, field_name: str, typemap: TypeMap) -
         assert struct.name in typemap.struct_defs, \
                 f"Accessing field {field_name} of undefined struct {struct.name}"
         struct = typemap.struct_defs[struct.name]
+    assert struct.decls, "struct_defs never points to an incomplete type"
     for decl in struct.decls:
         if decl.name == field_name:
             return decl.type
@@ -84,6 +87,8 @@ def expr_type(node: c_ast.Node, typemap: TypeMap) -> Type:
     if isinstance(node, c_ast.Constant):
         if node.type == 'string':
             return pointer(basic_type('char'))
+        if node.type == 'char':
+            return basic_type('int')
         if node.type == 'int':
             return basic_type('int')
         if node.type == 'float':
@@ -113,9 +118,9 @@ def expr_type(node: c_ast.Node, typemap: TypeMap) -> Type:
             return basic_type('int')
         if node.op in "&|^%":
             return basic_type('int')
+        real_lhs = resolve_typedefs(lhs_type, typemap)
+        real_rhs = resolve_typedefs(rhs_type, typemap)
         if node.op in "+-":
-            real_lhs = resolve_typedefs(lhs_type, typemap)
-            real_rhs = resolve_typedefs(rhs_type, typemap)
             lptr = isinstance(real_lhs, PtrDecl)
             rptr = isinstance(real_rhs, PtrDecl)
             if lptr or rptr:
@@ -127,19 +132,26 @@ def expr_type(node: c_ast.Node, typemap: TypeMap) -> Type:
                 assert node.op == '+', "int - pointer"
                 return rhs_type
         if node.op in "*/+-":
-            lhs_type = resolve_typedefs(lhs_type, typemap)
-            rhs_type = resolve_typedefs(rhs_type, typemap)
-            assert isinstance(lhs_type, TypeDecl)
-            assert isinstance(rhs_type, TypeDecl)
-            assert isinstance(lhs_type.type, IdentifierType)
-            assert isinstance(rhs_type.type, IdentifierType)
-            if 'double' in lhs_type.type.names + rhs_type.type.names:
+            assert isinstance(real_lhs, TypeDecl)
+            assert isinstance(real_rhs, TypeDecl)
+            assert isinstance(real_lhs.type, IdentifierType)
+            assert isinstance(real_rhs.type, IdentifierType)
+            if 'double' in real_lhs.type.names + real_rhs.type.names:
                 return basic_type('double')
-            if 'float' in lhs_type.type.names + rhs_type.type.names:
+            if 'float' in real_lhs.type.names + real_rhs.type.names:
                 return basic_type('float')
             return basic_type('int')
     if isinstance(node, c_ast.FuncCall):
-        return typemap.fn_ret_types[node.name.name]
+        expr = node.name
+        if isinstance(expr, c_ast.ID):
+            return typemap.fn_ret_types[expr.name]
+        else:
+            fptr_type = resolve_typedefs(rec(expr), typemap)
+            if isinstance(fptr_type, PtrDecl):
+                fptr_type = fptr_type.type
+            fptr_type = resolve_typedefs(fptr_type, typemap)
+            assert isinstance(fptr_type, FuncDecl), "call to non-function"
+            return fptr_type.type
     if isinstance(node, c_ast.ExprList):
         return rec(node.exprs[-1])
     if isinstance(node, c_ast.ArrayRef):
@@ -184,22 +196,26 @@ def build_typemap(ast: c_ast.FileAST) -> TypeMap:
         if isinstance(item, c_ast.Typedef):
             ret.typedefs[item.name] = item.type
         if isinstance(item, c_ast.FuncDef):
+            assert item.decl.name is not None, "cannot define anonymous function"
+            assert isinstance(item.decl.type, FuncDecl)
             ret.fn_ret_types[item.decl.name] = item.decl.type.type
-        if isinstance(item, c_ast.Decl) and isinstance(item.type, c_ast.FuncDecl):
+        if isinstance(item, c_ast.Decl) and isinstance(item.type, FuncDecl):
+            assert item.name is not None, "cannot define anonymous function"
             ret.fn_ret_types[item.name] = item.type.type
     defined_function_decls: Set[c_ast.Decl] = set()
     class Visitor(c_ast.NodeVisitor):
         def visit_Struct(self, struct: c_ast.Struct) -> None:
-            if struct.decls:
+            if struct.decls and struct.name is not None:
                 ret.struct_defs[struct.name] = struct
             # Do not visit decls of this struct
         def visit_Union(self, union: c_ast.Union) -> None:
-            if union.decls:
+            if union.decls and union.name is not None:
                 ret.struct_defs[union.name] = union
             # Do not visit decls of this union
         def visit_Decl(self, decl: c_ast.Decl) -> None:
-            if not isinstance(decl.type, c_ast.FuncDecl):
-                ret.var_types[decl.name] = decl.type
+            if not isinstance(decl.type, FuncDecl):
+                if decl.name is not None:
+                    ret.var_types[decl.name] = decl.type
                 self.visit(decl.type)
             elif decl in defined_function_decls:
                 # Do not visit declarations in parameter lists of functions
