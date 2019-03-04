@@ -28,7 +28,7 @@ class PatchedCGenerator(c_generator.CGenerator):
                 isinstance(n.iffalse.block_items[0], ca.If)):
             n2 = ca.If(cond=n.cond, iftrue=n.iftrue,
                     iffalse=n.iffalse.block_items[0])
-        super().visit_If(n2)
+        super().visit_If(n2) # type: ignore
 
 def to_c(node: ca.Node) -> str:
     source = PatchedCGenerator().visit(node)
