@@ -33,7 +33,8 @@ class Scorer:
     def __init__(self, target_o: str):
         self.target_o = target_o
         _, self.target_seq = self._objdump(target_o)
-        self.differ: difflib.SequenceMatcher = difflib.SequenceMatcher(autojunk=False)
+        self.differ: difflib.SequenceMatcher[DiffAsmLine] = \
+                difflib.SequenceMatcher(autojunk=False)
         self.differ.set_seq2(self.target_seq)
 
     def _objdump(self, o_file: str) -> Tuple[str, List[DiffAsmLine]]:
@@ -55,19 +56,19 @@ class Scorer:
         deletions = []
         insertions = []
 
-        def diff_sameline(old: str, new: str):
+        def diff_sameline(old: str, new: str) -> None:
             nonlocal score
             if old == new:
                 return
             # Probably regalloc difference, or signed vs unsigned
             score += self.PENALTY_REGALLOC
 
-        def diff_insert(line: str):
+        def diff_insert(line: str) -> None:
             # Reordering or totally different codegen.
             # Defer this until later when we can tell.
             insertions.append(line)
 
-        def diff_delete(line: str):
+        def diff_delete(line: str) -> None:
             deletions.append(line)
 
         first_ins = None

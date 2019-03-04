@@ -21,13 +21,17 @@ class Node(object):
     def show(self, buf: TextIO=sys.stdout, offset: int=0, attrnames: bool=False, nodenames: bool=False, showcoord: bool=False) -> None: ...
 
 Expression = Union_['ArrayRef', 'Assignment', 'BinaryOp', 'Cast',
-        'CompoundLiteral', 'Constant', 'FuncCall', 'ID', 'TernaryOp']
+        'CompoundLiteral', 'Constant', 'ExprList', 'FuncCall', 'ID',
+        'TernaryOp', 'UnaryOp']
 Statement = Union_[Expression, 'Decl', 'Break', 'Case', 'Compound', 'Continue',
         'Decl', 'Default', 'DoWhile', 'EmptyStatement', 'For', 'Goto', 'If',
-        'Label', 'Return', 'Switch', 'Typedef', 'Union', 'While', 'Pragma']
+        'Label', 'Return', 'Switch', 'Typedef', 'While', 'Pragma']
 Type = Union_['PtrDecl', 'ArrayDecl', 'FuncDecl', 'TypeDecl']
-InnerType = Union_['IdentifierType', 'Struct', 'Union']
+InnerType = Union_['IdentifierType', 'Struct', 'Union', 'Enum']
 ExternalDeclaration = Union_['FuncDef', 'Decl', 'Typedef', 'Pragma']
+AnyNode = Union_[Statement, Type, InnerType, 'FuncDef', 'EllipsisParam',
+        'Enumerator', 'EnumeratorList', 'FileAST', 'InitList',
+        'NamedInitializer', 'ParamList', 'Typename']
 
 class NodeVisitor(object):
     # TODO: add other methods

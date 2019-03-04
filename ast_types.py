@@ -161,7 +161,7 @@ def expr_type(node: c_ast.Node, typemap: TypeMap) -> Type:
         return rec(node.iftrue)
     assert False, f"Unknown expression node type: {node}"
 
-def decayed_expr_type(expr: c_ast.Node, typemap: TypeMap) -> Type:
+def decayed_expr_type(expr: c_ast.Node, typemap: TypeMap) -> SimpleType:
     return pointer_decay(expr_type(expr, typemap), typemap)
 
 def same_type(type1: Type, type2: Type, typemap: TypeMap, allow_similar: bool=False) -> bool:

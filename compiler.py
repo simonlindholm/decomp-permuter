@@ -1,13 +1,14 @@
+from typing import Optional
 import tempfile
 import subprocess
 import os
 
-class Compiler():
-    def __init__(self, compile_cmd, display_errors=False):
+class Compiler:
+    def __init__(self, compile_cmd: str, display_errors: bool=False) -> None:
         self.compile_cmd = compile_cmd
         self.display_errors = display_errors
 
-    def compile(self, source):
+    def compile(self, source: str) -> Optional[str]:
         with tempfile.NamedTemporaryFile(prefix='permuter', suffix='.c', mode='w', delete=False) as f:
             c_name = f.name
             f.write(source)
