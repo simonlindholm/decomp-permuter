@@ -164,7 +164,7 @@ def expr_type(node: c_ast.Node, typemap: TypeMap) -> Type:
 def decayed_expr_type(expr: c_ast.Node, typemap: TypeMap) -> Type:
     return pointer_decay(expr_type(expr, typemap), typemap)
 
-def same_type(type1: Type, type2: Type, typemap: TypeMap, allow_similar: bool=False):
+def same_type(type1: Type, type2: Type, typemap: TypeMap, allow_similar: bool=False) -> bool:
     while True:
         type1 = resolve_typedefs(type1, typemap)
         type2 = resolve_typedefs(type2, typemap)
