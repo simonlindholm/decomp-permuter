@@ -66,3 +66,18 @@ class GeneralPerm(Perm):
 
     def _evaluate_self(self, seed: int) -> str:
         return self.candidates[seed]
+        
+class TernaryPerm(Perm):
+    def __init__(self, pre, cond, iftrue, iffalse):
+        super().__init__()
+        self.perm_count = 2 
+        self.pre = pre
+        self.cond = cond
+        self.iftrue = iftrue
+        self.iffalse = iffalse
+
+    def _evaluate_self(self, seed):
+        if seed > 0:
+            return f'{self.pre}({self.cond} ? {self.iftrue} : {self.iffalse});'
+        else:
+            return f'if ({self.cond})\n {self.pre}{self.iftrue};\n else\n {self.pre}{self.iffalse};'
