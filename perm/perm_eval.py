@@ -1,6 +1,4 @@
 from typing import List, Iterable
-import functools
-import itertools
 import math
 import operator
 import random

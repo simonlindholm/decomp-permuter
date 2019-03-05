@@ -1,12 +1,13 @@
 from typing import List, Dict, Optional, Callable, Optional, Tuple
+import argparse
+import difflib
+import functools
+import os
 import random
+import re
 import sys
 import time
-import os
-import argparse
 import traceback
-import difflib
-import re
 
 import attr
 import pycparser
@@ -46,13 +47,17 @@ class Permuter:
 
         self.iterator = perm.perm_evaluate_all(self.permutations)
 
+    @functools.lru_cache(maxsize=1024)
+    def _get_randomizer(self, source):
+        ast = self.parser.parse(source)
+        return Randomizer(ast)
+
     def score_base(self):
         base_seed = [0] * len(self.permutations.get_counts())
         base_source = self.permutations.evaluate(base_seed)
 
         # Normalize the C code by e.g. stripping whitespace and pragmas
-        ast = self.parser.parse(base_source)
-        randomizer = Randomizer(ast)
+        randomizer = self._get_randomizer(base_source)
         base_source = randomizer.get_current_source()
 
         start_o = self.compiler.compile(base_source)
@@ -66,8 +71,7 @@ class Permuter:
         if cand_c == None:
             return False
 
-        ast = self.parser.parse(cand_c)
-        randomizer = Randomizer(ast)
+        randomizer = self._get_randomizer(cand_c)
         randomizer.randomize()
         self.cur_cand = randomizer.get_current_source()
         return True

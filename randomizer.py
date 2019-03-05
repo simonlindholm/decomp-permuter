@@ -68,12 +68,13 @@ def to_c(node: ca.Node) -> str:
     assert same_line == 0
     return ''.join(out).rstrip() + '\n'
 
-def find_fns(ast: ca.FileAST) -> List[ca.FuncDef]:
+def find_fn(ast: ca.FileAST) -> Tuple[ca.FuncDef, int]:
     ret = []
-    for node in ast.ext:
+    for i, node in enumerate(ast.ext):
         if isinstance(node, ca.FuncDef):
-            ret.append(node)
-    return ret
+            ret.append((node, i))
+    assert len(ret) == 1
+    return ret[0]
 
 def compute_node_indices(top_node: ca.Node) -> Indices:
     indices = {}
@@ -355,8 +356,8 @@ def perm_temp_for_expr(fn: ca.FuncDef, ast: ca.FileAST) -> None:
             return None
         assignment_ind = indices[place[2]]
         expr_ind = indices[expr]
-        write = find_next(writes[var], assignment_ind)
-        read = find_next(reads[var], assignment_ind)
+        write = find_next(writes.get(var, []), assignment_ind)
+        read = find_next(reads.get(var, []), assignment_ind)
         if read is not None and (write is None or write >= read):
             # We don't want to overwrite a variable which we later read,
             # unless we write to it before that read
@@ -498,9 +499,8 @@ def perm_sameline(fn: ca.FuncDef, ast: ca.FileAST) -> None:
     insert_statement(cands[j][0], cands[j][1], ca.Pragma("sameline end"))
     insert_statement(cands[i][0], cands[i][1], ca.Pragma("sameline start"))
 
-def normalize_ast(ast: ca.FileAST) -> None:
+def normalize_ast(fn: ca.FuncDef, ast: ca.FileAST) -> None:
     # Add braces to all ifs/fors/etc., to make it easier to insert statements.
-    fn = find_fns(ast)[0]
     def rec(block: Block) -> None:
         stmts = get_block_stmts(block, False)
         for stmt in stmts:
@@ -510,16 +510,17 @@ def normalize_ast(ast: ca.FileAST) -> None:
 
 class Randomizer:
     def __init__(self, start_ast: ca.FileAST) -> None:
-        self.start_ast = start_ast
-        normalize_ast(self.start_ast)
-        self.ast = self.start_ast
+        self.orig_fn, self.fn_index = find_fn(start_ast)
+        normalize_ast(self.orig_fn, start_ast)
+        self.cur_ast = start_ast
 
     def get_current_source(self) -> str:
-        return to_c(self.ast)
+        return to_c(self.cur_ast)
 
     def randomize(self) -> None:
-        ast = copy.deepcopy(self.start_ast)
-        fn = find_fns(ast)[0]
+        ast = self.cur_ast
+        fn = copy.deepcopy(self.orig_fn)
+        ast.ext[self.fn_index] = fn
         methods = [
             (perm_temp_for_expr, 90),
             (perm_randomize_type, 5),
@@ -527,4 +528,3 @@ class Randomizer:
         ]
         method = random.choice([x for (elem, prob) in methods for x in [elem]*prob])
         method(fn, ast)
-        self.ast = ast
