@@ -19,9 +19,9 @@ import perm
 @attr.s
 class Options:
     directories: List[str] = attr.ib()
-    display_errors: bool = attr.ib()
-    print_diffs: bool = attr.ib()
-    seed: Optional[int] = attr.ib()
+    display_errors: bool = attr.ib(default=False)
+    print_diffs: bool = attr.ib(default=False)
+    seed: Optional[int] = attr.ib(default=None)
 
 def find_fns(source):
     fns = re.findall(r'(\w+)\(.*\)\s*?{', source)

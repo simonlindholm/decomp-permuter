@@ -40,18 +40,18 @@ class TestStringMethods(unittest.TestCase):
 
     def test_general(self):
         d = self.tmp_dirs[('test1.c', 'test_general')].name
-        scores = main.main([d], False)
+        scores = main.main(main.Options(directories=[d]))
         self.assertEqual(scores[0], 0)
 
 
     def test_general_3(self):
         d = self.tmp_dirs[('test1.c', 'test_general_3')].name
-        scores = main.main([d], False)
+        scores = main.main(main.Options(directories=[d]))
         self.assertEqual(scores[0], 0)
 
     def test_general_multiple(self):
         d = self.tmp_dirs[('test1.c', 'test_general_multiple')].name
-        scores = main.main([d], False)
+        scores = main.main(main.Options(directories=[d]))
         self.assertEqual(scores[0], 0)
 
 if __name__ == '__main__':
