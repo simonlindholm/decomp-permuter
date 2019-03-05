@@ -12,6 +12,7 @@ __version__ = '2.19'
 
 from typing import Any
 from . import c_ast
+from .c_parser import CParser
 
 def preprocess_file(filename: str, cpp_path: str='cpp', cpp_args: str='') -> str: ...
 def parse_file(filename: str, use_cpp: bool=False, cpp_path: str='cpp', cpp_args: str='', parser: Any=None) -> c_ast.FileAST: ...

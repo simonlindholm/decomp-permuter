@@ -24,19 +24,20 @@ class Options:
     print_diffs: bool = attr.ib(default=False)
     seed: Optional[int] = attr.ib(default=None)
 
-def find_fns(source):
+def find_fns(source: str) -> List[str]:
     fns = re.findall(r'(\w+)\(.*\)\s*?{', source)
     return fns
 
 class Permuter:
-    def __init__(self, dir, compiler, scorer, source_file, source):
+    def __init__(self, dir: str, compiler: Compiler, scorer: Scorer, source_file: str, source: str):
         self.dir = dir
         self.compiler = compiler
         self.scorer = scorer
+        self.source_file = source_file
 
         fns = find_fns(source)
         if len(fns) != 1:
-            raise Exception(f"{source_file} must contain exactly one function. (Use strip_other_fns.py.)")
+            raise Exception(f"{self.source_file} must contain exactly one function. (Use strip_other_fns.py.)")
         self.fn_name = fns[0]
         self.unique_name = self.fn_name
 
@@ -45,14 +46,14 @@ class Permuter:
         self.base_source, self.base_score, base_hash = self.score_base()
         self.hashes = {base_hash}
 
-        self.iterator = perm.perm_evaluate_all(self.permutations)
+        self.iterator = iter(perm.perm_evaluate_all(self.permutations))
 
     @functools.lru_cache(maxsize=1024)
-    def _get_randomizer(self, source):
+    def _get_randomizer(self, source: str) -> Randomizer:
         ast = self.parser.parse(source)
         return Randomizer(ast)
 
-    def score_base(self):
+    def score_base(self) -> Tuple[str, int, str]:
         base_seed = [0] * len(self.permutations.get_counts())
         base_source = self.permutations.evaluate(base_seed)
 
@@ -62,13 +63,13 @@ class Permuter:
 
         start_o = self.compiler.compile(base_source)
         if start_o is None:
-            raise Exception(f"Unable to compile {source_file}")
+            raise Exception(f"Unable to compile {self.source_file}")
 
         return (base_source, *self.scorer.score(start_o))
 
     def permutate_next(self) -> bool:
         cand_c = next(self.iterator, None)
-        if cand_c == None:
+        if cand_c is None:
             return False
 
         randomizer = self._get_randomizer(cand_c)
@@ -82,8 +83,7 @@ class Permuter:
     def compile(self) -> Optional[str]:
         return self.compiler.compile(self.get_source())
 
-    def score(self) -> Tuple[int, str]:
-        cand_o = self.compile()
+    def score(self, cand_o: str) -> Tuple[int, str]:
         return self.scorer.score(cand_o)
 
     def print_diff(self) -> None:
@@ -105,12 +105,12 @@ def write_candidate(perm: Permuter, source: str) -> None:
             pass
     print(f"wrote to {fname}")
 
-def main(options: Options) -> None:
+def main(options: Options) -> List[int]:
     last_time = time.time()
     if options.seed is not None:
         random.seed(options.seed)
     try:
-        def heartbeat():
+        def heartbeat() -> None:
             nonlocal last_time
             last_time = time.time()
         return wrapped_main(options, heartbeat)
@@ -122,8 +122,9 @@ def main(options: Options) -> None:
             exit(1)
         print()
         print("Exiting.")
+        exit()
 
-def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> None:
+def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> List[int]:
     print("Loading...")
 
     name_counts: Dict[str, int] = {}
@@ -179,8 +180,14 @@ def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> None:
                 if yn.lower() == 'n':
                     break
                 continue
+
+            o_file = perm.compile()
+
+            if o_file is None:
+                new_score = scorer.PENALTY_INF
+                new_hash = None
             else:
-                new_score, new_hash = perm.score()
+                new_score, new_hash = perm.score(o_file)
         except Exception:
             print(f"[{perm.unique_name}] internal permuter failure.")
             traceback.print_exc()
@@ -193,7 +200,7 @@ def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> None:
         sys.stdout.write("\b"*10 + " "*10 + f"\riteration {iteration}, {errors} errors, score = {disp_score}")
         sys.stdout.flush()
 
-        if new_score <= perm.base_score and new_hash not in perm.hashes:
+        if new_score <= perm.base_score and new_hash and new_hash not in perm.hashes:
             perm.hashes.add(new_hash)
             print()
             if new_score < perm.base_score:

@@ -44,9 +44,7 @@ class Scorer:
             ret.append(DiffAsmLine(line))
         return (output, ret)
 
-    def score(self, cand_o: Optional[str]) -> Tuple[int, str]:
-        if cand_o is None:
-            return self.PENALTY_INF, None
+    def score(self, cand_o: str) -> Tuple[int, str]:
         try:
             objdump_output, cand_seq = self._objdump(cand_o)
         finally:
