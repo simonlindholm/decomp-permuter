@@ -1,10 +1,10 @@
-import perm
-from operator import mul
-import random
+import functools
 import itertools
 import math
-from functools import reduce
+import operator
 import random
+
+import perm
 
 def get_seed_from_num(n, counts):
     result = []
@@ -18,10 +18,10 @@ def random_int_upto_inf(start, end):
     if end == math.inf:
         return math.inf
     else:
-        return random.randint(start, end)
+        return random.randrange(start, end)
 
 def get_all_seeds(counts):
-    total_count = reduce(mul, counts, 1)
+    total_count = functools.reduce(operator.mul, counts, 1)
 
     if total_count > 10000000:
         while True:

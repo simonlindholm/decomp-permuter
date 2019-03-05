@@ -1,18 +1,27 @@
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Callable, Optional, Tuple
 import random
 import sys
 import time
 import os
 import argparse
 import traceback
+import difflib
 import re
 
+import attr
 import pycparser
 
 from compiler import Compiler
 from randomizer import Randomizer
 from scorer import Scorer
 import perm
+
+@attr.s
+class Options:
+    directories: List[str] = attr.ib()
+    display_errors: bool = attr.ib()
+    print_diffs: bool = attr.ib()
+    seed: Optional[int] = attr.ib()
 
 def find_fns(source):
     fns = re.findall(r'(\w+)\(.*\)\s*?{', source)
@@ -23,33 +32,36 @@ class Permuter:
         self.dir = dir
         self.compiler = compiler
         self.scorer = scorer
-        self.source_file = source_file
-        self.original_source = source
 
-        fns = find_fns(self.original_source)
+        fns = find_fns(source)
         if len(fns) != 1:
-            raise Exception(f"{self.source_file} must contain exactly one function. (Use strip_other_fns.py.)")
+            raise Exception(f"{source_file} must contain exactly one function. (Use strip_other_fns.py.)")
         self.fn_name = fns[0]
         self.unique_name = self.fn_name
 
-        self.permutations = perm.perm_gen(source)
-        self.base_score, self.base_hash = self.score_base()
-        self.hashes = {self.base_hash}
-
         self.parser = pycparser.CParser()
+        self.permutations = perm.perm_gen(source)
+        self.base_source, self.base_score, base_hash = self.score_base()
+        self.hashes = {base_hash}
+
         self.iterator = perm.perm_evaluate_all(self.permutations)
 
     def score_base(self):
         base_seed = [0] * len(self.permutations.get_counts())
         base_source = self.permutations.evaluate(base_seed)
 
+        # Normalize the C code by e.g. stripping whitespace and pragmas
+        ast = self.parser.parse(base_source)
+        randomizer = Randomizer(ast)
+        base_source = randomizer.get_current_source()
+
         start_o = self.compiler.compile(base_source)
         if start_o is None:
-            raise Exception(f"Unable to compile {self.source_file}")
+            raise Exception(f"Unable to compile {source_file}")
 
-        return self.scorer.score(start_o)
+        return (base_source, *self.scorer.score(start_o))
 
-    def permutate_next(self):
+    def permutate_next(self) -> bool:
         cand_c = next(self.iterator, None)
         if cand_c == None:
             return False
@@ -60,15 +72,21 @@ class Permuter:
         self.cur_cand = randomizer.get_current_source()
         return True
 
-    def get_source(self):
+    def get_source(self) -> str:
         return self.cur_cand
 
-    def compile(self):
-        return self.compiler.compile(self.cur_cand)
+    def compile(self) -> Optional[str]:
+        return self.compiler.compile(self.get_source())
 
-    def score(self):
+    def score(self) -> Tuple[int, str]:
         cand_o = self.compile()
         return self.scorer.score(cand_o)
+
+    def print_diff(self) -> None:
+        a = self.base_source.split('\n')
+        b = self.get_source().split('\n')
+        for line in difflib.unified_diff(a, b, fromfile='before', tofile='after', lineterm=''):
+            print(line)
 
 def write_candidate(perm: Permuter, source: str) -> None:
     ctr = 0
@@ -83,15 +101,15 @@ def write_candidate(perm: Permuter, source: str) -> None:
             pass
     print(f"wrote to {fname}")
 
-def main(directories: List[str], display_errors: bool, seed: Optional[int]):
+def main(options: Options) -> None:
     last_time = time.time()
-    if seed is not None:
-        random.seed(seed)
+    if options.seed is not None:
+        random.seed(options.seed)
     try:
         def heartbeat():
             nonlocal last_time
             last_time = time.time()
-        return wrapped_main(directories, display_errors, heartbeat)
+        return wrapped_main(options, heartbeat)
     except KeyboardInterrupt:
         if time.time() - last_time > 5:
             print()
@@ -101,12 +119,12 @@ def main(directories: List[str], display_errors: bool, seed: Optional[int]):
         print()
         print("Exiting.")
 
-def wrapped_main(directories: List[str], display_errors: bool, heartbeat):
+def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> None:
     print("Loading...")
 
     name_counts: Dict[str, int] = {}
     permuters: List[Permuter] = []
-    for d in directories:
+    for d in options.directories:
         heartbeat()
         compile_cmd = os.path.join(d, 'compile.sh')
         target_o = os.path.join(d, 'target.o')
@@ -121,7 +139,7 @@ def wrapped_main(directories: List[str], display_errors: bool, heartbeat):
 
         print(base_c)
 
-        compiler = Compiler(compile_cmd, display_errors)
+        compiler = Compiler(compile_cmd, options.display_errors)
         scorer = Scorer(target_o)
         c_source = pycparser.preprocess_file(base_c, cpp_args='-nostdinc')
 
@@ -154,7 +172,14 @@ def wrapped_main(directories: List[str], display_errors: bool, heartbeat):
             if not perm.permutate_next():
                 permuters.remove(perm)
 
-            new_score, new_hash = perm.score()
+            if options.print_diffs:
+                perm.print_diff()
+                yn = input("More? [Yn]")
+                if yn.lower() == 'n':
+                    break
+                continue
+            else:
+                new_score, new_hash = perm.score()
         except Exception:
             print(f"[{perm.unique_name}] internal permuter failure.")
             traceback.print_exc()
@@ -188,8 +213,15 @@ if __name__ == "__main__":
             help="Directory containing base.c, target.o and compile.sh. Multiple directories may be given.")
     parser.add_argument('--display-errors', dest='display_errors', action='store_true',
             help="Display compiler error/warning messages, and keep .c files for failed compiles.")
+    parser.add_argument('--print-diffs', dest='print_diffs', action='store_true',
+            help="Instead of compiling generated sources, display diffs against a base version.")
     parser.add_argument('--seed', dest='seed', type=int,
             help="Base all randomness on this initial seed.")
     args = parser.parse_args()
 
-    main(args.directory, args.display_errors, args.seed)
+    options = Options(
+            directories=args.directory,
+            display_errors=args.display_errors,
+            print_diffs=args.print_diffs,
+            seed=args.seed)
+    main(options)

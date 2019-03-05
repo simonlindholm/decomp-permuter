@@ -1,4 +1,4 @@
-from typing import Tuple, List
+from typing import Tuple, List, Optional
 import os
 import re
 import subprocess
@@ -44,7 +44,7 @@ class Scorer:
             ret.append(DiffAsmLine(line))
         return (output, ret)
 
-    def score(self, cand_o: str) -> Tuple[int, str]:
+    def score(self, cand_o: Optional[str]) -> Tuple[int, str]:
         if cand_o is None:
             return self.PENALTY_INF, None
         try:
