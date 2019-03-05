@@ -7,7 +7,7 @@ import argparse
 import traceback
 import re
 
-from pycparser import CParser, preprocess_file
+import pycparser
 
 from compiler import Compiler
 from randomizer import Randomizer
@@ -36,7 +36,7 @@ class Permuter:
         self.base_score, self.base_hash = self.score_base()
         self.hashes = {self.base_hash}
 
-        self.parser = CParser()
+        self.parser = pycparser.CParser()
         self.iterator = perm.perm_evaluate_all(self.permutations)
 
     def score_base(self):
@@ -123,7 +123,7 @@ def wrapped_main(directories: List[str], display_errors: bool, heartbeat):
 
         compiler = Compiler(compile_cmd, display_errors)
         scorer = Scorer(target_o)
-        c_source = preprocess_file(base_c)
+        c_source = pycparser.preprocess_file(base_c, cpp_args='-nostdinc')
 
         try:
             permuter = Permuter(d, compiler, scorer, base_c, c_source)
