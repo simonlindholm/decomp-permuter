@@ -7,12 +7,15 @@ import bisect
 
 from pycparser import c_ast as ca, c_parser, c_generator
 
-from ast_types import (SimpleType, build_typemap, decayed_expr_type, same_type,
-        set_decl_name)
+from ast_types import (SimpleType, TypeMap, build_typemap, decayed_expr_type,
+        resolve_typedefs, same_type, set_decl_name)
 
 # Set to true to perform expression type detection eagerly. This can help when
 # debugging crashes in the ast_types code.
 DEBUG_EAGER_TYPES = False
+
+# Randomize the type of introduced temporary variable with this probability
+RANDOMIZE_TYPE_PROB = 0.3
 
 Indices = Dict[ca.Node, int]
 Block = Union[ca.Compound, ca.Case, ca.Default]
@@ -49,12 +52,12 @@ def to_c(node: ca.Node) -> str:
         if stripped.startswith('#pragma'):
             if stripped == '#pragma sameline start':
                 same_line += 1
-                continue
             elif stripped == '#pragma sameline end':
                 same_line -= 1
                 if same_line == 0:
                     out.append('\n')
-                continue
+            # Never output pragmas
+            continue
         if not same_line:
             line += '\n'
         out.append(line)
@@ -306,6 +309,21 @@ def for_nested_blocks(
     elif isinstance(stmt, ca.Label):
         for_nested_blocks(stmt.stmt, callback)
 
+def randomize_type(type: SimpleType, typemap: TypeMap) -> SimpleType:
+    type2 = resolve_typedefs(type, typemap)
+    if not isinstance(type2, ca.TypeDecl):
+        return type
+    if not isinstance(type2.type, ca.IdentifierType):
+        return type
+    if all(x not in type2.type.names for x in ['int', 'char', 'long', 'short', 'unsigned']):
+        return type
+    new_names: List[str] = []
+    if random.choice([True, False]):
+        new_names.append('unsigned')
+    new_names.append(random.choice(['char', 'short', 'int', 'int']))
+    idtype = ca.IdentifierType(names=new_names)
+    return ca.TypeDecl(declname=None, quals=[], type=idtype)
+
 def perm_temp_for_expr(fn: ca.FuncDef, ast: ca.FileAST) -> None:
     Place = Tuple[Block, int, Statement]
     einds: Dict[int, int] = {}
@@ -402,10 +420,30 @@ def perm_temp_for_expr(fn: ca.FuncDef, ast: ca.FileAST) -> None:
     assignment = ca.Assignment('=', var, expr)
     insert_statement(block, index, assignment)
     if not reused:
+        type=copy.deepcopy(type)
+        if random.uniform(0, 1) < RANDOMIZE_TYPE_PROB:
+            type = randomize_type(type, typemap)
         decl = ca.Decl(name=var.name, quals=[], storage=[], funcspec=[],
-                type=copy.deepcopy(type), init=None, bitsize=None)
+                type=type, init=None, bitsize=None)
         set_decl_name(decl)
         insert_decl(fn, decl)
+
+def perm_randomize_type(fn: ca.FuncDef, ast: ca.FileAST) -> None:
+    # Randomize types of pre-existing local variables. Function parameter types
+    # are not permuted (that would require removing forward declarations, and
+    # most likely parameters types are already correct).
+    typemap = build_typemap(ast)
+    decls: List[ca.Decl] = []
+    class Visitor(ca.NodeVisitor):
+        def visit_Decl(self, decl: ca.Decl) -> None:
+            decls.append(decl)
+    Visitor().visit(fn)
+    while True:
+        decl = random.choice(decls)
+        if isinstance(decl.type, ca.TypeDecl):
+            decl.type = randomize_type(decl.type, typemap)
+            set_decl_name(decl)
+            break
 
 def perm_sameline(fn: ca.FuncDef, ast: ca.FileAST) -> None:
     cands: List[Tuple[Block, int]] = []
@@ -454,6 +492,7 @@ class Randomizer:
         fn = find_fns(ast)[0]
         methods = [
             (perm_temp_for_expr, 90),
+            (perm_randomize_type, 5),
             #(perm_sameline, 10),
         ]
         method = random.choice([x for (elem, prob) in methods for x in [elem]*prob])
