@@ -197,20 +197,20 @@ def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         if new_hash is None:
             errors += 1
         disp_score = 'inf' if new_score == scorer.PENALTY_INF else new_score
-        sys.stdout.write("\b"*10 + " "*10 + f"\riteration {iteration}, {errors} errors, score = {disp_score}")
-        sys.stdout.flush()
+        status_line = f"iteration {iteration}, {errors} errors, score = {disp_score}"
 
         if new_score <= perm.base_score and new_hash and new_hash not in perm.hashes:
             perm.hashes.add(new_hash)
-            print()
+            print("\r" + " " * (len(status_line) + 10) + "\r", end='')
             if new_score < perm.base_score:
                 high_scores[perm_ind] = new_score
-                print(f"[{perm.unique_name}] found a better score!")
+                print(f"[{perm.unique_name}] found a better score! ({new_score} vs {perm.base_score})")
             else:
                 print(f"[{perm.unique_name}] found different asm with same score")
 
             source = perm.get_source()
             write_candidate(perm, source)
+        print("\b"*10 + " "*10 + "\r" + status_line, end='', flush=True)
     
     return high_scores
 
