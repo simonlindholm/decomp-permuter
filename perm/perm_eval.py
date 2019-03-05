@@ -1,31 +1,34 @@
+from typing import List, Iterable
 import functools
 import itertools
 import math
 import operator
 import random
 
-import perm
+from perm.perm import Perm
 
-def get_seed_from_num(n, counts):
+def get_seed_from_num(n: int, counts: List[int]) -> List[int]:
     result = []
-    for i in range(len(counts)):
-        n, d = divmod(n, counts[i])
-        result.append(int(d))
-
+    for c in counts:
+        n, d = divmod(n, c)
+        result.append(d)
     return result
 
-def random_int_upto_inf(start, end):
-    if end == math.inf:
-        return math.inf
-    else:
-        return random.randrange(start, end)
+def get_rand_seed(counts: List[int]) -> List[int]:
+    result = []
+    for c in counts:
+        result.append(random.randrange(c))
+    return result
 
-def get_all_seeds(counts):
-    total_count = functools.reduce(operator.mul, counts, 1)
+def get_all_seeds(counts: List[int]) -> Iterable[List[int]]:
+    INF = 10**5
+    total_count = 1
+    for c in counts:
+        total_count *= c
 
-    if total_count > 10000000:
+    if total_count > INF:
         while True:
-            yield [random_int_upto_inf(0, c) for c in counts]
+            yield get_rand_seed(counts)
     else:
         # General list of possible combinations
         seed_nums = list(range(total_count))
@@ -33,7 +36,10 @@ def get_all_seeds(counts):
         for seed_num in seed_nums:
             yield get_seed_from_num(seed_num, counts)
 
-def perm_evaluate_all(perm):
-    for seed in get_all_seeds(perm.get_counts()):
-        permutaton = perm.evaluate(seed)
-        yield permutaton
+def perm_evaluate_all(perm: Perm) -> Iterable[str]:
+    while True:
+        for seed in get_all_seeds(perm.get_counts()):
+            permutaton = perm.evaluate(seed)
+            yield permutaton
+        if not perm.is_random():
+            break

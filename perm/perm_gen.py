@@ -1,9 +1,9 @@
-import perm
+from perm.perm import GeneralPerm, RandomizerPerm, TextPerm
 import re
 
 perm_create = {
-    'PERM_GENERAL' : lambda args : perm.GeneralPerm(args),
-    'PERM_RANDOMIZE' : lambda args : perm.RandomizerPerm(args[0]),
+    'PERM_GENERAL' : lambda args : GeneralPerm(args),
+    'PERM_RANDOMIZE' : lambda args : RandomizerPerm(args[0]),
 }
 
 def get_parenthesis_args(s):
@@ -49,7 +49,7 @@ def perm_gen(input):
         cur_perm = p
 
     if re.search(macro_search, input) == None:
-        head_perm = perm.RandomizerPerm(input)
+        head_perm = RandomizerPerm(input)
         print("No perm macros found. Defaulting to randomization")
         return head_perm
 
@@ -58,7 +58,7 @@ def perm_gen(input):
 
         # No match found; return remaining
         if match == None:
-            text_perm = perm.TextPerm(remain)
+            text_perm = TextPerm(remain)
             append_perm(text_perm)
             break
 
@@ -71,7 +71,7 @@ def perm_gen(input):
 
         # Create text perm
         if text != '':
-            text_perm = perm.TextPerm(text)
+            text_perm = TextPerm(text)
             append_perm(text_perm)
         
         # Create new perm

@@ -143,11 +143,8 @@ def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> None:
         scorer = Scorer(target_o)
         c_source = pycparser.preprocess_file(base_c, cpp_args='-nostdinc')
 
-        try:
-            permuter = Permuter(d, compiler, scorer, base_c, c_source)
-        except Exception as e:
-            print(f"{e}", file=sys.stderr)
-            exit(1)
+        # TODO: catch special-purpose permuter exceptions from this
+        permuter = Permuter(d, compiler, scorer, base_c, c_source)
 
         permuters.append(permuter)
         name_counts[permuter.fn_name] = name_counts.get(permuter.fn_name, 0) + 1
