@@ -17,6 +17,9 @@ DEBUG_EAGER_TYPES = False
 # Randomize the type of introduced temporary variable with this probability
 RANDOMIZE_TYPE_PROB = 0.3
 
+# Reuse an existing var instead of introducing a new temporary one with this probability
+REUSE_VAR_PROB = 0.5
+
 Indices = Dict[ca.Node, int]
 Block = Union[ca.Compound, ca.Case, ca.Default]
 if typing.TYPE_CHECKING:
@@ -329,11 +332,38 @@ def perm_temp_for_expr(fn: ca.FuncDef, ast: ca.FileAST) -> None:
     einds: Dict[int, int] = {}
     sumprob: float = 0
     targetprob: Optional[float] = None
-    found: Optional[Tuple[Place, Expression, ca.ID, SimpleType, bool]] = None
+    found: Optional[Tuple[Place, Expression, str, SimpleType, bool]] = None
     indices = compute_node_indices(fn)
-    writes = compute_write_locations(fn, indices)
-    reads = compute_read_locations(fn, indices)
+    writes: Dict[str, List[int]] = compute_write_locations(fn, indices)
+    reads: Dict[str, List[int]] = compute_read_locations(fn, indices)
     typemap = build_typemap(ast)
+
+    def reuse_var(
+        reuse_cands: List[str], place: Place, expr: Expression, type: SimpleType
+    ) -> Optional[str]:
+        if random.uniform(0, 1) > REUSE_VAR_PROB or not reuse_cands:
+            return None
+        var = random.choice(reuse_cands)
+        var_type: SimpleType = decayed_expr_type(ca.ID(var), typemap)
+        if not same_type(var_type, type, typemap, allow_similar=True):
+            return None
+        def find_next(list: List[int], value: int) -> Optional[int]:
+            ind = bisect.bisect_left(list, value)
+            if ind < len(list):
+                return list[ind]
+            return None
+        assignment_ind = indices[place[2]]
+        expr_ind = indices[expr]
+        write = find_next(writes[var], assignment_ind)
+        read = find_next(reads[var], assignment_ind)
+        if read is not None and (write is None or write >= read):
+            # We don't want to overwrite a variable which we later read,
+            # unless we write to it before that read
+            return None
+        if write is not None and write < expr_ind:
+            # Our write will be overwritten before we manage to read from it.
+            return None
+        return var
 
     def rec(block: Block, reuse_cands: List[str]) -> None:
         stmts = get_block_stmts(block, False)
@@ -392,16 +422,15 @@ def perm_temp_for_expr(fn: ca.FuncDef, ast: ca.FileAST) -> None:
                     sumprob += prob
                     if targetprob is not None and sumprob > targetprob:
                         type: SimpleType = decayed_expr_type(expr, typemap)
-                        reused = False
-                        if random.randint(0,1) and reuse_cands:
-                            var = ca.ID(random.choice(reuse_cands))
-                            var_type: SimpleType = decayed_expr_type(var, typemap)
-                            if same_type(var_type, type, typemap, allow_similar=True):
-                                reused = True
-                        if not reused:
-                            var = ca.ID('new_var')
+                        reused_var = reuse_var(reuse_cands, place, expr, type)
+                        if reused_var is not None:
+                            reused = True
+                            var = reused_var
+                        else:
+                            reused = False
+                            var = 'new_var'
                         found = (place, expr, var, type, reused)
-                        return var
+                        return ca.ID(var)
                     eind += 1
                 einds[id(expr)] = eind
                 return None
@@ -417,13 +446,13 @@ def perm_temp_for_expr(fn: ca.FuncDef, ast: ca.FileAST) -> None:
     location, expr, var, type, reused = found
     # print("replacing:", to_c(expr))
     block, index, _ = location
-    assignment = ca.Assignment('=', var, expr)
+    assignment = ca.Assignment('=', ca.ID(var), expr)
     insert_statement(block, index, assignment)
     if not reused:
         type=copy.deepcopy(type)
         if random.uniform(0, 1) < RANDOMIZE_TYPE_PROB:
             type = randomize_type(type, typemap)
-        decl = ca.Decl(name=var.name, quals=[], storage=[], funcspec=[],
+        decl = ca.Decl(name=var, quals=[], storage=[], funcspec=[],
                 type=type, init=None, bitsize=None)
         set_decl_name(decl)
         insert_decl(fn, decl)
