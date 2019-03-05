@@ -20,7 +20,8 @@ import perm
 @attr.s
 class Options:
     directories: List[str] = attr.ib()
-    display_errors: bool = attr.ib(default=False)
+    show_errors: bool = attr.ib(default=False)
+    show_timings: bool = attr.ib(default=False)
     print_diffs: bool = attr.ib(default=False)
     seed: Optional[int] = attr.ib(default=None)
 
@@ -144,7 +145,7 @@ def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> List[int]:
 
         print(base_c)
 
-        compiler = Compiler(compile_cmd, options.display_errors)
+        compiler = Compiler(compile_cmd, options.show_errors)
         scorer = Scorer(target_o)
         c_source = pycparser.preprocess_file(base_c, cpp_args='-nostdinc')
 
@@ -164,6 +165,10 @@ def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> List[int]:
     errors = 0
     perm_ind = -1
 
+    time_perm = 0.0
+    time_compile = 0.0
+    time_score = 0.0
+
     high_scores = [p.base_score for p in permuters]
     while len(permuters) > 0:
         heartbeat()
@@ -171,8 +176,10 @@ def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         perm = permuters[perm_ind]
 
         try:
+            t0 = time.time()
             if not perm.permutate_next():
                 permuters.remove(perm)
+            t1 = time.time()
 
             if options.print_diffs:
                 perm.print_diff()
@@ -182,12 +189,14 @@ def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> List[int]:
                 continue
 
             o_file = perm.compile()
+            t2 = time.time()
 
             if o_file is None:
                 new_score = scorer.PENALTY_INF
                 new_hash = None
             else:
                 new_score, new_hash = perm.score(o_file)
+            t3 = time.time()
         except Exception:
             print(f"[{perm.unique_name}] internal permuter failure.")
             traceback.print_exc()
@@ -197,7 +206,18 @@ def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         if new_hash is None:
             errors += 1
         disp_score = 'inf' if new_score == scorer.PENALTY_INF else new_score
-        status_line = f"iteration {iteration}, {errors} errors, score = {disp_score}"
+        timings = ''
+        if options.show_timings:
+            time_perm += t1 - t0
+            time_compile += t2 - t1
+            time_score += t3 - t2
+            time_total = time_perm + time_compile + time_score
+            timings = ", {}% perm, {}% compile, {}% score".format(
+                round(100 * time_perm / time_total),
+                round(100 * time_compile / time_total),
+                round(100 * time_score / time_total)
+            )
+        status_line = f"iteration {iteration}, {errors} errors, score = {disp_score}{timings}"
 
         if new_score <= perm.base_score and new_hash and new_hash not in perm.hashes:
             perm.hashes.add(new_hash)
@@ -219,8 +239,10 @@ if __name__ == "__main__":
             description="Randomly permute C files to better match a target binary.")
     parser.add_argument('directory', nargs='+',
             help="Directory containing base.c, target.o and compile.sh. Multiple directories may be given.")
-    parser.add_argument('--display-errors', dest='display_errors', action='store_true',
+    parser.add_argument('--show-errors', dest='show_errors', action='store_true',
             help="Display compiler error/warning messages, and keep .c files for failed compiles.")
+    parser.add_argument('--show-timings', dest='show_timings', action='store_true',
+            help="Display the time taken by permuting vs. compiling vs. scoring.")
     parser.add_argument('--print-diffs', dest='print_diffs', action='store_true',
             help="Instead of compiling generated sources, display diffs against a base version.")
     parser.add_argument('--seed', dest='seed', type=int,
@@ -229,7 +251,8 @@ if __name__ == "__main__":
 
     options = Options(
             directories=args.directory,
-            display_errors=args.display_errors,
+            show_errors=args.show_errors,
+            show_timings=args.show_timings,
             print_diffs=args.print_diffs,
             seed=args.seed)
     main(options)

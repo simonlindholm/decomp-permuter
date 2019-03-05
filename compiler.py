@@ -4,9 +4,9 @@ import subprocess
 import os
 
 class Compiler:
-    def __init__(self, compile_cmd: str, display_errors: bool=False) -> None:
+    def __init__(self, compile_cmd: str, show_errors: bool=False) -> None:
         self.compile_cmd = compile_cmd
-        self.display_errors = display_errors
+        self.show_errors = show_errors
 
     def compile(self, source: str) -> Optional[str]:
         with tempfile.NamedTemporaryFile(prefix='permuter', suffix='.c', mode='w', delete=False) as f:
@@ -17,10 +17,10 @@ class Compiler:
             o_name = f.name
 
         try:
-            stderr = None if self.display_errors else subprocess.DEVNULL
+            stderr = None if self.show_errors else subprocess.DEVNULL
             subprocess.check_call(self.compile_cmd + " " + c_name + " -o " + o_name, shell=True, stderr=stderr)
         except subprocess.CalledProcessError:
-            if not self.display_errors:
+            if not self.show_errors:
                 os.remove(c_name)
             return None
 
