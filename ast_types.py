@@ -66,7 +66,7 @@ def struct_member_type(struct: StructUnion, field_name: str, typemap: TypeMap) -
         struct = typemap.struct_defs[struct.name]
     assert struct.decls, "struct_defs never points to an incomplete type"
     for decl in struct.decls:
-        if decl.name == field_name:
+        if isinstance(decl, c_ast.Decl) and decl.name == field_name:
             return decl.type
     assert False, f"No field {field_name} in struct {struct.name}"
 

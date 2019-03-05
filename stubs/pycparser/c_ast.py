@@ -259,8 +259,8 @@ class Return(Node):
 
 class Struct(Node):
     name: Optional[str]
-    decls: Optional[List[Decl]]
-    def __init__(self, name: Optional[str], decls: Optional[List[Decl]], coord: Optional[Coord]=None): ...
+    decls: Optional[List[Union_[Decl, Pragma]]]
+    def __init__(self, name: Optional[str], decls: Optional[List[Union_[Decl, Pragma]]], coord: Optional[Coord]=None): ...
 
 class StructRef(Node):
     name: Expression
@@ -305,8 +305,8 @@ class UnaryOp(Node):
 
 class Union(Node):
     name: Optional[str]
-    decls: Optional[List[Decl]]
-    def __init__(self, name: Optional[str], decls: Optional[List[Decl]], coord: Optional[Coord]=None): ...
+    decls: Optional[List[Union_[Decl, Pragma]]]
+    def __init__(self, name: Optional[str], decls: Optional[List[Union_[Decl, Pragma]]], coord: Optional[Coord]=None): ...
 
 class While(Node):
     cond: Expression
