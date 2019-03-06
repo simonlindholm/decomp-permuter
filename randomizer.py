@@ -21,6 +21,11 @@ RANDOMIZE_TYPE_PROB = 0.3
 # Reuse an existing var instead of introducing a new temporary one with this probability
 REUSE_VAR_PROB = 0.5
 
+# When wrapping statements in a new block, use a same-line `do { ... } while(0);`
+# (as opposed to non-same-line `if (1) { ... }`) with this probability.
+# This matches what macros often do.
+INS_BLOCK_DOWHILE_PROB = 0.5
+
 # Number larger than any node index. (If you're trying to compile a 1 GB large
 # C file to matching asm, you have bigger problems than this limit.)
 MAX_INDEX = 10**9
@@ -538,9 +543,9 @@ def perm_temp_for_expr(fn: ca.FuncDef, ast: ca.FileAST) -> None:
         insert_decl(fn, decl)
 
 def perm_randomize_type(fn: ca.FuncDef, ast: ca.FileAST) -> None:
-    # Randomize types of pre-existing local variables. Function parameter types
-    # are not permuted (that would require removing forward declarations, and
-    # most likely parameters types are already correct).
+    """Randomize types of pre-existing local variables. Function parameter
+    types are not permuted (that would require removing forward declarations,
+    and most likely parameters types are already correct)."""
     typemap = build_typemap(ast)
     decls: List[ca.Decl] = []
     class Visitor(ca.NodeVisitor):
@@ -553,6 +558,39 @@ def perm_randomize_type(fn: ca.FuncDef, ast: ca.FileAST) -> None:
             decl.type = randomize_type(decl.type, typemap)
             set_decl_name(decl)
             break
+
+def perm_ins_block(fn: ca.FuncDef, ast: ca.FileAST) -> None:
+    """Wrap a random range of statements within `if (1) { ... }` or
+    `do { ... } while(0).`"""
+    cands: List[Block] = []
+    def rec(block: Block) -> None:
+        cands.append(block)
+        for stmt in get_block_stmts(block, False):
+            for_nested_blocks(stmt, rec)
+    rec(fn.body)
+    block = random.choice(cands)
+    stmts = get_block_stmts(block, True)
+    decl_count = 0
+    for stmt in stmts:
+        if isinstance(stmt, (ca.Decl, ca.Pragma)):
+            decl_count += 1
+        else:
+            break
+    lo = random.randrange(decl_count, len(stmts) + 1)
+    hi = random.randrange(decl_count, len(stmts) + 1)
+    if hi < lo:
+        lo, hi = hi, lo
+    new_block = ca.Compound(block_items=stmts[lo:hi])
+    if random.uniform(0, 1) < INS_BLOCK_DOWHILE_PROB:
+        cond = ca.Constant(type='int', value='0')
+        stmts[lo:hi] = [
+            ca.Pragma("sameline start"),
+            ca.DoWhile(cond=cond, stmt=new_block),
+            ca.Pragma("sameline end"),
+        ]
+    else:
+        cond = ca.Constant(type='int', value='1')
+        stmts[lo:hi] = [ca.If(cond=cond, iftrue=new_block, iffalse=None)]
 
 def perm_sameline(fn: ca.FuncDef, ast: ca.FileAST) -> None:
     cands: List[Tuple[Block, int]] = []
@@ -578,7 +616,7 @@ def perm_sameline(fn: ca.FuncDef, ast: ca.FileAST) -> None:
     insert_statement(cands[i][0], cands[i][1], ca.Pragma("sameline start"))
 
 def normalize_ast(fn: ca.FuncDef, ast: ca.FileAST) -> None:
-    # Add braces to all ifs/fors/etc., to make it easier to insert statements.
+    """Add braces to all ifs/fors/etc., to make it easier to insert statements."""
     def rec(block: Block) -> None:
         stmts = get_block_stmts(block, False)
         for stmt in stmts:
@@ -607,6 +645,7 @@ class Randomizer:
             (perm_temp_for_expr, 90),
             (perm_randomize_type, 10),
             (perm_sameline, 10),
+            (perm_ins_block, 10),
         ]
         method = random.choice([x for (elem, prob) in methods for x in [elem]*prob])
         method(fn, ast)
