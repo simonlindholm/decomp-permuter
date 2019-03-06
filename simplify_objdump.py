@@ -16,6 +16,7 @@ ign_branch_targets = True
 skip_bl_delay_slots = True
 
 num_re = re.compile(r'[0-9]+')
+full_num_re = re.compile(r'\b[0-9]+\b')
 comments = re.compile(r'<.*?>')
 regs = re.compile(r'\b(a[0-3]|t[0-9]|s[0-7]|at|v[01])\b')
 sprel = re.compile(r',([1-9][0-9]*|0x[1-9a-f][0-9a-f]*)\((sp|s8)\)')
@@ -73,7 +74,12 @@ for index, row in enumerate(sys.stdin):
             continue
         before, imm, after = parse_relocated_line(prev)
         repl = row.split()[-1]
-        if imm != '0':
+        # Sometimes s8 is used as a non-framepointer, but we've already lost
+        # the immediate value by pretending it is one. This isn't too bad,
+        # since it's rare and applies consistently. But we do need to handle it
+        # here to avoid a crash, by pretending that lost imms are zero for
+        # relocations.
+        if imm != '0' and imm != 'imm':
             repl += '+' + imm if int(imm,0) > 0 else imm
         if 'R_MIPS_LO16' in row:
             repl = f'%lo({repl})'
@@ -101,7 +107,7 @@ for index, row in enumerate(sys.stdin):
         row_parts.append('')
     mnemonic, instr_args = row_parts
     if mnemonic == 'addiu' and includes_sp.search(instr_args):
-        row = re.sub(num_re, 'imm', row)
+        row = re.sub(full_num_re, 'imm', row)
     if mnemonic in branch_instructions:
         if ign_branch_targets:
             instr_parts = instr_args.split(',')
