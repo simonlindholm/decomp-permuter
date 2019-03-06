@@ -435,7 +435,7 @@ def perm_temp_for_expr(fn: ca.FuncDef, ast: ca.FileAST) -> None:
                     if not isinstance(stmt.type, ca.PtrDecl):
                         # Make non-pointers more common
                         reuse_cands.append(stmt.name)
-            else:
+            elif not isinstance(stmt, ca.Pragma):
                 past_decls = True
             if past_decls:
                 assignment_cands.append((block, index, stmt))
