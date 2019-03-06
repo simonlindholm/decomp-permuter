@@ -45,10 +45,8 @@ class Scorer:
         return (output, ret)
 
     def score(self, cand_o: str) -> Tuple[int, str]:
-        try:
-            objdump_output, cand_seq = self._objdump(cand_o)
-        finally:
-            os.remove(cand_o)
+        objdump_output, cand_seq = self._objdump(cand_o)
+        os.remove(cand_o)
 
         score = 0
         deletions = []
