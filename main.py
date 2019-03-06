@@ -17,6 +17,10 @@ from randomizer import Randomizer
 from scorer import Scorer
 import perm
 
+# The probability that the randomizer continues transforming the output it
+# generated last time it was given the same initial C code.
+RANDOMIZER_KEEP_PROB = 0.25
+
 @attr.s
 class Options:
     directories: List[str] = attr.ib()
@@ -74,6 +78,8 @@ class Permuter:
             return False
 
         randomizer = self._get_randomizer(cand_c)
+        if random.uniform(0, 1) >= RANDOMIZER_KEEP_PROB:
+            randomizer.reset()
         randomizer.randomize()
         self.cur_cand = randomizer.get_current_source()
         return True

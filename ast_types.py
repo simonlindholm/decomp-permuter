@@ -189,7 +189,7 @@ def same_type(type1: Type, type2: Type, typemap: TypeMap, allow_similar: bool=Fa
             if (allow_similar and
                     isinstance(sub1, (IdentifierType, c_ast.Enum)) and
                     isinstance(sub2, (IdentifierType, c_ast.Enum))):
-                # All int-ish types are similar
+                # All int-ish types are similar (except void, but whatever)
                 return True
             if isinstance(sub1, c_ast.Enum) and isinstance(sub2, c_ast.Enum):
                 return sub1.name == sub2.name

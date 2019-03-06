@@ -431,6 +431,10 @@ def perm_temp_for_expr(fn: ca.FuncDef, ast: ca.FileAST) -> None:
                         else:
                             reused = False
                             var = 'new_var'
+                            counter = 1
+                            while var in writes:
+                                counter += 1
+                                var = f'new_var{counter}'
                         found = (place, expr, var, type, reused)
                         return ca.ID(var)
                     eind += 1
@@ -512,19 +516,23 @@ class Randomizer:
     def __init__(self, start_ast: ca.FileAST) -> None:
         self.orig_fn, self.fn_index = find_fn(start_ast)
         normalize_ast(self.orig_fn, start_ast)
+        self.orig_fn = copy.deepcopy(self.orig_fn)
         self.cur_ast = start_ast
 
     def get_current_source(self) -> str:
         return to_c(self.cur_ast)
 
+    def reset(self) -> None:
+        self.cur_ast.ext[self.fn_index] = copy.deepcopy(self.orig_fn)
+
     def randomize(self) -> None:
         ast = self.cur_ast
-        fn = copy.deepcopy(self.orig_fn)
-        ast.ext[self.fn_index] = fn
+        fn = ast.ext[self.fn_index]
+        assert isinstance(fn, ca.FuncDef)
         methods = [
             (perm_temp_for_expr, 90),
-            (perm_randomize_type, 5),
-            #(perm_sameline, 10),
+            (perm_randomize_type, 10),
+            (perm_sameline, 10),
         ]
         method = random.choice([x for (elem, prob) in methods for x in [elem]*prob])
         method(fn, ast)
