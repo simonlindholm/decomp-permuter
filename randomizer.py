@@ -254,6 +254,29 @@ def replace_subexprs(
 
     rec(top_node, True)
 
+def equal_ast(a: ca.Node, b: ca.Node) -> bool:
+    def equal(a: Any, b: Any) -> bool:
+        if type(a) != type(b):
+            return False
+        if a is None:
+            return b is None
+        if isinstance(a, list):
+            assert isinstance(b, list)
+            if len(a) != len(b):
+                return False
+            for i in range(len(a)):
+                if not equal(a[i], b[i]):
+                    return False
+            return True
+        if isinstance(a, (int, str)):
+            return bool(a == b)
+        assert isinstance(a, ca.Node)
+        for name in a.__slots__[:-2]: # type: ignore
+            if not equal(getattr(a, name), getattr(b, name)):
+                return False
+        return True
+    return equal(a, b)
+
 def get_block_stmts(block: Block, force: bool) -> List[Statement]:
     if isinstance(block, ca.Compound):
         ret = block.block_items or []
@@ -481,13 +504,22 @@ def perm_temp_for_expr(fn: ca.FuncDef, ast: ca.FileAST) -> None:
             counter += 1
             var = f'new_var{counter}'
 
-    # Step 4: possible expand the replacement to include duplicate expressions.
+    # Step 4: possibly expand the replacement to include duplicate expressions.
     prev_write, next_write = surrounding_writes(expr)
-    # TODO
+    replace_cands: List[Expression] = []
+    def find_duplicates(e: Expression) -> None:
+        if prev_write < indices[e] <= next_write and equal_ast(e, expr):
+            replace_cands.append(e)
+    replace_subexprs(fn.body, find_duplicates)
+    assert expr in replace_cands
+    index = replace_cands.index(expr)
+    lo_index = random.randint(0, index)
+    hi_index = random.randint(index + 1, len(replace_cands))
+    replace_cand_set = set(replace_cands[lo_index:hi_index])
 
     # Step 5: replace the chosen expression
     def replacer(e: Expression) -> Optional[Expression]:
-        if e == expr:
+        if e in replace_cand_set:
             return ca.ID(var)
         return None
     replace_subexprs(fn.body, replacer)
