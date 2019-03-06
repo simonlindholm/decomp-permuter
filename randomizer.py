@@ -21,6 +21,10 @@ RANDOMIZE_TYPE_PROB = 0.3
 # Reuse an existing var instead of introducing a new temporary one with this probability
 REUSE_VAR_PROB = 0.5
 
+# Number larger than any node index. (If you're trying to compile a 1 GB large
+# C file to matching asm, you have bigger problems than this limit.)
+MAX_INDEX = 10**9
+
 Indices = Dict[ca.Node, int]
 Block = Union[ca.Compound, ca.Case, ca.Default]
 if typing.TYPE_CHECKING:
@@ -329,44 +333,72 @@ def randomize_type(type: SimpleType, typemap: TypeMap) -> SimpleType:
     idtype = ca.IdentifierType(names=new_names)
     return ca.TypeDecl(declname=None, quals=[], type=idtype)
 
+def maybe_reuse_var(
+    var: Optional[str],
+    assign_before: ca.Node,
+    expr: Expression,
+    type: SimpleType,
+    reads: Dict[str, List[int]],
+    writes: Dict[str, List[int]],
+    indices: Indices,
+    typemap: TypeMap,
+) -> Optional[str]:
+    if random.uniform(0, 1) > REUSE_VAR_PROB or var is None:
+        return None
+    var_type: SimpleType = decayed_expr_type(ca.ID(var), typemap)
+    if not same_type(var_type, type, typemap, allow_similar=True):
+        return None
+    def find_next(list: List[int], value: int) -> Optional[int]:
+        ind = bisect.bisect_left(list, value)
+        if ind < len(list):
+            return list[ind]
+        return None
+    assignment_ind = indices[assign_before]
+    expr_ind = indices[expr]
+    write = find_next(writes.get(var, []), assignment_ind)
+    read = find_next(reads.get(var, []), assignment_ind)
+    if read is not None and (write is None or write >= read):
+        # We don't want to overwrite a variable which we later read,
+        # unless we write to it before that read
+        return None
+    if write is not None and write < expr_ind:
+        # Our write will be overwritten before we manage to read from it.
+        return None
+    return var
+
 def perm_temp_for_expr(fn: ca.FuncDef, ast: ca.FileAST) -> None:
     Place = Tuple[Block, int, Statement]
-    einds: Dict[int, int] = {}
-    sumprob: float = 0
-    targetprob: Optional[float] = None
-    found: Optional[Tuple[Place, Expression, str, SimpleType, bool]] = None
+    einds: Dict[ca.Node, int] = {}
     indices = compute_node_indices(fn)
     writes: Dict[str, List[int]] = compute_write_locations(fn, indices)
     reads: Dict[str, List[int]] = compute_read_locations(fn, indices)
     typemap = build_typemap(ast)
+    candidates: List[Tuple[float, Tuple[Place, Expression, Optional[str]]]] = []
 
-    def reuse_var(
-        reuse_cands: List[str], place: Place, expr: Expression, type: SimpleType
-    ) -> Optional[str]:
-        if random.uniform(0, 1) > REUSE_VAR_PROB or not reuse_cands:
-            return None
-        var = random.choice(reuse_cands)
-        var_type: SimpleType = decayed_expr_type(ca.ID(var), typemap)
-        if not same_type(var_type, type, typemap, allow_similar=True):
-            return None
-        def find_next(list: List[int], value: int) -> Optional[int]:
-            ind = bisect.bisect_left(list, value)
-            if ind < len(list):
-                return list[ind]
-            return None
-        assignment_ind = indices[place[2]]
-        expr_ind = indices[expr]
-        write = find_next(writes.get(var, []), assignment_ind)
-        read = find_next(reads.get(var, []), assignment_ind)
-        if read is not None and (write is None or write >= read):
-            # We don't want to overwrite a variable which we later read,
-            # unless we write to it before that read
-            return None
-        if write is not None and write < expr_ind:
-            # Our write will be overwritten before we manage to read from it.
-            return None
-        return var
+    def surrounding_writes(expr: Expression) -> Tuple[int, int]:
+        """Compute the previous and next write to a variable included in expr,
+        starting from expr. If none, default to -1 or MAX_INDEX respectively.
+        If expr itself writes to an included variable (e.g. if it is an
+        increment expression), the \"next\" write will be defined as the node
+        itself, while the \"previous\" will continue searching to the left."""
+        sub_reads = find_var_reads(expr)
+        prev_write = -1
+        next_write = MAX_INDEX
+        for sub_read in sub_reads:
+            var_name = sub_read.name
+            if var_name not in writes:
+                continue
+            # Find the first write that is strictly before indices[expr],
+            # and the first write that is on or after.
+            wr = writes[var_name]
+            ind = bisect.bisect_left(wr, indices[expr])
+            if ind > 0:
+                prev_write = max(prev_write, wr[ind - 1])
+            if ind < len(wr):
+                next_write = min(next_write, wr[ind])
+        return prev_write, next_write
 
+    # Step 1: assign probabilities to each place/expression
     def rec(block: Block, reuse_cands: List[str]) -> None:
         stmts = get_block_stmts(block, False)
         reuse_cands = reuse_cands[:]
@@ -387,27 +419,12 @@ def perm_temp_for_expr(fn: ca.FuncDef, ast: ca.FileAST) -> None:
 
             for_nested_blocks(stmt, lambda b: rec(b, reuse_cands))
 
-            def replacer(expr: Expression) -> Optional[Expression]:
-                nonlocal sumprob
-                nonlocal found
-                if found is not None:
-                    return None
-
+            def visitor(expr: Expression) -> None:
                 if DEBUG_EAGER_TYPES:
                     decayed_expr_type(expr, typemap)
 
-                eind = einds.get(id(expr), 0)
-                sub_reads = find_var_reads(expr)
-                latest_write = -1
-                for sub_read in sub_reads:
-                    var_name = sub_read.name
-                    if var_name not in writes:
-                        continue
-                    # Find the first write that is strictly before indices[expr]
-                    ind = bisect.bisect_left(writes[var_name], indices[expr])
-                    if ind == 0:
-                        continue
-                    latest_write = max(latest_write, writes[var_name][ind - 1])
+                eind = einds.get(expr, 0)
+                prev_write, _ = surrounding_writes(expr)
 
                 for place in assignment_cands[::-1]:
                     # If expr contains an ID which is written to within
@@ -415,43 +432,68 @@ def perm_temp_for_expr(fn: ca.FuncDef, ast: ca.FileAST) -> None:
                     # assignment too high up.
                     # TODO: also fail on moving past function calls, or
                     # possibly-aliasing writes.
-                    if indices[place[2]] <= latest_write:
+                    if indices[place[2]] <= prev_write:
                         break
 
-                    prob = 1 / (1 + eind)
+                    # Make far-away places less likely, and similarly for
+                    # trivial expressions.
+                    eind += 1
+                    prob = 1 / eind
                     if isinstance(expr, (ca.ID, ca.Constant)):
                         prob *= 0.5
-                    sumprob += prob
-                    if targetprob is not None and sumprob > targetprob:
-                        type: SimpleType = decayed_expr_type(expr, typemap)
-                        reused_var = reuse_var(reuse_cands, place, expr, type)
-                        if reused_var is not None:
-                            reused = True
-                            var = reused_var
-                        else:
-                            reused = False
-                            var = 'new_var'
-                            counter = 1
-                            while var in writes:
-                                counter += 1
-                                var = f'new_var{counter}'
-                        found = (place, expr, var, type, reused)
-                        return ca.ID(var)
-                    eind += 1
-                einds[id(expr)] = eind
-                return None
-            replace_subexprs(stmt, replacer)
+                    reuse_cand = random.choice(reuse_cands) if reuse_cands else None
+                    candidates.append((prob, (place, expr, reuse_cand)))
+
+                einds[expr] = eind
+            replace_subexprs(stmt, visitor)
 
     rec(fn.body, [])
+
+    # Step 2: decide on a place/expression
+    sumprob = 0.0
+    for (prob, cand) in candidates:
+        sumprob += prob
     targetprob = random.uniform(0, sumprob)
-    sumprob = 0
-    einds = {}
-    rec(fn.body, [])
+    sumprob = 0.0
+    chosen_cand = None
+    for (prob, cand) in candidates:
+        sumprob += prob
+        if sumprob > targetprob:
+            chosen_cand = cand
+            break
 
-    assert found is not None
-    location, expr, var, type, reused = found
+    assert chosen_cand is not None, "math"
+    place, expr, reuse_cand = chosen_cand
     # print("replacing:", to_c(expr))
-    block, index, _ = location
+
+    # Step 3: decide on a variable to hold the expression
+    type: SimpleType = decayed_expr_type(expr, typemap)
+    reused_var = maybe_reuse_var(reuse_cand, place[2], expr, type, reads,
+            writes, indices, typemap)
+    if reused_var is not None:
+        reused = True
+        var = reused_var
+    else:
+        reused = False
+        var = 'new_var'
+        counter = 1
+        while var in writes:
+            counter += 1
+            var = f'new_var{counter}'
+
+    # Step 4: possible expand the replacement to include duplicate expressions.
+    prev_write, next_write = surrounding_writes(expr)
+    # TODO
+
+    # Step 5: replace the chosen expression
+    def replacer(e: Expression) -> Optional[Expression]:
+        if e == expr:
+            return ca.ID(var)
+        return None
+    replace_subexprs(fn.body, replacer)
+
+    # Step 6: insert the assignment and any new variable declaration
+    block, index, _ = place
     assignment = ca.Assignment('=', ca.ID(var), expr)
     insert_statement(block, index, assignment)
     if not reused:
