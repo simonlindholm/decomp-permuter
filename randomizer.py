@@ -171,8 +171,14 @@ def replace_subexprs(
         if isinstance(node, ca.Assignment):
             node.rvalue = rec(node.rvalue)
         elif isinstance(node, ca.StructRef):
+            if not toplevel:
+                x = callback(node)
+                if x: return x
             node.name = rec(node.name)
-        elif isinstance(node, (ca.Return, ca.Cast)):
+        elif isinstance(node, ca.Cast):
+            if not toplevel:
+                x = callback(node)
+                if x: return x
             if node.expr:
                 node.expr = rec(node.expr)
         elif isinstance(node, (ca.Constant, ca.ID)):
@@ -191,12 +197,6 @@ def replace_subexprs(
                 if x: return x
             node.left = rec(node.left)
             node.right = rec(node.right)
-        elif isinstance(node, ca.Compound):
-            for sub in node.block_items or []:
-                rec(sub, True)
-        elif isinstance(node, (ca.Case, ca.Default)):
-            for sub in node.stmts or []:
-                rec(sub, True)
         elif isinstance(node, ca.FuncCall):
             if not toplevel:
                 x = callback(node)
@@ -215,6 +215,16 @@ def replace_subexprs(
                 if x: return x
             node.name = rec(node.name)
             node.subscript = rec(node.subscript)
+        elif isinstance(node, ca.TernaryOp):
+            if not toplevel:
+                x = callback(node)
+                if x: return x
+            node.cond = rec(node.cond)
+            node.iftrue = rec(node.iftrue)
+            node.iffalse = rec(node.iffalse)
+        elif isinstance(node, ca.Return):
+            if node.expr:
+                node.expr = rec(node.expr)
         elif isinstance(node, ca.Decl):
             if node.init:
                 node.init = rec(node.init)
@@ -226,13 +236,12 @@ def replace_subexprs(
             if node.next:
                 node.next = rec(node.next, True)
             node.stmt = rec(node.stmt, True)
-        elif isinstance(node, ca.TernaryOp):
-            if not toplevel:
-                x = callback(node)
-                if x: return x
-            node.cond = rec(node.cond)
-            node.iftrue = rec(node.iftrue)
-            node.iffalse = rec(node.iffalse)
+        elif isinstance(node, ca.Compound):
+            for sub in node.block_items or []:
+                rec(sub, True)
+        elif isinstance(node, (ca.Case, ca.Default)):
+            for sub in node.stmts or []:
+                rec(sub, True)
         elif isinstance(node, ca.While):
             node.cond = rec(node.cond)
             node.stmt = rec(node.stmt, True)
