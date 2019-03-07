@@ -26,6 +26,11 @@ REUSE_VAR_PROB = 0.5
 # This matches what macros often do.
 INS_BLOCK_DOWHILE_PROB = 0.5
 
+# Make a pointer to a temporary expression, rather than copy it by value, with
+# this probability. (This always happens for expressions of struct type,
+# regardless of this probability.)
+TEMP_PTR_PROB = 0.05
+
 # Number larger than any node index. (If you're trying to compile a 1 GB large
 # C file to matching asm, you have bigger problems than this limit.)
 MAX_INDEX = 10**9
@@ -297,6 +302,13 @@ def equal_ast(a: ca.Node, b: ca.Node) -> bool:
         return True
     return equal(a, b)
 
+def is_lvalue(expr: Expression) -> bool:
+    if isinstance(expr, (ca.ID, ca.StructRef, ca.ArrayRef)):
+        return True
+    if isinstance(expr, ca.UnaryOp):
+        return expr.op == '*'
+    return False
+
 def get_block_stmts(block: Block, force: bool) -> List[Statement]:
     if isinstance(block, ca.Compound):
         ret = block.block_items or []
@@ -380,6 +392,7 @@ def maybe_reuse_var(
     var: Optional[str],
     assign_before: ca.Node,
     expr: Expression,
+    orig_expr: Expression,
     type: SimpleType,
     reads: Dict[str, List[int]],
     writes: Dict[str, List[int]],
@@ -397,7 +410,7 @@ def maybe_reuse_var(
             return list[ind]
         return None
     assignment_ind = indices[assign_before]
-    expr_ind = indices[expr]
+    expr_ind = indices[orig_expr]
     write = find_next(writes.get(var, []), assignment_ind)
     read = find_next(reads.get(var, []), assignment_ind)
     if read is not None and (write is None or write >= read):
@@ -418,15 +431,20 @@ def perm_temp_for_expr(fn: ca.FuncDef, ast: ca.FileAST) -> bool:
     typemap = build_typemap(ast)
     candidates: List[Tuple[float, Tuple[Place, Expression, Optional[str]]]] = []
 
-    def surrounding_writes(expr: Expression) -> Tuple[int, int]:
+    # Step 0: decide whether to make a pointer to the chosen expression, or to
+    # copy it by value.
+    should_make_ptr = (random.uniform(0, 1) < TEMP_PTR_PROB)
+
+    def surrounding_writes(expr: Expression, base: Expression) -> Tuple[int, int]:
         """Compute the previous and next write to a variable included in expr,
-        starting from expr. If none, default to -1 or MAX_INDEX respectively.
-        If expr itself writes to an included variable (e.g. if it is an
+        starting from base. If none, default to -1 or MAX_INDEX respectively.
+        If base itself writes to an included variable (e.g. if it is an
         increment expression), the \"next\" write will be defined as the node
         itself, while the \"previous\" will continue searching to the left."""
         sub_reads = find_var_reads(expr)
         prev_write = -1
         next_write = MAX_INDEX
+        base_index = indices[base]
         for sub_read in sub_reads:
             var_name = sub_read.name
             if var_name not in writes:
@@ -434,7 +452,7 @@ def perm_temp_for_expr(fn: ca.FuncDef, ast: ca.FileAST) -> bool:
             # Find the first write that is strictly before indices[expr],
             # and the first write that is on or after.
             wr = writes[var_name]
-            ind = bisect.bisect_left(wr, indices[expr])
+            ind = bisect.bisect_left(wr, base_index)
             if ind > 0:
                 prev_write = max(prev_write, wr[ind - 1])
             if ind < len(wr):
@@ -466,8 +484,14 @@ def perm_temp_for_expr(fn: ca.FuncDef, ast: ca.FileAST) -> bool:
                 if DEBUG_EAGER_TYPES:
                     decayed_expr_type(expr, typemap)
 
+                orig_expr = expr
+                if should_make_ptr:
+                    if not is_lvalue(expr):
+                        return
+                    expr = ca.UnaryOp('&', expr)
+
                 eind = einds.get(expr, 0)
-                prev_write, _ = surrounding_writes(expr)
+                prev_write, _ = surrounding_writes(expr, orig_expr)
 
                 for place in assignment_cands[::-1]:
                     # If expr contains an ID which is written to within
@@ -482,8 +506,8 @@ def perm_temp_for_expr(fn: ca.FuncDef, ast: ca.FileAST) -> bool:
                     # trivial expressions.
                     eind += 1
                     prob = 1 / eind
-                    if isinstance(expr, (ca.ID, ca.Constant)):
-                        prob *= 0.5
+                    if isinstance(orig_expr, (ca.ID, ca.Constant)):
+                        prob *= 0.15 if should_make_ptr else 0.5
                     reuse_cand = random.choice(reuse_cands) if reuse_cands else None
                     candidates.append((prob, (place, expr, reuse_cand)))
 
@@ -510,12 +534,27 @@ def perm_temp_for_expr(fn: ca.FuncDef, ast: ca.FileAST) -> bool:
 
     assert chosen_cand is not None, "math"
     place, expr, reuse_cand = chosen_cand
+    type: SimpleType = decayed_expr_type(expr, typemap)
+
+    # Always use pointers when replacing structs
+    if (not should_make_ptr and isinstance(type, ca.TypeDecl) and
+            isinstance(type.type, ca.Struct) and is_lvalue(expr)):
+        should_make_ptr = True
+        expr = ca.UnaryOp('&', expr)
+        type = decayed_expr_type(expr, typemap)
+
+    if should_make_ptr:
+        assert isinstance(expr, ca.UnaryOp)
+        assert not isinstance(expr.expr, ca.Typename)
+        orig_expr = expr.expr
+    else:
+        orig_expr = expr
     # print("replacing:", to_c(expr))
 
     # Step 3: decide on a variable to hold the expression
-    type: SimpleType = decayed_expr_type(expr, typemap)
-    reused_var = maybe_reuse_var(reuse_cand, place[2], expr, type, reads,
-            writes, indices, typemap)
+    assign_before = place[2]
+    reused_var = maybe_reuse_var(reuse_cand, assign_before, expr, orig_expr,
+            type, reads, writes, indices, typemap)
     if reused_var is not None:
         reused = True
         var = reused_var
@@ -528,14 +567,15 @@ def perm_temp_for_expr(fn: ca.FuncDef, ast: ca.FileAST) -> bool:
             var = f'new_var{counter}'
 
     # Step 4: possibly expand the replacement to include duplicate expressions.
-    prev_write, next_write = surrounding_writes(expr)
+    prev_write, next_write = surrounding_writes(expr, orig_expr)
+    prev_write = max(prev_write, indices[assign_before] - 1)
     replace_cands: List[Expression] = []
     def find_duplicates(e: Expression) -> None:
-        if prev_write < indices[e] <= next_write and equal_ast(e, expr):
+        if prev_write < indices[e] <= next_write and equal_ast(e, orig_expr):
             replace_cands.append(e)
     replace_subexprs(fn.body, find_duplicates)
-    assert expr in replace_cands
-    index = replace_cands.index(expr)
+    assert orig_expr in replace_cands
+    index = replace_cands.index(orig_expr)
     lo_index = random.randint(0, index)
     hi_index = random.randint(index + 1, len(replace_cands))
     replace_cand_set = set(replace_cands[lo_index:hi_index])
@@ -543,7 +583,10 @@ def perm_temp_for_expr(fn: ca.FuncDef, ast: ca.FileAST) -> bool:
     # Step 5: replace the chosen expression
     def replacer(e: Expression) -> Optional[Expression]:
         if e in replace_cand_set:
-            return ca.ID(var)
+            if should_make_ptr:
+                return ca.UnaryOp('*', ca.ID(var))
+            else:
+                return ca.ID(var)
         return None
     replace_subexprs(fn.body, replacer)
 
