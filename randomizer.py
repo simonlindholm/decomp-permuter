@@ -149,6 +149,10 @@ def find_var_reads(top_node: ca.Node) -> List[ca.ID]:
                 self.visit(node.init)
         def visit_ID(self, node: ca.ID) -> None:
             ret.append(node)
+        def visit_UnaryOp(self, node: ca.UnaryOp) -> None:
+            if node.op == '&' and isinstance(node.expr, ca.ID):
+                return
+            self.generic_visit(node)
         def visit_StructRef(self, node: ca.StructRef) -> None:
             self.visit(node.name)
         def visit_Assignment(self, node: ca.Assignment) -> None:
