@@ -73,6 +73,8 @@ def to_c(node: ca.Node) -> str:
             continue
         if not same_line:
             line += '\n'
+        elif out and not out[-1].endswith('\n'):
+            line = ' ' + line.lstrip()
         out.append(line)
     assert same_line == 0
     return ''.join(out).rstrip() + '\n'
