@@ -181,6 +181,11 @@ def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         perm_ind = (perm_ind + 1) % len(permuters)
         perm = permuters[perm_ind]
 
+        if iteration == 0 and options.seed is not None:
+            rand_seed = options.seed
+        else:
+            rand_seed = random.randrange(10**18) + iteration
+        random.seed(rand_seed)
         try:
             t0 = time.time()
             if not perm.permutate_next():
@@ -206,6 +211,7 @@ def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         except Exception:
             print(f"[{perm.unique_name}] internal permuter failure.")
             traceback.print_exc()
+            print(f"To reproduce the failure, rerun with: --seed {rand_seed}")
             exit(1)
 
         iteration += 1
