@@ -400,7 +400,7 @@ def maybe_reuse_var(
         return None
     return var
 
-def perm_temp_for_expr(fn: ca.FuncDef, ast: ca.FileAST) -> None:
+def perm_temp_for_expr(fn: ca.FuncDef, ast: ca.FileAST) -> bool:
     Place = Tuple[Block, int, Statement]
     einds: Dict[ca.Node, int] = {}
     indices = compute_node_indices(fn)
@@ -483,6 +483,9 @@ def perm_temp_for_expr(fn: ca.FuncDef, ast: ca.FileAST) -> None:
 
     rec(fn.body, [])
 
+    if not candidates:
+        return False
+
     # Step 2: decide on a place/expression
     sumprob = 0.0
     for (prob, cand) in candidates:
@@ -548,7 +551,9 @@ def perm_temp_for_expr(fn: ca.FuncDef, ast: ca.FileAST) -> None:
         set_decl_name(decl)
         insert_decl(fn, decl)
 
-def perm_randomize_type(fn: ca.FuncDef, ast: ca.FileAST) -> None:
+    return True
+
+def perm_randomize_type(fn: ca.FuncDef, ast: ca.FileAST) -> bool:
     """Randomize types of pre-existing local variables. Function parameter
     types are not permuted (that would require removing forward declarations,
     and most likely parameters types are already correct)."""
@@ -564,8 +569,9 @@ def perm_randomize_type(fn: ca.FuncDef, ast: ca.FileAST) -> None:
             decl.type = randomize_type(decl.type, typemap)
             set_decl_name(decl)
             break
+    return True
 
-def perm_ins_block(fn: ca.FuncDef, ast: ca.FileAST) -> None:
+def perm_ins_block(fn: ca.FuncDef, ast: ca.FileAST) -> bool:
     """Wrap a random range of statements within `if (1) { ... }` or
     `do { ... } while(0).`"""
     cands: List[Block] = []
@@ -597,8 +603,9 @@ def perm_ins_block(fn: ca.FuncDef, ast: ca.FileAST) -> None:
     else:
         cond = ca.Constant(type='int', value='1')
         stmts[lo:hi] = [ca.If(cond=cond, iftrue=new_block, iffalse=None)]
+    return True
 
-def perm_sameline(fn: ca.FuncDef, ast: ca.FileAST) -> None:
+def perm_sameline(fn: ca.FuncDef, ast: ca.FileAST) -> bool:
     cands: List[Tuple[Block, int]] = []
     def rec(block: Block) -> None:
         stmts = get_block_stmts(block, False)
@@ -608,7 +615,8 @@ def perm_sameline(fn: ca.FuncDef, ast: ca.FileAST) -> None:
         cands.append((block, len(stmts)))
     rec(fn.body)
     n = len(cands)
-    assert n >= 3
+    if n < 3:
+        return False
     # Generate a small random interval
     lef: float = n - 2
     for i in range(4):
@@ -620,6 +628,7 @@ def perm_sameline(fn: ca.FuncDef, ast: ca.FileAST) -> None:
     # later indices to move.
     insert_statement(cands[j][0], cands[j][1], ca.Pragma("sameline end"))
     insert_statement(cands[i][0], cands[i][1], ca.Pragma("sameline start"))
+    return True
 
 def normalize_ast(fn: ca.FuncDef, ast: ca.FileAST) -> None:
     """Add braces to all ifs/fors/etc., to make it easier to insert statements."""
@@ -653,5 +662,8 @@ class Randomizer:
             (perm_sameline, 10),
             (perm_ins_block, 10),
         ]
-        method = random.choice([x for (elem, prob) in methods for x in [elem]*prob])
-        method(fn, ast)
+        while True:
+            method = random.choice([x for (elem, prob) in methods for x in [elem]*prob])
+            ret = method(fn, ast)
+            if ret:
+                break
