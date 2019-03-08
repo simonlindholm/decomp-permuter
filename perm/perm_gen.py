@@ -2,13 +2,14 @@ from typing import Callable, Dict, List, Tuple
 import re
 
 from perm.perm import (Perm, CombinePerm, GeneralPerm, RandomizerPerm,
-        TextPerm, TernaryPerm, TypecastPerm)
+        TextPerm, TernaryPerm, TypecastPerm, VarPerm)
 
 perm_create: Dict[str, Callable[[List[Perm]], Perm]] = {
     'PERM_GENERAL':   lambda args: GeneralPerm(args),
     'PERM_RANDOMIZE': lambda args: RandomizerPerm(args[0]),
     'PERM_TERNARY':   lambda args: TernaryPerm(*args),
     'PERM_TYPECAST':  lambda args: TypecastPerm(args),
+    'PERM_VAR':       lambda args: VarPerm(args),
 }
 
 def get_parenthesis_args(s: str) -> Tuple[List[str], str]:

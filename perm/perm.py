@@ -1,5 +1,11 @@
-from typing import List
+from typing import Dict, List, Optional
 import math
+
+import attr
+
+@attr.s
+class EvalState:
+    vars: Dict[str, str] = attr.ib(factory=dict)
 
 class Perm:
     """A Perm subclass generates different variations of a part of the source
@@ -15,17 +21,17 @@ class Perm:
         self.perm_count = 1
         self.children: List[Perm] = []
 
-    def evaluate(self, seed: int) -> str:
+    def evaluate(self, seed: int, state: EvalState) -> str:
         return ''
 
     def is_random(self) -> bool:
         return any(p.is_random() for p in self.children)
 
-def eval_all(seed: int, perms: List[Perm]) -> List[str]:
+def eval_all(seed: int, perms: List[Perm], state: EvalState) -> List[str]:
     ret = []
     for p in perms:
         seed, sub_seed = divmod(seed, p.perm_count)
-        ret.append(p.evaluate(sub_seed))
+        ret.append(p.evaluate(sub_seed, state))
     assert seed == 0, "seed must be in [0, prod(counts))"
     return ret
 
@@ -35,10 +41,10 @@ def count_all(perms: List[Perm]) -> int:
         res *= p.perm_count
     return res
 
-def eval_either(seed: int, perms: List[Perm]) -> str:
+def eval_either(seed: int, perms: List[Perm], state: EvalState) -> str:
     for p in perms:
         if seed < p.perm_count:
-            return p.evaluate(seed)
+            return p.evaluate(seed, state)
         seed -= p.perm_count
     assert False, "seed must be in [0, sum(counts))"
 
@@ -50,7 +56,7 @@ class TextPerm(Perm):
         super().__init__()
         self.text = text
 
-    def evaluate(self, seed: int) -> str:
+    def evaluate(self, seed: int, state: EvalState) -> str:
         return self.text
 
 class CombinePerm(Perm):
@@ -59,8 +65,8 @@ class CombinePerm(Perm):
         self.children = parts
         self.perm_count = count_all(parts)
 
-    def evaluate(self, seed: int) -> str:
-        texts = eval_all(seed, self.children)
+    def evaluate(self, seed: int, state: EvalState) -> str:
+        texts = eval_all(seed, self.children, state)
         return ''.join(texts)
 
 class RandomizerPerm(Perm):
@@ -68,8 +74,8 @@ class RandomizerPerm(Perm):
         super().__init__()
         self.inner = inner
 
-    def evaluate(self, seed: int) -> str:
-        text = self.inner.evaluate(seed)
+    def evaluate(self, seed: int, state: EvalState) -> str:
+        text = self.inner.evaluate(seed, state)
         return "\n".join(["",
             "#pragma randomizer_start",
             text,
@@ -85,8 +91,8 @@ class GeneralPerm(Perm):
         self.perm_count = count_either(candidates)
         self.children = candidates
 
-    def evaluate(self, seed: int) -> str:
-        return eval_either(seed, self.children)
+    def evaluate(self, seed: int, state: EvalState) -> str:
+        return eval_either(seed, self.children, state)
 
 class TernaryPerm(Perm):
     def __init__(self, pre: Perm, cond: Perm, iftrue: Perm, iffalse: Perm) -> None:
@@ -94,9 +100,9 @@ class TernaryPerm(Perm):
         self.children = [pre, cond, iftrue, iffalse]
         self.perm_count = 2 * count_all(self.children)
 
-    def evaluate(self, seed: int) -> str:
+    def evaluate(self, seed: int, state: EvalState) -> str:
         sub_seed, variation = divmod(seed, 2)
-        pre, cond, iftrue, iffalse = eval_all(sub_seed, self.children)
+        pre, cond, iftrue, iffalse = eval_all(sub_seed, self.children, state)
         if variation > 0:
             return f'{pre}({cond} ? {iftrue} : {iffalse});'
         else:
@@ -108,9 +114,31 @@ class TypecastPerm(Perm):
         self.perm_count = count_either(types)
         self.children = types
 
-    def evaluate(self, seed: int) -> str:
-        t = eval_either(seed, self.children)
+    def evaluate(self, seed: int, state: EvalState) -> str:
+        t = eval_either(seed, self.children, state)
         if not t.strip():
             return ''
         else:
             return f'({t})'
+
+class VarPerm(Perm):
+    def __init__(self, args: List[Perm]) -> None:
+        assert len(args) in [1, 2]
+        assert isinstance(args[0], TextPerm)
+        self.var_name = args[0].text
+        if len(args) == 2:
+            self.expansion: Optional[Perm] = args[1]
+            self.perm_count = args[1].perm_count
+        else:
+            self.expansion = None
+            self.perm_count = 1
+
+    def evaluate(self, seed: int, state: EvalState) -> str:
+        if self.expansion is not None:
+            ret = self.expansion.evaluate(seed, state)
+            state.vars[self.var_name] = ret
+            return ''
+        else:
+            if self.var_name not in state.vars:
+                raise Exception(f"Tried to read undefined PERM_VAR {self.var_name}")
+            return state.vars[self.var_name]
