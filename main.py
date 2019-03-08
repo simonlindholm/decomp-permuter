@@ -191,6 +191,7 @@ def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> int:
             t0 = time.time()
             if not perm.permutate_next():
                 permuters.remove(perm)
+                continue
             t1 = time.time()
 
             if options.print_diffs:
