@@ -1,9 +1,9 @@
-from typing import List, Optional
+from typing import List
 import math
 
 class Perm:
     """A Perm subclass generates different variations of a part of the source
-    code. Its _evaluate_self method will be called with a seed between 0 and
+    code. Its evaluate method will be called with a seed between 0 and
     perm_count-1, and it should return a unique string for each.
 
     A Perm is allowed to return different strings for the same seed, but if so,
@@ -13,28 +13,13 @@ class Perm:
 
     def __init__(self) -> None:
         self.perm_count = 1
-        self.next_perm = None
+        self.children: List[Perm] = []
 
     def evaluate(self, seed: int) -> str:
-        next_seed, my_seed = divmod(seed, self.perm_count)
-        ret = self._evaluate_self(my_seed)
-        if self.next_perm:
-            ret += self.next_perm.evaluate(next_seed)
-        else:
-            assert next_seed == 0, "seed must be in [0, prod(counts))"
-        return ret
-
-    def _evaluate_self(self, seed: int) -> str:
         return ''
 
-    def get_counts(self) -> int:
-        ret = self.perm_count
-        if self.next_perm:
-            ret *= self.next_perm.get_counts()
-        return ret
-
     def is_random(self) -> bool:
-        return self.next_perm is not None and self.next_perm.is_random()
+        return any(p.is_random() for p in self.children)
 
 def eval_all(seed: int, perms: List[Perm]) -> List[str]:
     ret = []
@@ -65,15 +50,25 @@ class TextPerm(Perm):
         super().__init__()
         self.text = text
 
-    def _evaluate_self(self, seed: int) -> str:
+    def evaluate(self, seed: int) -> str:
         return self.text
+
+class CombinePerm(Perm):
+    def __init__(self, parts: List[Perm]) -> None:
+        super().__init__()
+        self.children = parts
+        self.perm_count = count_all(parts)
+
+    def evaluate(self, seed: int) -> str:
+        texts = eval_all(seed, self.children)
+        return ''.join(texts)
 
 class RandomizerPerm(Perm):
     def __init__(self, inner: Perm) -> None:
         super().__init__()
         self.inner = inner
 
-    def _evaluate_self(self, seed: int) -> str:
+    def evaluate(self, seed: int) -> str:
         text = self.inner.evaluate(seed)
         return "\n".join(["",
             "#pragma randomizer_start",
@@ -88,20 +83,20 @@ class GeneralPerm(Perm):
     def __init__(self, candidates: List[Perm]) -> None:
         super().__init__()
         self.perm_count = count_either(candidates)
-        self.candidates = candidates
+        self.children = candidates
 
-    def _evaluate_self(self, seed: int) -> str:
-        return eval_either(seed, self.candidates)
+    def evaluate(self, seed: int) -> str:
+        return eval_either(seed, self.children)
 
 class TernaryPerm(Perm):
     def __init__(self, pre: Perm, cond: Perm, iftrue: Perm, iffalse: Perm) -> None:
         super().__init__()
-        self.sub_parts = [pre, cond, iftrue, iffalse]
-        self.perm_count = 2 * count_all(self.sub_parts)
+        self.children = [pre, cond, iftrue, iffalse]
+        self.perm_count = 2 * count_all(self.children)
 
-    def _evaluate_self(self, seed: int) -> str:
+    def evaluate(self, seed: int) -> str:
         sub_seed, variation = divmod(seed, 2)
-        pre, cond, iftrue, iffalse = eval_all(sub_seed, self.sub_parts)
+        pre, cond, iftrue, iffalse = eval_all(sub_seed, self.children)
         if variation > 0:
             return f'{pre}({cond} ? {iftrue} : {iffalse});'
         else:
@@ -111,10 +106,10 @@ class TypecastPerm(Perm):
     def __init__(self, types: List[Perm]) -> None:
         super().__init__()
         self.perm_count = count_either(types)
-        self.types = types
+        self.children = types
 
-    def _evaluate_self(self, seed: int) -> str:
-        t = eval_either(seed, self.types)
+    def evaluate(self, seed: int) -> str:
+        t = eval_either(seed, self.children)
         if not t.strip():
             return ''
         else:

@@ -17,7 +17,7 @@ def get_all_seeds(total_count: int) -> Iterable[int]:
 
 def perm_evaluate_all(perm: Perm) -> Iterable[str]:
     while True:
-        for seed in get_all_seeds(perm.get_counts()):
+        for seed in get_all_seeds(perm.perm_count):
             yield perm.evaluate(seed)
         if not perm.is_random():
             break
