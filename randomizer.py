@@ -391,7 +391,6 @@ def randomize_type(type: SimpleType, typemap: TypeMap) -> SimpleType:
 def maybe_reuse_var(
     var: Optional[str],
     assign_before: ca.Node,
-    expr: Expression,
     orig_expr: Expression,
     type: SimpleType,
     reads: Dict[str, List[int]],
@@ -413,6 +412,8 @@ def maybe_reuse_var(
     expr_ind = indices[orig_expr]
     write = find_next(writes.get(var, []), assignment_ind)
     read = find_next(reads.get(var, []), assignment_ind)
+    # TODO: if write/read is within expr, search again from after it (since
+    # we move expr, uses within it aren't relevant).
     if read is not None and (write is None or write >= read):
         # We don't want to overwrite a variable which we later read,
         # unless we write to it before that read
@@ -553,8 +554,8 @@ def perm_temp_for_expr(fn: ca.FuncDef, ast: ca.FileAST) -> bool:
 
     # Step 3: decide on a variable to hold the expression
     assign_before = place[2]
-    reused_var = maybe_reuse_var(reuse_cand, assign_before, expr, orig_expr,
-            type, reads, writes, indices, typemap)
+    reused_var = maybe_reuse_var(reuse_cand, assign_before, orig_expr, type,
+            reads, writes, indices, typemap)
     if reused_var is not None:
         reused = True
         var = reused_var
