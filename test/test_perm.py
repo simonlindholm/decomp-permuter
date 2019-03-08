@@ -16,6 +16,9 @@ c_files_list = [
     ['test_general.c', 'test_general_multiple'],
     ['test_ternary.c', 'test_ternary1'],
     ['test_ternary.c', 'test_ternary2'],
+    ['test_type.c', 'test_type1'],
+    ['test_type.c', 'test_type2'],
+    ['test_type.c', 'test_type3'],
 ]
 
 class TestStringMethods(unittest.TestCase):
@@ -54,7 +57,6 @@ class TestStringMethods(unittest.TestCase):
         scores = main.main(main.Options(directories=[d]))
         self.assertEqual(scores[0], 0)
 
-
     def test_general_3(self):
         d = self.tmp_dirs[('test_general.c', 'test_general_3')].name
         scores = main.main(main.Options(directories=[d]))
@@ -72,6 +74,21 @@ class TestStringMethods(unittest.TestCase):
 
     def test_ternary2(self):
         d = self.tmp_dirs[('test_ternary.c', 'test_ternary2')].name
+        scores = main.main(main.Options(directories=[d]))
+        self.assertEqual(scores[0], 0)
+
+    def test_type1(self):
+        d = self.tmp_dirs[('test_type.c', 'test_type1')].name
+        scores = main.main(main.Options(directories=[d]))
+        self.assertEqual(scores[0], 0)
+
+    def test_type2(self):
+        d = self.tmp_dirs[('test_type.c', 'test_type2')].name
+        scores = main.main(main.Options(directories=[d]))
+        self.assertEqual(scores[0], 0)
+
+    def test_type3(self):
+        d = self.tmp_dirs[('test_type.c', 'test_type3')].name
         scores = main.main(main.Options(directories=[d]))
         self.assertEqual(scores[0], 0)
 
