@@ -131,7 +131,10 @@ def main(options: Options) -> int:
             exit(1)
         print()
         print("Exiting.")
-        exit()
+        # The lru_cache sometimes uses a lot of memory, making normal exit slow
+        # due to GC. But since we're sane people and don't use finalizers for
+        # cleanup, we can just skip GC and exit immediately.
+        os._exit(0)
 
 def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> int:
     print("Loading...")
