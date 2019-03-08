@@ -2,10 +2,10 @@ import sys
 import re
 from pathlib import Path
 
-def _find_bracket_end(input):
+def _find_bracket_end(input: str, start_index: int) -> int:
     level = 1
-    i = 1
-    assert(input[0] == '{')
+    assert input[start_index] == '{'
+    i = start_index + 1
     while i < len(input):
         if input[i] == '{':
             level += 1
@@ -15,9 +15,10 @@ def _find_bracket_end(input):
                 break
         i += 1
     
+    assert level == 0, "unbalanced {}"
     return i
 
-def strip_other_fns(source, keep_fn_name):
+def strip_other_fns(source: str, keep_fn_name: str) -> str:
     result = ''
     remain = source
     while True:
@@ -29,7 +30,7 @@ def strip_other_fns(source, keep_fn_name):
             break
 
         fn_name = fn.group(1)
-        bracket_end = (fn.end() - 1) + _find_bracket_end(remain[fn.end() - 1:])
+        bracket_end = _find_bracket_end(remain, fn.end() - 1)
         if fn_name == keep_fn_name:
             result += remain[:bracket_end+1]
         else:
@@ -39,19 +40,18 @@ def strip_other_fns(source, keep_fn_name):
 
     return result
 
-def strip_other_fns_and_write(source, fn_name, out_name = None):
-    if out_name == None:
-        out_name = filename
-
+def strip_other_fns_and_write(source: str, fn_name: str, out_filename=None) -> None:
     stripped = strip_other_fns(source, fn_name)
 
-    with open(out_name, 'w') as f:
-        f.write(stripped)
+    if out_filename is None:
+        print(stripped)
+    else:
+        with open(out_filename, 'w') as f:
+            f.write(stripped)
 
 if __name__ == "__main__":
     filename = sys.argv[1]
     fn_name = sys.argv[2]
     
     source = Path(filename).read_text()
-    strip_other_fns_and_write(source, fn_name)
-    pass
+    strip_other_fns_and_write(source, fn_name, filename)
