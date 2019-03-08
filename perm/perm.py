@@ -123,6 +123,7 @@ class TypecastPerm(Perm):
 
 class VarPerm(Perm):
     def __init__(self, args: List[Perm]) -> None:
+        super().__init__()
         assert len(args) in [1, 2]
         assert isinstance(args[0], TextPerm)
         self.var_name = args[0].text
@@ -142,3 +143,6 @@ class VarPerm(Perm):
             if self.var_name not in state.vars:
                 raise Exception(f"Tried to read undefined PERM_VAR {self.var_name}")
             return state.vars[self.var_name]
+
+    def is_random(self) -> bool:
+        return self.expansion is not None and self.expansion.is_random()
