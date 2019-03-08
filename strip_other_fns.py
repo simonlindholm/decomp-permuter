@@ -1,28 +1,57 @@
 import sys
+import re
+from pathlib import Path
 
-from pycparser import parse_file, c_ast, c_parser, c_generator
+def _find_bracket_end(input):
+    level = 1
+    i = 1
+    assert(input[0] == '{')
+    while i < len(input):
+        if input[i] == '{':
+            level += 1
+        elif input[i] == '}':
+            level -= 1
+            if level == 0:
+                break
+        i += 1
+    
+    return i
 
-def strip_other_fns(filename, fn_name, out_name = None, use_cpp=False, cpp_args = ''):
+def strip_other_fns(source, keep_fn_name):
+    result = ''
+    remain = source
+    while True:
+        fn_regex = re.compile(r'^.*\s+(\w+)\(.*\)\s*?{', re.M)
+        fn = re.search(fn_regex, remain)
+        if fn == None:
+            result += remain
+            remain = ''
+            break
+
+        fn_name = fn.group(1)
+        bracket_end = (fn.end() - 1) + _find_bracket_end(remain[fn.end() - 1:])
+        if fn_name == keep_fn_name:
+            result += remain[:bracket_end+1]
+        else:
+            result += remain[:fn.start()]
+        
+        remain = remain[bracket_end+1:]
+
+    return result
+
+def strip_other_fns_and_write(source, fn_name, out_name = None):
     if out_name == None:
         out_name = filename
 
-    ast = parse_file(filename, use_cpp=use_cpp, cpp_args=cpp_args)
+    stripped = strip_other_fns(source, fn_name)
 
-    new_nodes = []
-    for node in ast.ext:
-        if isinstance(node, c_ast.FuncDef) and node.decl.name != fn_name:
-            node = node.decl
-        new_nodes.append(node)
-    ast.ext = new_nodes
-
-    generator = c_generator.CGenerator()
-
-    ret = generator.visit(ast)
     with open(out_name, 'w') as f:
-        f.write(ret)
+        f.write(stripped)
 
 if __name__ == "__main__":
     filename = sys.argv[1]
     fn_name = sys.argv[2]
-    strip_other_fns(filename, fn_name)
+    
+    source = Path(filename).read_text()
+    strip_other_fns_and_write(source, fn_name)
     pass
