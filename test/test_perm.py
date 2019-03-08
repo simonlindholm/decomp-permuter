@@ -54,43 +54,43 @@ class TestStringMethods(unittest.TestCase):
 
     def test_general(self):
         d = self.tmp_dirs[('test_general.c', 'test_general')].name
-        scores = main.main(main.Options(directories=[d]))
-        self.assertEqual(scores[0], 0)
+        score = main.main(main.Options(directories=[d]))
+        self.assertEqual(score, 0)
 
     def test_general_3(self):
         d = self.tmp_dirs[('test_general.c', 'test_general_3')].name
-        scores = main.main(main.Options(directories=[d]))
-        self.assertEqual(scores[0], 0)
+        score = main.main(main.Options(directories=[d]))
+        self.assertEqual(score, 0)
 
     def test_general_multiple(self):
         d = self.tmp_dirs[('test_general.c', 'test_general_multiple')].name
-        scores = main.main(main.Options(directories=[d]))
-        self.assertEqual(scores[0], 0)
+        score = main.main(main.Options(directories=[d]))
+        self.assertEqual(score, 0)
 
     def test_ternary1(self):
         d = self.tmp_dirs[('test_ternary.c', 'test_ternary1')].name
-        scores = main.main(main.Options(directories=[d]))
-        self.assertEqual(scores[0], 0)
+        score = main.main(main.Options(directories=[d]))
+        self.assertEqual(score, 0)
 
     def test_ternary2(self):
         d = self.tmp_dirs[('test_ternary.c', 'test_ternary2')].name
-        scores = main.main(main.Options(directories=[d]))
-        self.assertEqual(scores[0], 0)
+        score = main.main(main.Options(directories=[d]))
+        self.assertEqual(score, 0)
 
     def test_type1(self):
         d = self.tmp_dirs[('test_type.c', 'test_type1')].name
-        scores = main.main(main.Options(directories=[d]))
-        self.assertEqual(scores[0], 0)
+        score = main.main(main.Options(directories=[d]))
+        self.assertEqual(score, 0)
 
     def test_type2(self):
         d = self.tmp_dirs[('test_type.c', 'test_type2')].name
-        scores = main.main(main.Options(directories=[d]))
-        self.assertEqual(scores[0], 0)
+        score = main.main(main.Options(directories=[d]))
+        self.assertEqual(score, 0)
 
     def test_type3(self):
         d = self.tmp_dirs[('test_type.c', 'test_type3')].name
-        scores = main.main(main.Options(directories=[d]))
-        self.assertEqual(scores[0], 0)
+        score = main.main(main.Options(directories=[d]))
+        self.assertEqual(score, 0)
 
 if __name__ == '__main__':
     unittest.main()

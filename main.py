@@ -245,7 +245,7 @@ def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             write_candidate(perm, source)
         print("\b"*10 + " "*10 + "\r" + status_line, end='', flush=True)
     
-    return high_scores
+    return min(high_scores)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
