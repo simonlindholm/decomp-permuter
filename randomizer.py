@@ -613,14 +613,17 @@ def perm_randomize_type(fn: ca.FuncDef, ast: ca.FileAST) -> bool:
     decls: List[ca.Decl] = []
     class Visitor(ca.NodeVisitor):
         def visit_Decl(self, decl: ca.Decl) -> None:
-            decls.append(decl)
+            if isinstance(decl.type, ca.TypeDecl):
+                decls.append(decl)
     Visitor().visit(fn)
-    while True:
-        decl = random.choice(decls)
-        if isinstance(decl.type, ca.TypeDecl):
-            decl.type = randomize_type(decl.type, typemap)
-            set_decl_name(decl)
-            break
+
+    if len(decls) == 0:
+        return True
+
+    decl = random.choice(decls)
+    decl.type = randomize_type(decl.type, typemap)
+    set_decl_name(decl)
+
     return True
 
 def perm_ins_block(fn: ca.FuncDef, ast: ca.FileAST) -> bool:
