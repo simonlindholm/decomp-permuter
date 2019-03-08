@@ -113,7 +113,7 @@ def write_candidate(perm: Permuter, source: str) -> None:
             pass
     print(f"wrote to {fname}")
 
-def main(options: Options) -> List[int]:
+def main(options: Options) -> int:
     last_time = time.time()
     if options.seed is not None:
         random.seed(options.seed)
@@ -132,7 +132,7 @@ def main(options: Options) -> List[int]:
         print("Exiting.")
         exit()
 
-def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> List[int]:
+def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> int:
     print("Loading...")
 
     name_counts: Dict[str, int] = {}
