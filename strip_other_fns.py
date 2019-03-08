@@ -31,7 +31,7 @@ def strip_other_fns(source: str, keep_fn_name: str) -> str:
 
         fn_name = fn.group(1)
         bracket_end = _find_bracket_end(remain, fn.end() - 1)
-        if fn_name == keep_fn_name:
+        if fn_name == keep_fn_name or fn_name.startswith('PERM'):
             result += remain[:bracket_end+1]
         else:
             result += remain[:fn.start()]

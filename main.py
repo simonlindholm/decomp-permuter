@@ -32,7 +32,7 @@ class Options:
 
 def find_fns(source: str) -> List[str]:
     fns = re.findall(r'(\w+)\(.*\)\s*?{', source)
-    return fns
+    return [fn for fn in fns if not fn.startswith('PERM')]
 
 class Permuter:
     def __init__(self, dir: str, compiler: Compiler, scorer: Scorer, source_file: str, source: str):
@@ -42,8 +42,10 @@ class Permuter:
         self.source_file = source_file
 
         fns = find_fns(source)
-        if len(fns) != 1:
-            raise Exception(f"{self.source_file} must contain exactly one function. (Use strip_other_fns.py.)")
+        if len(fns) == 0:
+            raise Exception(f"{self.source_file} does not contain any function!")
+        if len(fns) > 1:
+            raise Exception(f"{self.source_file} must contain only one function. (Use strip_other_fns.py.)")
         self.fn_name = fns[0]
         self.unique_name = self.fn_name
 
