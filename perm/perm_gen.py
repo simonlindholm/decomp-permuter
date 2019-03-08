@@ -3,11 +3,11 @@ import re
 
 from perm.perm import Perm, GeneralPerm, RandomizerPerm, TextPerm, TernaryPerm, TypecastPerm
 
-perm_create: Dict[str, Callable[[List[str]], Perm]] = {
-    'PERM_GENERAL': lambda args: GeneralPerm(args),
+perm_create: Dict[str, Callable[[List[Perm]], Perm]] = {
+    'PERM_GENERAL':   lambda args: GeneralPerm(args),
     'PERM_RANDOMIZE': lambda args: RandomizerPerm(args[0]),
-    'PERM_TERNARY' : lambda args : TernaryPerm(*args),
-    'PERM_TYPECAST' : lambda args : TypecastPerm(args),
+    'PERM_TERNARY':   lambda args: TernaryPerm(*args),
+    'PERM_TYPECAST':  lambda args: TypecastPerm(args),
 }
 
 def get_parenthesis_args(s: str) -> Tuple[List[str], str]:
@@ -37,7 +37,7 @@ def get_parenthesis_args(s: str) -> Tuple[List[str], str]:
     assert level == 0, "Error, no closing parenthesis found"
     return args, remain
 
-def perm_gen(input: str) -> Perm:
+def rec_perm_gen(input: str) -> Perm:
     remain = input
     head_perm = None
     cur_perm = None
@@ -50,11 +50,6 @@ def perm_gen(input: str) -> Perm:
         else:
             cur_perm.next_perm = p
         cur_perm = p
-
-    if re.search(macro_search, input) is None:
-        head_perm = RandomizerPerm(input)
-        print("No perm macros found. Defaulting to randomization")
-        return head_perm
 
     while len(remain) > 0:
         match = re.search(macro_search, remain)
@@ -78,8 +73,17 @@ def perm_gen(input: str) -> Perm:
             append_perm(text_perm)
 
         # Create new perm
-        new_perm = perm_create[perm_type](args)
+        perm_args = [rec_perm_gen(arg) for arg in args]
+        new_perm = perm_create[perm_type](perm_args)
         append_perm(new_perm)
 
-    assert head_perm is not None
+    if head_perm is None:
+        head_perm = TextPerm('')
     return head_perm
+
+def perm_gen(input: str) -> Perm:
+    ret = rec_perm_gen(input)
+    if isinstance(ret, TextPerm) and not ret.next_perm:
+        ret = RandomizerPerm(ret)
+        print("No perm macros found. Defaulting to randomization")
+    return ret

@@ -60,8 +60,7 @@ class Permuter:
         return Randomizer(ast)
 
     def score_base(self) -> Tuple[str, int, str]:
-        base_seed = [0] * len(self.permutations.get_counts())
-        base_source = self.permutations.evaluate(base_seed)
+        base_source = self.permutations.evaluate(seed=0)
 
         # Normalize the C code by e.g. stripping whitespace and pragmas
         randomizer = self._get_randomizer(base_source)
