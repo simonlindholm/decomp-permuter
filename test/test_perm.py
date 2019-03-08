@@ -33,8 +33,8 @@ class TestStringMethods(unittest.TestCase):
             file_base = path.join(d.name, "base.c")
             file_target = path.join(d.name, "target.o")
 
-            actual_preprocessed = preprocess(file_test, cpp_args='-DACTUAL')
-            base_preprocessed = preprocess(file_test, cpp_args='-UACTUAL')
+            actual_preprocessed = preprocess(file_test, cpp_args=['-DACTUAL'])
+            base_preprocessed = preprocess(file_test, cpp_args=['-UACTUAL'])
 
             strip_other_fns_and_write(actual_preprocessed, test_fn, file_actual)
             strip_other_fns_and_write(base_preprocessed, test_fn, file_base)

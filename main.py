@@ -154,7 +154,7 @@ def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> int:
 
         compiler = Compiler(compile_cmd, options.show_errors)
         scorer = Scorer(target_o)
-        c_source = preprocess(base_c, cpp_args='-nostdinc')
+        c_source = preprocess(base_c)
 
         # TODO: catch special-purpose permuter exceptions from this
         permuter = Permuter(d, compiler, scorer, base_c, c_source)
