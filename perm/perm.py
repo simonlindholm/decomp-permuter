@@ -81,3 +81,16 @@ class TernaryPerm(Perm):
             return f'{self.pre}({self.cond} ? {self.iftrue} : {self.iffalse});'
         else:
             return f'if ({self.cond})\n {self.pre}{self.iftrue};\n else\n {self.pre}{self.iffalse};'
+
+class TypecastPerm(Perm):
+    def __init__(self, types):
+        super().__init__()
+        self.perm_count = len(types) 
+        self.types = types
+
+    def _evaluate_self(self, seed):
+        t = self.types[seed]
+        if t == '' or t.isspace():
+            return ''
+        else:
+            return f'({t})'
