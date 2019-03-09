@@ -683,6 +683,39 @@ def perm_sameline(fn: ca.FuncDef, ast: ca.FileAST) -> bool:
     insert_statement(cands[i][0], cands[i][1], ca.Pragma("sameline start"))
     return True
 
+def perm_reorder_stmts(fn: ca.FuncDef, ast: ca.FileAST) -> bool:
+    """Move a statement to another random place."""
+    cands: List[Tuple[Block, int, bool]] = []
+    def rec(block: Block) -> None:
+        stmts = get_block_stmts(block, False)
+        for index, stmt in enumerate(stmts):
+            if isinstance(stmt, ca.Decl):
+                # Don't reorder declarations, or put statements before them.
+                continue
+            len_before = len(cands)
+            for_nested_blocks(stmt, rec)
+            can_move = (len(cands) == len_before)
+            cands.append((block, index, can_move))
+        cands.append((block, len(stmts), False))
+    rec(fn.body)
+
+    source_inds = [i for i, c in enumerate(cands) if c[2]]
+    if not source_inds:
+        return False
+    fromi = random.choice(source_inds)
+    toi = round(random.triangular(0, len(cands) - 1, fromi))
+
+    fromb, fromi, _ = cands[fromi]
+    tob, toi, _ = cands[toi]
+    if fromb == tob and fromi < toi:
+        toi -= 1
+    if fromb == tob and fromi == toi:
+        return False
+
+    stmt = get_block_stmts(fromb, True).pop(fromi)
+    insert_statement(tob, toi, stmt)
+    return True
+
 def normalize_ast(fn: ca.FuncDef, ast: ca.FileAST) -> None:
     """Add braces to all ifs/fors/etc., to make it easier to insert statements."""
     def rec(block: Block) -> None:
@@ -710,10 +743,11 @@ class Randomizer:
         fn = ast.ext[self.fn_index]
         assert isinstance(fn, ca.FuncDef)
         methods = [
-            (perm_temp_for_expr, 90),
+            (perm_temp_for_expr, 100),
             (perm_randomize_type, 10),
             (perm_sameline, 10),
             (perm_ins_block, 10),
+            (perm_reorder_stmts, 5),
         ]
         while True:
             method = random.choice([x for (elem, prob) in methods for x in [elem]*prob])
