@@ -16,7 +16,7 @@ class DiffAsmLine:
     def __init__(self, line: str) -> None:
         self.line = line
         self.mnemonic = line.split('\t')[0]
-        if '%' in line and 'rodata' not in line and 'jtbl' not in line:
+        if '%' in line and 'data' not in line and 'jtbl' not in line:
             self.macro_arg = '%' + line.split('%')[1].split(')')[0] + ')'
         else:
             self.macro_arg = ''
