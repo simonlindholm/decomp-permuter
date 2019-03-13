@@ -22,7 +22,7 @@ def strip_other_fns(source: str, keep_fn_name: str) -> str:
     result = ''
     remain = source
     while True:
-        fn_regex = re.compile(r'^.*\s+(\w+)\(.*\)\s*?{', re.M)
+        fn_regex = re.compile(r'^.*\s+\**(\w+)\(.*\)\s*?{', re.M)
         fn = re.search(fn_regex, remain)
         if fn == None:
             result += remain
