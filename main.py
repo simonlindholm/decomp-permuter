@@ -82,7 +82,8 @@ class Permuter:
         randomizer = self._get_randomizer(cand_c)
         if random.uniform(0, 1) >= RANDOMIZER_KEEP_PROB:
             randomizer.reset()
-        randomizer.randomize()
+        if self.permutations.is_random():
+            randomizer.randomize()
         self.cur_cand = randomizer.get_current_source()
         return True
 
