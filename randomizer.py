@@ -32,6 +32,14 @@ INS_BLOCK_DOWHILE_PROB = 0.5
 # regardless of this probability.)
 TEMP_PTR_PROB = 0.05
 
+# When substituting a variable by its value, substitute all instances with this
+# probability, rather than just a subrange or the complement of one.
+PROB_REPLACE_ALL = 0.3
+
+# When substituting a variable by its value, keep the variable assignment with
+# this probability.
+PROB_KEEP_REPLACED_VAR = 0.2
+
 # Number larger than any node index. (If you're trying to compile a 1 GB large
 # C file to matching asm, you have bigger problems than this limit.)
 MAX_INDEX = 10**9
@@ -43,17 +51,19 @@ Block = Union[ca.Compound, ca.Case, ca.Default]
 class Region:
     start: int = attr.ib()
     end: int = attr.ib()
-    indices: Indices = attr.ib(cmp=False)
+    indices: Optional[Indices] = attr.ib(cmp=False)
 
     @staticmethod
-    def unbounded(indices: Indices) -> 'Region':
-        return Region(-1, MAX_INDEX, indices)
+    def unbounded() -> 'Region':
+        return Region(-1, MAX_INDEX, None)
 
     def is_unbounded(self) -> bool:
-        return self.start == -1 and self.end == MAX_INDEX
+        return self.indices is None
 
     def contains_node(self, node: ca.Node) -> bool:
         """Check whether the region contains an entire node."""
+        if self.indices is None:
+            return True
         # We assume valid nesting of regions, so it's fine to check just the
         # node's starting index. (Though for clarify we should probably check
         # the end index as well, if we refactor the code so it's available.)
@@ -61,7 +71,16 @@ class Region:
 
     def contains_pre(self, node: ca.Node) -> bool:
         """Check whether the region contains a point just before a given node."""
+        if self.indices is None:
+            return True
         return self.start < self.indices[node] <= self.end
+
+    def contains_pre_index(self, index: int) -> bool:
+        """Check whether the region contains a point just before a given node,
+        as specified by its index."""
+        if self.indices is None:
+            return True
+        return self.start < index <= self.end
 
 if typing.TYPE_CHECKING:
     # ca.Expression and ca.Statement don't actually exist, they live only in
@@ -130,6 +149,12 @@ def compute_node_indices(top_node: ca.Node) -> Indices:
     Visitor().visit(top_node)
     return indices
 
+def reverse_indices(indices: Indices) -> Dict[int, ca.Node]:
+    ret = {}
+    for k, v in indices.items():
+        ret[v] = k
+    return ret
+
 def get_randomization_region(top_node: ca.Node, indices: Indices) -> Region:
     ret: List[Region] = []
     cur_start: Optional[int] = None
@@ -147,7 +172,7 @@ def get_randomization_region(top_node: ca.Node, indices: Indices) -> Region:
     Visitor().visit(top_node)
     assert cur_start is None, "randomizer start without end"
     if not ret:
-        return Region.unbounded(indices)
+        return Region.unbounded()
     return random.choice(ret)
 
 def compute_write_locations(
@@ -213,66 +238,44 @@ def find_var_reads(top_node: ca.Node) -> List[ca.ID]:
     Visitor().visit(top_node)
     return ret
 
-def replace_subexprs(
+def visit_replace(
     top_node: ca.Node,
-    callback: Callable[[Expression], Any]
+    callback: Callable[[ca.Node, bool], Any]
 ) -> None:
     def rec(orig_node: ca.Node, toplevel: bool=False) -> Any:
         node: 'ca.AnyNode' = typing.cast('ca.AnyNode', orig_node)
+        repl = callback(node, not toplevel)
+        if repl:
+            return repl
         if isinstance(node, ca.Assignment):
             node.rvalue = rec(node.rvalue)
         elif isinstance(node, ca.StructRef):
-            if not toplevel:
-                x = callback(node)
-                if x: return x
             node.name = rec(node.name)
         elif isinstance(node, ca.Cast):
-            if not toplevel:
-                x = callback(node)
-                if x: return x
             if node.expr:
                 node.expr = rec(node.expr)
         elif isinstance(node, (ca.Constant, ca.ID)):
-            if not toplevel:
-                x = callback(node)
-                if x: return x
+            pass
         elif isinstance(node, ca.UnaryOp):
-            if not toplevel:
-                x = callback(node)
-                if x: return x
-            if node.op not in ['p++', 'p--', '++', '--', '&']:
+            if node.op not in ['p++', 'p--', '++', '--', '&', 'sizeof']:
                 node.expr = rec(node.expr)
         elif isinstance(node, ca.BinaryOp):
-            if not toplevel:
-                x = callback(node)
-                if x: return x
             node.left = rec(node.left)
             node.right = rec(node.right)
         elif isinstance(node, ca.FuncCall):
-            if not toplevel:
-                x = callback(node)
-                if x: return x
             if node.args:
                 rec(node.args, True)
         elif isinstance(node, ca.ExprList):
-            if not toplevel:
-                x = callback(node)
-                if x: return x
             for i in range(len(node.exprs)):
-                node.exprs[i] = rec(node.exprs[i])
+                if not isinstance(node.exprs[i], ca.Typename):
+                    node.exprs[i] = rec(node.exprs[i])
         elif isinstance(node, ca.ArrayRef):
-            if not toplevel:
-                x = callback(node)
-                if x: return x
             node.name = rec(node.name)
             node.subscript = rec(node.subscript)
         elif isinstance(node, ca.TernaryOp):
-            if not toplevel:
-                x = callback(node)
-                if x: return x
             node.cond = rec(node.cond)
-            node.iftrue = rec(node.iftrue)
-            node.iffalse = rec(node.iffalse)
+            node.iftrue = rec(node.iftrue, True)
+            node.iffalse = rec(node.iffalse, True)
         elif isinstance(node, ca.Return):
             if node.expr:
                 node.expr = rec(node.expr)
@@ -325,6 +328,16 @@ def replace_subexprs(
 
     rec(top_node, True)
 
+def replace_subexprs(
+    top_node: ca.Node,
+    callback: Callable[[Expression], Any]
+) -> None:
+    def expr_filter(node: ca.Node, is_expr: bool) -> Any:
+        if not is_expr:
+            return None
+        return callback(typing.cast(Expression, node))
+    visit_replace(top_node, expr_filter)
+
 def equal_ast(a: ca.Node, b: ca.Node) -> bool:
     def equal(a: Any, b: Any) -> bool:
         if type(a) != type(b):
@@ -354,6 +367,24 @@ def is_lvalue(expr: Expression) -> bool:
     if isinstance(expr, ca.UnaryOp):
         return expr.op == '*'
     return False
+
+def is_effectful(expr: Expression) -> bool:
+    found = False
+    class Visitor(ca.NodeVisitor):
+        def visit_UnaryOp(self, node: ca.UnaryOp) -> None:
+            nonlocal found
+            if node.op in ['p++', 'p--', '++', '--']:
+                found = True
+            else:
+                self.generic_visit(node.expr)
+        def visit_FuncCall(self, _: ca.Node) -> None:
+            nonlocal found
+            found = True
+        def visit_Assignment(self, _: ca.Node) -> None:
+            nonlocal found
+            found = True
+    Visitor().visit(expr)
+    return found
 
 def get_block_stmts(block: Block, force: bool) -> List[Statement]:
     if isinstance(block, ca.Compound):
@@ -619,6 +650,11 @@ def perm_temp_for_expr(
     place, expr, reuse_cand = chosen_cand
     type: SimpleType = decayed_expr_type(expr, typemap)
 
+    if is_effectful(expr):
+        # Don't replace effectful expressions. This is a bit expensive to
+        # check, so do it here instead of within the visitor.
+        return False
+
     # Always use pointers when replacing structs
     if (not should_make_ptr and isinstance(type, ca.TypeDecl) and
             isinstance(type.type, ca.Struct) and is_lvalue(expr)):
@@ -682,6 +718,79 @@ def perm_temp_for_expr(
             type = randomize_type(type, typemap)
         insert_decl(fn, var, type)
 
+    return True
+
+def perm_expand_expr(
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region
+) -> bool:
+    """Replace a random variable by its contents."""
+    all_writes: Dict[str, List[int]] = compute_write_locations(fn, indices)
+    all_reads: Dict[str, List[int]] = compute_read_locations(fn, indices)
+
+    # Step 1: pick out a variable to replace
+    rev: Dict[int, str] = {}
+    for var, locs in all_reads.items():
+        for index in locs:
+            if region.contains_pre_index(index):
+                rev[index] = var
+    if not rev:
+        return False
+    index = random.choice(list(rev.keys()))
+    var = rev[index]
+
+    # Step 2: find the assignment it uses
+    reads = all_reads[var]
+    writes = all_writes.get(var, [])
+    read = random.choice(reads)
+    i = bisect.bisect_left(writes, index)
+    if i == 0:
+        # No write to replace the read by.
+        return False
+    before = writes[i-1]
+    after = MAX_INDEX if i == len(writes) else writes[i]
+    rev_indices = reverse_indices(indices)
+    write = rev_indices[before]
+    if isinstance(write, ca.Decl) and write.init:
+        repl_expr = write.init
+    elif isinstance(write, ca.Assignment):
+        repl_expr = write.rvalue
+    else:
+        return False
+    if is_effectful(repl_expr):
+        return False
+
+    # Step 3: pick of the range of variables to replace
+    repl_cands = [i for i in reads if before < i < after and
+                                      region.contains_pre_index(i)]
+    assert repl_cands, "index is always in repl_cands"
+    myi = repl_cands.index(index)
+    if random.uniform(0, 1) >= PROB_REPLACE_ALL and len(repl_cands) > 1:
+        # Keep using the variable for a bit in the middle
+        side = random.randrange(3)
+        H = len(repl_cands)
+        loi = 0 if side == 0 else random.randint(0, myi)
+        hii = H if side == 1 else random.randint(myi+1, H)
+        if loi == 0 and hii == H:
+            loi, hii = myi, myi + 1
+        repl_cands[loi:hii] = []
+        keep_var = True
+    else:
+        keep_var = (random.uniform(0, 1) < PROB_KEEP_REPLACED_VAR)
+    repl_cands_set = set(repl_cands)
+
+    # Step 4: do the replacement
+    def callback(expr: ca.Node, is_expr: bool) -> Optional[ca.Node]:
+        if indices[expr] in repl_cands_set:
+            return copy.deepcopy(repl_expr)
+        if expr == write and isinstance(write, ca.Assignment) and not keep_var:
+            if is_expr:
+                return write.lvalue
+            else:
+                return ca.EmptyStatement()
+        return None
+    visit_replace(fn.body, callback)
+    if not keep_var and isinstance(write, ca.Decl):
+        write.init = None
     return True
 
 def perm_randomize_type(
@@ -859,6 +968,7 @@ class Randomizer:
         region = get_randomization_region(fn, indices)
         methods = [
             (perm_temp_for_expr, 100),
+            (perm_expand_expr, 20),
             (perm_randomize_type, 10),
             (perm_sameline, 10),
             (perm_ins_block, 10),
