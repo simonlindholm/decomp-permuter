@@ -775,6 +775,24 @@ def perm_sameline(
     insert_statement(cands[i][0], cands[i][1], ca.Pragma("sameline start"))
     return True
 
+def perm_add_self_assignment(
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region
+) -> bool:
+    """Introduce a "x = x;" somewhere."""
+    cands = get_insertion_points(fn, region)
+    vars: List[str] = []
+    class Visitor(ca.NodeVisitor):
+        def visit_Decl(self, decl: ca.Decl) -> None:
+            if decl.name:
+                vars.append(decl.name)
+    if not vars or not cands:
+        return False
+    var = random.choice(vars)
+    where = random.choice(cands)
+    assignment = ca.Assignment('=', ca.ID(var), ca.ID(var))
+    insert_statement(where[0], where[1], assignment)
+    return True
+
 def perm_reorder_stmts(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region
 ) -> bool:
@@ -844,6 +862,7 @@ class Randomizer:
             (perm_randomize_type, 10),
             (perm_sameline, 10),
             (perm_ins_block, 10),
+            (perm_add_self_assignment, 5),
             (perm_reorder_stmts, 5),
         ]
         while True:
