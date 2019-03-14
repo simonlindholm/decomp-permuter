@@ -1,9 +1,9 @@
 from typing import List, Iterable, Set
-import random
+from random import Random
 
 from perm.perm import Perm, EvalState
 
-def get_all_seeds(total_count: int) -> Iterable[int]:
+def get_all_seeds(total_count: int, random: Random) -> Iterable[int]:
     """Generate all numbers 0..total_count-1 in random order, in expected time
     O(1) per number."""
     seen: Set[int] = set()
@@ -21,9 +21,9 @@ def get_all_seeds(total_count: int) -> Iterable[int]:
     for seed in remaining:
         yield seed
 
-def perm_evaluate_all(perm: Perm) -> Iterable[str]:
+def perm_evaluate_all(perm: Perm, random: Random) -> Iterable[str]:
     while True:
-        for seed in get_all_seeds(perm.perm_count):
+        for seed in get_all_seeds(perm.perm_count, random):
             yield perm.evaluate(seed, EvalState())
         if not perm.is_random():
             break

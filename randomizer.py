@@ -2,7 +2,7 @@ from typing import Dict, Union, List, Tuple, Callable, Optional, Any, Set
 import attr
 import bisect
 import copy
-import random
+from random import Random
 import sys
 import time
 import typing
@@ -155,7 +155,7 @@ def reverse_indices(indices: Indices) -> Dict[int, ca.Node]:
         ret[v] = k
     return ret
 
-def get_randomization_region(top_node: ca.Node, indices: Indices) -> Region:
+def get_randomization_region(top_node: ca.Node, indices: Indices, random: Random) -> Region:
     ret: List[Region] = []
     cur_start: Optional[int] = None
     class Visitor(ca.NodeVisitor):
@@ -458,7 +458,7 @@ def for_nested_blocks(
     elif isinstance(stmt, ca.Label):
         for_nested_blocks(stmt.stmt, callback)
 
-def randomize_type(type: SimpleType, typemap: TypeMap) -> SimpleType:
+def randomize_type(type: SimpleType, typemap: TypeMap, random: Random) -> SimpleType:
     type2 = resolve_typedefs(type, typemap)
     if not isinstance(type2, ca.TypeDecl):
         return type
@@ -499,6 +499,7 @@ def maybe_reuse_var(
     writes: Dict[str, List[int]],
     indices: Indices,
     typemap: TypeMap,
+    random: Random,
 ) -> Optional[str]:
     if random.uniform(0, 1) > REUSE_VAR_PROB or var is None:
         return None
@@ -526,7 +527,7 @@ def maybe_reuse_var(
     return var
 
 def perm_temp_for_expr(
-    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> bool:
     """Create a temporary variable for a random expression. The variable will
     be assigned at another random point (nearer the expression being more
@@ -673,7 +674,7 @@ def perm_temp_for_expr(
     # Step 3: decide on a variable to hold the expression
     assign_before = place[2]
     reused_var = maybe_reuse_var(reuse_cand, assign_before, orig_expr, type,
-            reads, writes, indices, typemap)
+            reads, writes, indices, typemap, random)
     if reused_var is not None:
         reused = True
         var = reused_var
@@ -715,13 +716,13 @@ def perm_temp_for_expr(
     insert_statement(block, index, assignment)
     if not reused:
         if random.uniform(0, 1) < RANDOMIZE_TYPE_PROB:
-            type = randomize_type(type, typemap)
+            type = randomize_type(type, typemap, random)
         insert_decl(fn, var, type)
 
     return True
 
 def perm_expand_expr(
-    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> bool:
     """Replace a random variable by its contents."""
     all_writes: Dict[str, List[int]] = compute_write_locations(fn, indices)
@@ -794,7 +795,7 @@ def perm_expand_expr(
     return True
 
 def perm_randomize_type(
-    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> bool:
     """Randomize types of pre-existing local variables. Function parameter
     types are not permuted (that would require removing forward declarations,
@@ -820,13 +821,13 @@ def perm_randomize_type(
 
     decl = random.choice(decls)
     assert isinstance(decl.type, ca.TypeDecl), "checked above"
-    decl.type = randomize_type(decl.type, typemap)
+    decl.type = randomize_type(decl.type, typemap, random)
     set_decl_name(decl)
 
     return True
 
 def perm_ins_block(
-    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> bool:
     """Wrap a random range of statements within `if (1) { ... }` or
     `do { ... } while(0)`. Control flow can have remote effects, so this
@@ -864,7 +865,7 @@ def perm_ins_block(
     return True
 
 def perm_sameline(
-    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> bool:
     """Put all statements within a random interval on the same line."""
     cands = get_insertion_points(fn, region)
@@ -885,7 +886,7 @@ def perm_sameline(
     return True
 
 def perm_add_self_assignment(
-    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> bool:
     """Introduce a "x = x;" somewhere."""
     cands = get_insertion_points(fn, region)
@@ -903,7 +904,7 @@ def perm_add_self_assignment(
     return True
 
 def perm_reorder_stmts(
-    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> bool:
     """Move a statement to another random place."""
     cands = get_insertion_points(fn, region)
@@ -948,11 +949,12 @@ def normalize_ast(fn: ca.FuncDef, ast: ca.FileAST) -> None:
     rec(fn.body)
 
 class Randomizer:
-    def __init__(self, start_ast: ca.FileAST) -> None:
+    def __init__(self, start_ast: ca.FileAST, random: Random) -> None:
         self.orig_fn, self.fn_index = find_fn(start_ast)
         normalize_ast(self.orig_fn, start_ast)
         self.orig_fn = copy.deepcopy(self.orig_fn)
         self.cur_ast = start_ast
+        self.random = random
 
     def get_current_source(self) -> str:
         return to_c(self.cur_ast)
@@ -965,7 +967,7 @@ class Randomizer:
         fn = ast.ext[self.fn_index]
         assert isinstance(fn, ca.FuncDef)
         indices = compute_node_indices(fn)
-        region = get_randomization_region(fn, indices)
+        region = get_randomization_region(fn, indices, self.random)
         methods = [
             (perm_temp_for_expr, 100),
             (perm_expand_expr, 20),
@@ -976,7 +978,7 @@ class Randomizer:
             (perm_reorder_stmts, 5),
         ]
         while True:
-            method = random.choice([x for (elem, prob) in methods for x in [elem]*prob])
-            ret = method(fn, ast, indices, region)
+            method = self.random.choice([x for (elem, prob) in methods for x in [elem]*prob])
+            ret = method(fn, ast, indices, region, self.random)
             if ret:
                 break
