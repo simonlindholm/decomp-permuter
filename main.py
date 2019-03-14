@@ -119,8 +119,6 @@ def write_candidate(perm: Permuter, source: str) -> None:
 
 def main(options: Options) -> int:
     last_time = time.time()
-    if options.seed is None:
-        options.seed = os.urandom(8)
     try:
         def heartbeat() -> None:
             nonlocal last_time
@@ -143,6 +141,7 @@ def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> int:
     print("Loading...")
 
     random = Random()
+    if options.seed != None:
     random.seed(options.seed)
 
     name_counts: Dict[str, int] = {}
@@ -193,11 +192,6 @@ def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> int:
         perm_ind = (perm_ind + 1) % len(permuters)
         perm = permuters[perm_ind]
 
-        if iteration == 0 and options.seed is not None:
-            rand_seed = options.seed
-        else:
-            rand_seed = random.randrange(10**18) + iteration
-        random.seed(rand_seed)
         try:
             t0 = time.time()
             if not perm.permutate_next():
