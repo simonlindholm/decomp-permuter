@@ -366,7 +366,11 @@ def get_block_stmts(block: Block, force: bool) -> List[Statement]:
             block.stmts = ret
     return ret
 
-def insert_decl(fn: ca.FuncDef, decl: ca.Decl) -> None:
+def insert_decl(fn: ca.FuncDef, var: str, type: SimpleType) -> None:
+    type=copy.deepcopy(type)
+    decl = ca.Decl(name=var, quals=[], storage=[], funcspec=[],
+            type=type, init=None, bitsize=None)
+    set_decl_name(decl)
     assert fn.body.block_items, "Non-empty function"
     for index, stmt in enumerate(fn.body.block_items):
         if not isinstance(stmt, ca.Decl):
@@ -394,6 +398,10 @@ def brace_nested_blocks(stmt: Statement) -> None:
         stmt.stmt = brace(stmt.stmt)
     elif isinstance(stmt, ca.Label):
         brace_nested_blocks(stmt.stmt)
+
+def has_nested_block(node: ca.Node) -> bool:
+    return isinstance(node, (ca.Compound, ca.For, ca.While, ca.DoWhile, ca.If,
+        ca.Switch, ca.Case, ca.Default))
 
 def for_nested_blocks(
     stmt: Statement,
@@ -433,6 +441,23 @@ def randomize_type(type: SimpleType, typemap: TypeMap) -> SimpleType:
     new_names.append(random.choice(['char', 'short', 'int', 'int']))
     idtype = ca.IdentifierType(names=new_names)
     return ca.TypeDecl(declname=None, quals=[], type=idtype)
+
+def get_insertion_points(
+    fn: ca.FuncDef, region: Region
+) -> List[Tuple[Block, int, Optional[ca.Node]]]:
+    cands: List[Tuple[Block, int, Optional[ca.Node]]] = []
+    def rec(block: Block) -> None:
+        stmts = get_block_stmts(block, False)
+        last_node: ca.Node = block
+        for i, stmt in enumerate(stmts):
+            if region.contains_pre(stmt):
+                cands.append((block, i, stmt))
+            for_nested_blocks(stmt, rec)
+            last_node = stmt
+        if region.contains_node(last_node):
+            cands.append((block, len(stmts), None))
+    rec(fn.body)
+    return cands
 
 def maybe_reuse_var(
     var: Optional[str],
@@ -653,13 +678,9 @@ def perm_temp_for_expr(
     assignment = ca.Assignment('=', ca.ID(var), expr)
     insert_statement(block, index, assignment)
     if not reused:
-        type=copy.deepcopy(type)
         if random.uniform(0, 1) < RANDOMIZE_TYPE_PROB:
             type = randomize_type(type, typemap)
-        decl = ca.Decl(name=var, quals=[], storage=[], funcspec=[],
-                type=type, init=None, bitsize=None)
-        set_decl_name(decl)
-        insert_decl(fn, decl)
+        insert_decl(fn, var, type)
 
     return True
 
@@ -737,18 +758,7 @@ def perm_sameline(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region
 ) -> bool:
     """Put all statements within a random interval on the same line."""
-    cands: List[Tuple[Block, int]] = []
-    def rec(block: Block) -> None:
-        stmts = get_block_stmts(block, False)
-        last_node: ca.Node = block
-        for i, stmt in enumerate(stmts):
-            last_node = stmt
-            if region.contains_pre(last_node):
-                cands.append((block, i))
-            for_nested_blocks(stmt, rec)
-        if region.contains_node(last_node):
-            cands.append((block, len(stmts)))
-    rec(fn.body)
+    cands = get_insertion_points(fn, region)
     n = len(cands)
     if n < 3:
         return False
@@ -769,29 +779,22 @@ def perm_reorder_stmts(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region
 ) -> bool:
     """Move a statement to another random place."""
-    cands: List[Tuple[Block, int, bool]] = []
-    block_count = 0
-    def rec(block: Block) -> None:
-        nonlocal block_count
-        block_count += 1
-        stmts = get_block_stmts(block, False)
-        last_node: ca.Node = block
-        for i, stmt in enumerate(stmts):
-            last_node = stmt
-            if isinstance(stmt, ca.Decl):
-                # Don't reorder declarations, or put statements before them.
-                continue
-            count_before = block_count
-            for_nested_blocks(stmt, rec)
-            can_move = (block_count == count_before and
-                    not isinstance(stmt, ca.Pragma))
-            if region.contains_pre(last_node):
-                cands.append((block, i, can_move))
-        if region.contains_node(last_node):
-            cands.append((block, len(stmts), False))
-    rec(fn.body)
+    cands = get_insertion_points(fn, region)
 
-    source_inds = [i for i, c in enumerate(cands) if c[2]]
+    # Don't reorder declarations, or put statements before them.
+    cands = [c for c in cands if not isinstance(c[2], ca.Decl)]
+
+    # Figure out candidate statements to be moved. Don't move pragmas; it can
+    # cause assertion failures. Don't move blocks; statements are generally not
+    # reordered across basic blocks, and we don't want to risk moving a block
+    # to inside itself.
+    source_inds = []
+    for i, c in enumerate(cands):
+        stmt = c[2]
+        if (stmt is not None and not isinstance(stmt, ca.Pragma)
+                and not has_nested_block(stmt)):
+            source_inds.append(i)
+
     if not source_inds:
         return False
     fromi = random.choice(source_inds)
