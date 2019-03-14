@@ -77,9 +77,9 @@ class RandomizerPerm(Perm):
     def evaluate(self, seed: int, state: EvalState) -> str:
         text = self.inner.evaluate(seed, state)
         return "\n".join(["",
-            "#pragma randomizer_start",
+            "#pragma randomizer start",
             text,
-            "#pragma randomizer_end",
+            "#pragma randomizer end",
             ""])
 
     def is_random(self) -> bool:

@@ -1,10 +1,11 @@
-from typing import Dict, Union, List, Tuple, Callable, Optional, Any
+from typing import Dict, Union, List, Tuple, Callable, Optional, Any, Set
+import attr
+import bisect
+import copy
+import random
+import sys
 import time
 import typing
-import sys
-import random
-import copy
-import bisect
 
 from pycparser import c_ast as ca, c_parser, c_generator
 
@@ -37,6 +38,31 @@ MAX_INDEX = 10**9
 
 Indices = Dict[ca.Node, int]
 Block = Union[ca.Compound, ca.Case, ca.Default]
+
+@attr.s
+class Region:
+    start: int = attr.ib()
+    end: int = attr.ib()
+    indices: Indices = attr.ib(cmp=False)
+
+    @staticmethod
+    def unbounded(indices: Indices) -> 'Region':
+        return Region(-1, MAX_INDEX, indices)
+
+    def is_unbounded(self) -> bool:
+        return self.start == -1 and self.end == MAX_INDEX
+
+    def contains_node(self, node: ca.Node) -> bool:
+        """Check whether the region contains an entire node."""
+        # We assume valid nesting of regions, so it's fine to check just the
+        # node's starting index. (Though for clarify we should probably check
+        # the end index as well, if we refactor the code so it's available.)
+        return self.start < self.indices[node] < self.end
+
+    def contains_pre(self, node: ca.Node) -> bool:
+        """Check whether the region contains a point just before a given node."""
+        return self.start < self.indices[node] <= self.end
+
 if typing.TYPE_CHECKING:
     # ca.Expression and ca.Statement don't actually exist, they live only in
     # the stubs file.
@@ -103,6 +129,26 @@ def compute_node_indices(top_node: ca.Node) -> Indices:
             super().generic_visit(node)
     Visitor().visit(top_node)
     return indices
+
+def get_randomization_region(top_node: ca.Node, indices: Indices) -> Region:
+    ret: List[Region] = []
+    cur_start: Optional[int] = None
+    class Visitor(ca.NodeVisitor):
+        def visit_Pragma(self, node: ca.Pragma) -> None:
+            nonlocal cur_start
+            if node.string == 'randomizer start':
+                if cur_start is not None:
+                    raise Exception("nested PERM_RANDOMIZE not supported")
+                cur_start = indices[node]
+            if node.string == 'randomizer end':
+                assert cur_start is not None, "randomizer end without start"
+                ret.append(Region(cur_start, indices[node], indices))
+                cur_start = None
+    Visitor().visit(top_node)
+    assert cur_start is None, "randomizer start without end"
+    if not ret:
+        return Region.unbounded(indices)
+    return random.choice(ret)
 
 def compute_write_locations(
     top_node: ca.Node, indices: Indices
@@ -423,10 +469,18 @@ def maybe_reuse_var(
         return None
     return var
 
-def perm_temp_for_expr(fn: ca.FuncDef, ast: ca.FileAST) -> bool:
+def perm_temp_for_expr(
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region
+) -> bool:
+    """Create a temporary variable for a random expression. The variable will
+    be assigned at another random point (nearer the expression being more
+    likely), possibly reuse an existing variable, possibly be of a different
+    size/signedness, and possibly be used for other identical expressions as
+    well. Only expressions within the given region may be chosen for
+    replacement, but the assignment and the affected identical expressions may
+    be outside of it."""
     Place = Tuple[Block, int, Statement]
     einds: Dict[ca.Node, int] = {}
-    indices = compute_node_indices(fn)
     writes: Dict[str, List[int]] = compute_write_locations(fn, indices)
     reads: Dict[str, List[int]] = compute_read_locations(fn, indices)
     typemap = build_typemap(ast)
@@ -484,6 +538,9 @@ def perm_temp_for_expr(fn: ca.FuncDef, ast: ca.FileAST) -> bool:
             def visitor(expr: Expression) -> None:
                 if DEBUG_EAGER_TYPES:
                     decayed_expr_type(expr, typemap)
+
+                if not region.contains_node(expr):
+                    return
 
                 orig_expr = expr
                 if should_make_ptr:
@@ -606,15 +663,25 @@ def perm_temp_for_expr(fn: ca.FuncDef, ast: ca.FileAST) -> bool:
 
     return True
 
-def perm_randomize_type(fn: ca.FuncDef, ast: ca.FileAST) -> bool:
+def perm_randomize_type(
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region
+) -> bool:
     """Randomize types of pre-existing local variables. Function parameter
     types are not permuted (that would require removing forward declarations,
-    and most likely parameters types are already correct)."""
+    and most likely parameters types are already correct). Only variables
+    mentioned within the given region are affected."""
+    ids: Set[Optional[str]] = set()
+    class IdVisitor(ca.NodeVisitor):
+        def visit_ID(self, node: ca.ID) -> None:
+            if region.contains_node(node):
+                ids.add(node.name)
+    IdVisitor().visit(fn)
+
     typemap = build_typemap(ast)
     decls: List[ca.Decl] = []
     class Visitor(ca.NodeVisitor):
         def visit_Decl(self, decl: ca.Decl) -> None:
-            if isinstance(decl.type, ca.TypeDecl):
+            if isinstance(decl.type, ca.TypeDecl) and decl.name in ids:
                 decls.append(decl)
     Visitor().visit(fn)
 
@@ -622,14 +689,18 @@ def perm_randomize_type(fn: ca.FuncDef, ast: ca.FileAST) -> bool:
         return False
 
     decl = random.choice(decls)
+    assert isinstance(decl.type, ca.TypeDecl), "checked above"
     decl.type = randomize_type(decl.type, typemap)
     set_decl_name(decl)
 
     return True
 
-def perm_ins_block(fn: ca.FuncDef, ast: ca.FileAST) -> bool:
+def perm_ins_block(
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region
+) -> bool:
     """Wrap a random range of statements within `if (1) { ... }` or
-    `do { ... } while(0).`"""
+    `do { ... } while(0)`. Control flow can have remote effects, so this
+    mostly ignores the region restriction."""
     cands: List[Block] = []
     def rec(block: Block) -> None:
         cands.append(block)
@@ -649,7 +720,8 @@ def perm_ins_block(fn: ca.FuncDef, ast: ca.FileAST) -> bool:
     if hi < lo:
         lo, hi = hi, lo
     new_block = ca.Compound(block_items=stmts[lo:hi])
-    if random.uniform(0, 1) < INS_BLOCK_DOWHILE_PROB:
+    if (random.uniform(0, 1) < INS_BLOCK_DOWHILE_PROB and
+            all(region.contains_node(n) for n in stmts[lo:hi])):
         cond = ca.Constant(type='int', value='0')
         stmts[lo:hi] = [
             ca.Pragma("sameline start"),
@@ -661,14 +733,21 @@ def perm_ins_block(fn: ca.FuncDef, ast: ca.FileAST) -> bool:
         stmts[lo:hi] = [ca.If(cond=cond, iftrue=new_block, iffalse=None)]
     return True
 
-def perm_sameline(fn: ca.FuncDef, ast: ca.FileAST) -> bool:
+def perm_sameline(
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region
+) -> bool:
+    """Put all statements within a random interval on the same line."""
     cands: List[Tuple[Block, int]] = []
     def rec(block: Block) -> None:
         stmts = get_block_stmts(block, False)
-        for index, stmt in enumerate(stmts):
-            cands.append((block, index))
+        last_node: ca.Node = block
+        for i, stmt in enumerate(stmts):
+            last_node = stmt
+            if region.contains_pre(last_node):
+                cands.append((block, i))
             for_nested_blocks(stmt, rec)
-        cands.append((block, len(stmts)))
+        if region.contains_node(last_node):
+            cands.append((block, len(stmts)))
     rec(fn.body)
     n = len(cands)
     if n < 3:
@@ -686,20 +765,30 @@ def perm_sameline(fn: ca.FuncDef, ast: ca.FileAST) -> bool:
     insert_statement(cands[i][0], cands[i][1], ca.Pragma("sameline start"))
     return True
 
-def perm_reorder_stmts(fn: ca.FuncDef, ast: ca.FileAST) -> bool:
+def perm_reorder_stmts(
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region
+) -> bool:
     """Move a statement to another random place."""
     cands: List[Tuple[Block, int, bool]] = []
+    block_count = 0
     def rec(block: Block) -> None:
+        nonlocal block_count
+        block_count += 1
         stmts = get_block_stmts(block, False)
-        for index, stmt in enumerate(stmts):
+        last_node: ca.Node = block
+        for i, stmt in enumerate(stmts):
+            last_node = stmt
             if isinstance(stmt, ca.Decl):
                 # Don't reorder declarations, or put statements before them.
                 continue
-            len_before = len(cands)
+            count_before = block_count
             for_nested_blocks(stmt, rec)
-            can_move = (len(cands) == len_before)
-            cands.append((block, index, can_move))
-        cands.append((block, len(stmts), False))
+            can_move = (block_count == count_before and
+                    not isinstance(stmt, ca.Pragma))
+            if region.contains_pre(last_node):
+                cands.append((block, i, can_move))
+        if region.contains_node(last_node):
+            cands.append((block, len(stmts), False))
     rec(fn.body)
 
     source_inds = [i for i, c in enumerate(cands) if c[2]]
@@ -745,6 +834,8 @@ class Randomizer:
         ast = self.cur_ast
         fn = ast.ext[self.fn_index]
         assert isinstance(fn, ca.FuncDef)
+        indices = compute_node_indices(fn)
+        region = get_randomization_region(fn, indices)
         methods = [
             (perm_temp_for_expr, 100),
             (perm_randomize_type, 10),
@@ -754,6 +845,6 @@ class Randomizer:
         ]
         while True:
             method = random.choice([x for (elem, prob) in methods for x in [elem]*prob])
-            ret = method(fn, ast)
+            ret = method(fn, ast, indices, region)
             if ret:
                 break
