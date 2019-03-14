@@ -885,6 +885,26 @@ def perm_sameline(
     insert_statement(cands[i][0], cands[i][1], ca.Pragma("sameline start"))
     return True
 
+def perm_associative(
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region
+) -> bool:
+    """Change a+b into b+a, or similar for other commutative operations."""
+    cands: List[ca.BinaryOp] = []
+    commutative_ops = list("+*|&^<>") + ['<=', '>=', '==', '!=']
+    class Visitor(ca.NodeVisitor):
+        def visit_BinaryOp(self, node: ca.BinaryOp) -> None:
+            if node.op in commutative_ops and region.contains_node(node):
+                cands.append(node)
+    if not cands:
+        return False
+    node = random.choice(cands)
+    node.left, node.right = node.right, node.left
+    if node.op[0] == '<':
+        node.op = '>' + node.op[1:]
+    elif node.op[0] == '>':
+        node.op = '<' + node.op[1:]
+    return True
+
 def perm_add_self_assignment(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> bool:
@@ -976,6 +996,7 @@ class Randomizer:
             (perm_ins_block, 10),
             (perm_add_self_assignment, 5),
             (perm_reorder_stmts, 5),
+            (perm_associative, 5),
         ]
         while True:
             method = self.random.choice([x for (elem, prob) in methods for x in [elem]*prob])
