@@ -50,7 +50,10 @@ class Permuter:
         self.unique_name = self.fn_name
 
         self.random = Random()
-        self.random.seed(seed)
+        self.seed = seed
+        self.random.seed(self.seed)
+        self.iteration = 0
+
         self.parser = pycparser.CParser()
         self.permutations = perm.perm_gen(source)
         self.base_source, self.base_score, base_hash = self.score_base()
@@ -76,7 +79,12 @@ class Permuter:
 
         return (base_source, *self.scorer.score(start_o))
 
+    def _update_seed(self) -> None:
+        rand_seed = self.random.randrange(10**18) + self.iteration
+        self.random.seed(rand_seed)
+
     def permutate_next(self) -> bool:
+        self._update_seed()
         cand_c = next(self.iterator, None)
         if cand_c is None:
             return False
@@ -87,6 +95,7 @@ class Permuter:
         if self.permutations.is_random():
             randomizer.randomize()
         self.cur_cand = randomizer.get_current_source()
+        self.iteration += 1
         return True
 
     def get_source(self) -> str:
@@ -140,9 +149,11 @@ def main(options: Options) -> int:
 def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> int:
     print("Loading...")
 
-    random = Random()
+
     if options.seed != None:
-    random.seed(options.seed)
+        start_seed = options.seed
+    else:
+        start_seed = randrange(sys.maxsize) # Random seed from default random
 
     name_counts: Dict[str, int] = {}
     permuters: List[Permuter] = []
@@ -165,9 +176,8 @@ def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> int:
         scorer = Scorer(target_o)
         c_source = preprocess(base_c)
 
-        perm_start_seed = random.randrange(sys.maxsize)
         # TODO: catch special-purpose permuter exceptions from this
-        permuter = Permuter(d, compiler, scorer, base_c, c_source, perm_start_seed)
+        permuter = Permuter(d, compiler, scorer, base_c, c_source, start_seed)
 
         permuters.append(permuter)
         name_counts[permuter.fn_name] = name_counts.get(permuter.fn_name, 0) + 1
@@ -218,7 +228,7 @@ def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> int:
         except Exception:
             print(f"[{perm.unique_name}] internal permuter failure.")
             traceback.print_exc()
-            print(f"To reproduce the failure, rerun with: --seed {rand_seed}")
+            print(f"To reproduce the failure, rerun with: --seed {perm.seed}")
             exit(1)
 
         iteration += 1
