@@ -4,6 +4,7 @@ import difflib
 import functools
 import os
 from random import Random
+import random
 import re
 import sys
 import time
@@ -79,12 +80,7 @@ class Permuter:
 
         return (base_source, *self.scorer.score(start_o))
 
-    def _update_seed(self) -> None:
-        rand_seed = self.random.randrange(10**18) + self.iteration
-        self.random.seed(rand_seed)
-
     def permutate_next(self) -> bool:
-        self._update_seed()
         cand_c = next(self.iterator, None)
         if cand_c is None:
             return False
@@ -150,10 +146,10 @@ def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> int:
     print("Loading...")
 
 
-    if options.seed != None:
+    if options.seed is not None:
         start_seed = options.seed
     else:
-        start_seed = randrange(sys.maxsize) # Random seed from default random
+        start_seed = random.randrange(sys.maxsize) # Random seed from default random
 
     name_counts: Dict[str, int] = {}
     permuters: List[Permuter] = []
