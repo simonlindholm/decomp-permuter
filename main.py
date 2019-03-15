@@ -3,6 +3,7 @@ import argparse
 import difflib
 import functools
 import os
+from random import Random
 import random
 import re
 import sys
@@ -35,7 +36,7 @@ def find_fns(source: str) -> List[str]:
     return [fn for fn in fns if not fn.startswith('PERM')]
 
 class Permuter:
-    def __init__(self, dir: str, compiler: Compiler, scorer: Scorer, source_file: str, source: str):
+    def __init__(self, dir: str, compiler: Compiler, scorer: Scorer, source_file: str, source: str, seed: int):
         self.dir = dir
         self.compiler = compiler
         self.scorer = scorer
@@ -49,17 +50,22 @@ class Permuter:
         self.fn_name = fns[0]
         self.unique_name = self.fn_name
 
+        self.random = Random()
+        self.seed = seed
+        self.random.seed(self.seed)
+        self.iteration = 0
+
         self.parser = pycparser.CParser()
         self.permutations = perm.perm_gen(source)
         self.base_source, self.base_score, base_hash = self.score_base()
         self.hashes = {base_hash}
 
-        self.iterator = iter(perm.perm_evaluate_all(self.permutations))
+        self.iterator = iter(perm.perm_evaluate_all(self.permutations, self.random))
 
     @functools.lru_cache(maxsize=1024)
     def _get_randomizer(self, source: str) -> Randomizer:
         ast = self.parser.parse(source)
-        return Randomizer(ast)
+        return Randomizer(ast, self.random)
 
     def score_base(self) -> Tuple[str, int, str]:
         base_source = perm.perm_evaluate_one(self.permutations)
@@ -80,11 +86,12 @@ class Permuter:
             return False
 
         randomizer = self._get_randomizer(cand_c)
-        if random.uniform(0, 1) >= RANDOMIZER_KEEP_PROB:
+        if self.random.uniform(0, 1) >= RANDOMIZER_KEEP_PROB:
             randomizer.reset()
         if self.permutations.is_random():
             randomizer.randomize()
         self.cur_cand = randomizer.get_current_source()
+        self.iteration += 1
         return True
 
     def get_source(self) -> str:
@@ -117,8 +124,6 @@ def write_candidate(perm: Permuter, source: str) -> None:
 
 def main(options: Options) -> int:
     last_time = time.time()
-    if options.seed is not None:
-        random.seed(options.seed)
     try:
         def heartbeat() -> None:
             nonlocal last_time
@@ -139,6 +144,12 @@ def main(options: Options) -> int:
 
 def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> int:
     print("Loading...")
+
+
+    if options.seed is not None:
+        start_seed = options.seed
+    else:
+        start_seed = random.randrange(sys.maxsize) # Random seed from default random
 
     name_counts: Dict[str, int] = {}
     permuters: List[Permuter] = []
@@ -162,7 +173,7 @@ def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> int:
         c_source = preprocess(base_c)
 
         # TODO: catch special-purpose permuter exceptions from this
-        permuter = Permuter(d, compiler, scorer, base_c, c_source)
+        permuter = Permuter(d, compiler, scorer, base_c, c_source, start_seed)
 
         permuters.append(permuter)
         name_counts[permuter.fn_name] = name_counts.get(permuter.fn_name, 0) + 1
@@ -187,11 +198,6 @@ def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> int:
         perm_ind = (perm_ind + 1) % len(permuters)
         perm = permuters[perm_ind]
 
-        if iteration == 0 and options.seed is not None:
-            rand_seed = options.seed
-        else:
-            rand_seed = random.randrange(10**18) + iteration
-        random.seed(rand_seed)
         try:
             t0 = time.time()
             if not perm.permutate_next():
@@ -218,7 +224,7 @@ def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> int:
         except Exception:
             print(f"[{perm.unique_name}] internal permuter failure.")
             traceback.print_exc()
-            print(f"To reproduce the failure, rerun with: --seed {rand_seed}")
+            print(f"To reproduce the failure, rerun with: --seed {perm.seed}")
             exit(1)
 
         iteration += 1
