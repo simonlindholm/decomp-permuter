@@ -886,7 +886,7 @@ def perm_sameline(
     return True
 
 def perm_associative(
-    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> bool:
     """Change a+b into b+a, or similar for other commutative operations."""
     cands: List[ca.BinaryOp] = []
