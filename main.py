@@ -32,8 +32,9 @@ class Options:
     seed: Optional[int] = attr.ib(default=None)
 
 def find_fns(source: str) -> List[str]:
-    fns = re.findall(r'(\w+)\(.*\)\s*?{', source)
-    return [fn for fn in fns if not fn.startswith('PERM')]
+    fns = re.findall(r'(\w+)\([^()\n]*\)\s*?{', source)
+    return [fn for fn in fns if not fn.startswith('PERM')
+            and fn not in ['if', 'for', 'switch', 'while']]
 
 class Permuter:
     def __init__(self, dir: str, compiler: Compiler, scorer: Scorer, source_file: str, source: str, seed: int):

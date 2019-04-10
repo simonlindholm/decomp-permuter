@@ -31,10 +31,12 @@ def strip_other_fns(source: str, keep_fn_name: str) -> str:
 
         fn_name = fn.group(1)
         bracket_end = _find_bracket_end(remain, fn.end() - 1)
-        if fn_name == keep_fn_name or fn_name.startswith('PERM'):
+        if fn_name.startswith('PERM'):
             result += remain[:bracket_end+1]
+        elif fn_name == keep_fn_name:
+            result += '\n\n' + remain[:bracket_end+1] + '\n\n'
         else:
-            result += remain[:fn.start()]
+            result += remain[:fn.end()-1].rstrip() + ';'
         
         remain = remain[bracket_end+1:]
 
