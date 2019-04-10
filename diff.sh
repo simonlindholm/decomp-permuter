@@ -1,6 +1,6 @@
 #!/bin/bash
 
-if [ $# < 2 ]; then
+if [[ $# < 2 ]]; then
 	echo "Usage: $0 orig.o new.o [flags]"
 	exit 1
 fi
