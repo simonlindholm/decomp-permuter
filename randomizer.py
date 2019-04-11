@@ -6,6 +6,8 @@ from random import Random
 import sys
 import time
 import typing
+import ast_util
+from ast_util import Block, Indices, Statement, Expression
 
 from pycparser import c_ast as ca, c_parser, c_generator
 
@@ -44,9 +46,6 @@ PROB_KEEP_REPLACED_VAR = 0.2
 # C file to matching asm, you have bigger problems than this limit.)
 MAX_INDEX = 10**9
 
-Indices = Dict[ca.Node, int]
-Block = Union[ca.Compound, ca.Case, ca.Default]
-
 @attr.s
 class Region:
     start: int = attr.ib()
@@ -81,73 +80,6 @@ class Region:
         if self.indices is None:
             return True
         return self.start < index <= self.end
-
-if typing.TYPE_CHECKING:
-    # ca.Expression and ca.Statement don't actually exist, they live only in
-    # the stubs file.
-    Expression = ca.Expression
-    Statement = ca.Statement
-else:
-    Expression = Statement = None
-
-class PatchedCGenerator(c_generator.CGenerator):
-    """Like a CGenerator, except it keeps else if's prettier despite
-    the terrible things we've done to them in normalize_ast."""
-    def visit_If(self, n: ca.If) -> str:
-        n2 = n
-        if (n.iffalse and isinstance(n.iffalse, ca.Compound) and
-                n.iffalse.block_items and
-                len(n.iffalse.block_items) == 1 and
-                isinstance(n.iffalse.block_items[0], ca.If)):
-            n2 = ca.If(cond=n.cond, iftrue=n.iftrue,
-                    iffalse=n.iffalse.block_items[0])
-        return super().visit_If(n2) # type: ignore
-
-def to_c(node: ca.Node) -> str:
-    source = PatchedCGenerator().visit(node)
-    if '#pragma' not in source:
-        return source
-    lines = source.split('\n')
-    out = []
-    same_line = 0
-    for line in lines:
-        stripped = line.strip()
-        if stripped.startswith('#pragma'):
-            if stripped == '#pragma sameline start':
-                same_line += 1
-            elif stripped == '#pragma sameline end':
-                same_line -= 1
-                if same_line == 0:
-                    out.append('\n')
-            # Never output pragmas
-            continue
-        if not same_line:
-            line += '\n'
-        elif out and not out[-1].endswith('\n'):
-            line = ' ' + line.lstrip()
-        out.append(line)
-    assert same_line == 0
-    return ''.join(out).rstrip() + '\n'
-
-def find_fn(ast: ca.FileAST) -> Tuple[ca.FuncDef, int]:
-    ret = []
-    for i, node in enumerate(ast.ext):
-        if isinstance(node, ca.FuncDef):
-            ret.append((node, i))
-    assert len(ret) == 1
-    return ret[0]
-
-def compute_node_indices(top_node: ca.Node) -> Indices:
-    indices = {}
-    cur_index = 0
-    class Visitor(ca.NodeVisitor):
-        def generic_visit(self, node: ca.Node) -> None:
-            nonlocal cur_index
-            indices[node] = cur_index
-            cur_index += 1
-            super().generic_visit(node)
-    Visitor().visit(top_node)
-    return indices
 
 def reverse_indices(indices: Indices) -> Dict[int, ca.Node]:
     ret = {}
@@ -338,126 +270,6 @@ def replace_subexprs(
         return callback(typing.cast(Expression, node))
     visit_replace(top_node, expr_filter)
 
-def equal_ast(a: ca.Node, b: ca.Node) -> bool:
-    def equal(a: Any, b: Any) -> bool:
-        if type(a) != type(b):
-            return False
-        if a is None:
-            return b is None
-        if isinstance(a, list):
-            assert isinstance(b, list)
-            if len(a) != len(b):
-                return False
-            for i in range(len(a)):
-                if not equal(a[i], b[i]):
-                    return False
-            return True
-        if isinstance(a, (int, str)):
-            return bool(a == b)
-        assert isinstance(a, ca.Node)
-        for name in a.__slots__[:-2]: # type: ignore
-            if not equal(getattr(a, name), getattr(b, name)):
-                return False
-        return True
-    return equal(a, b)
-
-def is_lvalue(expr: Expression) -> bool:
-    if isinstance(expr, (ca.ID, ca.StructRef, ca.ArrayRef)):
-        return True
-    if isinstance(expr, ca.UnaryOp):
-        return expr.op == '*'
-    return False
-
-def is_effectful(expr: Expression) -> bool:
-    found = False
-    class Visitor(ca.NodeVisitor):
-        def visit_UnaryOp(self, node: ca.UnaryOp) -> None:
-            nonlocal found
-            if node.op in ['p++', 'p--', '++', '--']:
-                found = True
-            else:
-                self.generic_visit(node.expr)
-        def visit_FuncCall(self, _: ca.Node) -> None:
-            nonlocal found
-            found = True
-        def visit_Assignment(self, _: ca.Node) -> None:
-            nonlocal found
-            found = True
-    Visitor().visit(expr)
-    return found
-
-def get_block_stmts(block: Block, force: bool) -> List[Statement]:
-    if isinstance(block, ca.Compound):
-        ret = block.block_items or []
-        if force and not block.block_items:
-            block.block_items = ret
-    else:
-        ret = block.stmts or []
-        if force and not block.stmts:
-            block.stmts = ret
-    return ret
-
-def insert_decl(fn: ca.FuncDef, var: str, type: SimpleType) -> None:
-    type=copy.deepcopy(type)
-    decl = ca.Decl(name=var, quals=[], storage=[], funcspec=[],
-            type=type, init=None, bitsize=None)
-    set_decl_name(decl)
-    assert fn.body.block_items, "Non-empty function"
-    for index, stmt in enumerate(fn.body.block_items):
-        if not isinstance(stmt, ca.Decl):
-            break
-    else:
-        index = len(fn.body.block_items)
-    fn.body.block_items[index:index] = [decl]
-
-def insert_statement(block: Block, index: int, stmt: Statement) -> None:
-    stmts = get_block_stmts(block, True)
-    stmts[index:index] = [stmt]
-
-def brace_nested_blocks(stmt: Statement) -> None:
-    def brace(stmt: Statement) -> Block:
-        if isinstance(stmt, (ca.Compound, ca.Case, ca.Default)):
-            return stmt
-        return ca.Compound([stmt])
-    if isinstance(stmt, (ca.For, ca.While, ca.DoWhile)):
-        stmt.stmt = brace(stmt.stmt)
-    elif isinstance(stmt, ca.If):
-        stmt.iftrue = brace(stmt.iftrue)
-        if stmt.iffalse:
-            stmt.iffalse = brace(stmt.iffalse)
-    elif isinstance(stmt, ca.Switch):
-        stmt.stmt = brace(stmt.stmt)
-    elif isinstance(stmt, ca.Label):
-        brace_nested_blocks(stmt.stmt)
-
-def has_nested_block(node: ca.Node) -> bool:
-    return isinstance(node, (ca.Compound, ca.For, ca.While, ca.DoWhile, ca.If,
-        ca.Switch, ca.Case, ca.Default))
-
-def for_nested_blocks(
-    stmt: Statement,
-    callback: Callable[[Block], None]
-) -> None:
-    def invoke(stmt: Statement) -> None:
-        assert isinstance(stmt, (ca.Compound, ca.Case, ca.Default)), \
-                "brace_nested_blocks should have turned nested statements into blocks"
-        callback(stmt)
-    if isinstance(stmt, ca.Compound):
-        invoke(stmt)
-    elif isinstance(stmt, (ca.For, ca.While, ca.DoWhile)):
-        invoke(stmt.stmt)
-    elif isinstance(stmt, ca.If):
-        if stmt.iftrue:
-            invoke(stmt.iftrue)
-        if stmt.iffalse:
-            invoke(stmt.iffalse)
-    elif isinstance(stmt, ca.Switch):
-        invoke(stmt.stmt)
-    elif isinstance(stmt, (ca.Case, ca.Default)):
-        invoke(stmt)
-    elif isinstance(stmt, ca.Label):
-        for_nested_blocks(stmt.stmt, callback)
-
 def randomize_type(type: SimpleType, typemap: TypeMap, random: Random) -> SimpleType:
     type2 = resolve_typedefs(type, typemap)
     if not isinstance(type2, ca.TypeDecl):
@@ -478,12 +290,12 @@ def get_insertion_points(
 ) -> List[Tuple[Block, int, Optional[ca.Node]]]:
     cands: List[Tuple[Block, int, Optional[ca.Node]]] = []
     def rec(block: Block) -> None:
-        stmts = get_block_stmts(block, False)
+        stmts = ast_util.get_block_stmts(block, False)
         last_node: ca.Node = block
         for i, stmt in enumerate(stmts):
             if region.contains_pre(stmt):
                 cands.append((block, i, stmt))
-            for_nested_blocks(stmt, rec)
+            ast_util.for_nested_blocks(stmt, rec)
             last_node = stmt
         if region.contains_node(last_node):
             cands.append((block, len(stmts), None))
@@ -573,7 +385,7 @@ def perm_temp_for_expr(
 
     # Step 1: assign probabilities to each place/expression
     def rec(block: Block, reuse_cands: List[str]) -> None:
-        stmts = get_block_stmts(block, False)
+        stmts = ast_util.get_block_stmts(block, False)
         reuse_cands = reuse_cands[:]
         assignment_cands: List[Place] = [] # places to insert before
         past_decls = False
@@ -590,7 +402,7 @@ def perm_temp_for_expr(
             if past_decls:
                 assignment_cands.append((block, index, stmt))
 
-            for_nested_blocks(stmt, lambda b: rec(b, reuse_cands))
+            ast_util.for_nested_blocks(stmt, lambda b: rec(b, reuse_cands))
 
             def visitor(expr: Expression) -> None:
                 if DEBUG_EAGER_TYPES:
@@ -601,7 +413,7 @@ def perm_temp_for_expr(
 
                 orig_expr = expr
                 if should_make_ptr:
-                    if not is_lvalue(expr):
+                    if not ast_util.is_lvalue(expr):
                         return
                     expr = ca.UnaryOp('&', expr)
 
@@ -651,14 +463,14 @@ def perm_temp_for_expr(
     place, expr, reuse_cand = chosen_cand
     type: SimpleType = decayed_expr_type(expr, typemap)
 
-    if is_effectful(expr):
+    if ast_util.is_effectful(expr):
         # Don't replace effectful expressions. This is a bit expensive to
         # check, so do it here instead of within the visitor.
         return False
 
     # Always use pointers when replacing structs
     if (not should_make_ptr and isinstance(type, ca.TypeDecl) and
-            isinstance(type.type, ca.Struct) and is_lvalue(expr)):
+            isinstance(type.type, ca.Struct) and ast_util.is_lvalue(expr)):
         should_make_ptr = True
         expr = ca.UnaryOp('&', expr)
         type = decayed_expr_type(expr, typemap)
@@ -691,7 +503,7 @@ def perm_temp_for_expr(
     prev_write = max(prev_write, indices[assign_before] - 1)
     replace_cands: List[Expression] = []
     def find_duplicates(e: Expression) -> None:
-        if prev_write < indices[e] <= next_write and equal_ast(e, orig_expr):
+        if prev_write < indices[e] <= next_write and ast_util.equal_ast(e, orig_expr):
             replace_cands.append(e)
     replace_subexprs(fn.body, find_duplicates)
     assert orig_expr in replace_cands
@@ -713,11 +525,11 @@ def perm_temp_for_expr(
     # Step 6: insert the assignment and any new variable declaration
     block, index, _ = place
     assignment = ca.Assignment('=', ca.ID(var), expr)
-    insert_statement(block, index, assignment)
+    ast_util.insert_statement(block, index, assignment)
     if not reused:
         if random.uniform(0, 1) < RANDOMIZE_TYPE_PROB:
             type = randomize_type(type, typemap, random)
-        insert_decl(fn, var, type)
+        ast_util.insert_decl(fn, var, type)
 
     return True
 
@@ -757,7 +569,7 @@ def perm_expand_expr(
         repl_expr = write.rvalue
     else:
         return False
-    if is_effectful(repl_expr):
+    if ast_util.is_effectful(repl_expr):
         return False
 
     # Step 3: pick of the range of variables to replace
@@ -835,11 +647,11 @@ def perm_ins_block(
     cands: List[Block] = []
     def rec(block: Block) -> None:
         cands.append(block)
-        for stmt in get_block_stmts(block, False):
-            for_nested_blocks(stmt, rec)
+        for stmt in ast_util.get_block_stmts(block, False):
+            ast_util.for_nested_blocks(stmt, rec)
     rec(fn.body)
     block = random.choice(cands)
-    stmts = get_block_stmts(block, True)
+    stmts = ast_util.get_block_stmts(block, True)
     decl_count = 0
     for stmt in stmts:
         if isinstance(stmt, (ca.Decl, ca.Pragma)):
@@ -881,8 +693,8 @@ def perm_sameline(
     j = i + le
     # Insert the second statement first, since inserting a statement may cause
     # later indices to move.
-    insert_statement(cands[j][0], cands[j][1], ca.Pragma("sameline end"))
-    insert_statement(cands[i][0], cands[i][1], ca.Pragma("sameline start"))
+    ast_util.insert_statement(cands[j][0], cands[j][1], ca.Pragma("sameline end"))
+    ast_util.insert_statement(cands[i][0], cands[i][1], ca.Pragma("sameline start"))
     return True
 
 def perm_associative(
@@ -920,7 +732,7 @@ def perm_add_self_assignment(
     var = random.choice(vars)
     where = random.choice(cands)
     assignment = ca.Assignment('=', ca.ID(var), ca.ID(var))
-    insert_statement(where[0], where[1], assignment)
+    ast_util.insert_statement(where[0], where[1], assignment)
     return True
 
 def perm_reorder_stmts(
@@ -940,7 +752,7 @@ def perm_reorder_stmts(
     for i, c in enumerate(cands):
         stmt = c[2]
         if (stmt is not None and not isinstance(stmt, ca.Pragma)
-                and not has_nested_block(stmt)):
+                and not ast_util.has_nested_block(stmt)):
             source_inds.append(i)
 
     if not source_inds:
@@ -955,29 +767,20 @@ def perm_reorder_stmts(
     if fromb == tob and fromi == toi:
         return False
 
-    stmt = get_block_stmts(fromb, True).pop(fromi)
-    insert_statement(tob, toi, stmt)
+    stmt = ast_util.get_block_stmts(fromb, True).pop(fromi)
+    ast_util.insert_statement(tob, toi, stmt)
     return True
-
-def normalize_ast(fn: ca.FuncDef, ast: ca.FileAST) -> None:
-    """Add braces to all ifs/fors/etc., to make it easier to insert statements."""
-    def rec(block: Block) -> None:
-        stmts = get_block_stmts(block, False)
-        for stmt in stmts:
-            brace_nested_blocks(stmt)
-            for_nested_blocks(stmt, rec)
-    rec(fn.body)
 
 class Randomizer:
     def __init__(self, start_ast: ca.FileAST, random: Random) -> None:
-        self.orig_fn, self.fn_index = find_fn(start_ast)
-        normalize_ast(self.orig_fn, start_ast)
+        self.orig_fn, self.fn_index = ast_util.find_fn(start_ast)
+        ast_util.normalize_ast(self.orig_fn, start_ast)
         self.orig_fn = copy.deepcopy(self.orig_fn)
         self.cur_ast = start_ast
         self.random = random
 
     def get_current_source(self) -> str:
-        return to_c(self.cur_ast)
+        return ast_util.to_c(self.cur_ast)
 
     def reset(self) -> None:
         self.cur_ast.ext[self.fn_index] = copy.deepcopy(self.orig_fn)
@@ -986,7 +789,7 @@ class Randomizer:
         ast = self.cur_ast
         fn = ast.ext[self.fn_index]
         assert isinstance(fn, ca.FuncDef)
-        indices = compute_node_indices(fn)
+        indices = ast_util.compute_node_indices(fn)
         region = get_randomization_region(fn, indices, self.random)
         methods = [
             (perm_temp_for_expr, 100),
