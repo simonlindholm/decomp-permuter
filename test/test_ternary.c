@@ -10,7 +10,7 @@ int test_ternary1(int cond) {
 #else
 int test_ternary1(int cond) {
     int test;
-    PERM_TERNARY(test = ,cond,1,2)
+    PERM_TERNARY(test = |cond|1|2)
     return test;
 }
 #endif
@@ -24,7 +24,7 @@ int test_ternary2(int cond) {
 #else
 int test_ternary2(int cond) {
     int test;
-    PERM_TERNARY(test = ,cond,1,2)
+    PERM_TERNARY(test = |cond|1|2)
     return test;
 }
 #endif

@@ -20,7 +20,7 @@ def get_parenthesis_args(s: str) -> Tuple[List[str], str]:
     args = []
     for i, c in enumerate(s):
         # Find individual args
-        if c == ',' and level == 1:
+        if c == '|' and level == 1:
             args.append(current)
             current = ''
         # Track parenthesis level

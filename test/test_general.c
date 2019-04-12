@@ -4,7 +4,7 @@ int test_general() {
 }
 #else
 int test_general() {
-    return PERM_GENERAL(32,64);
+    return PERM_GENERAL(32|64);
 }
 #endif
 
@@ -14,7 +14,7 @@ int test_general_3() {
 }
 #else
 int test_general_3() {
-    return PERM_GENERAL(32,48,64);
+    return PERM_GENERAL(32|48|64);
 }
 #endif
 
@@ -24,6 +24,6 @@ int test_general_multiple() {
 }
 #else
 int test_general_multiple() {
-    return PERM_GENERAL(1,2,3) + PERM_GENERAL(4,5,6);
+    return PERM_GENERAL(1|2|3) + PERM_GENERAL(4|5|6);
 } 
 #endif
