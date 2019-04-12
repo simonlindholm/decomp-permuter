@@ -15,7 +15,6 @@ from enum import Enum
 import attr
 import pycparser
 from preprocess import preprocess
-from threading import Lock
 import copy
 
 from compiler import Compiler
