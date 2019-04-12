@@ -1,4 +1,4 @@
-from typing import List, Dict, Optional, Callable, Optional, Tuple
+from typing import List, Dict, Optional, Callable, Optional, Tuple, Iterable
 import argparse
 import difflib
 import functools
@@ -9,15 +9,23 @@ import re
 import sys
 import time
 import traceback
+from concurrent.futures import ProcessPoolExecutor, Future
+from enum import Enum
 
 import attr
 import pycparser
 from preprocess import preprocess
+from threading import Lock
+import copy
 
 from compiler import Compiler
 from randomizer import Randomizer
 from scorer import Scorer
+from perm.perm import EvalState, Perm
 import perm
+import ast_util
+from pycparser import CParser
+from pycparser import c_ast as ca
 
 # The probability that the randomizer continues transforming the output it
 # generated last time it was given the same initial C code.
@@ -30,15 +38,106 @@ class Options:
     show_timings: bool = attr.ib(default=False)
     print_diffs: bool = attr.ib(default=False)
     seed: Optional[int] = attr.ib(default=None)
+    threads: Optional[int] = attr.ib(default=1)
 
 def find_fns(source: str) -> List[str]:
     fns = re.findall(r'(\w+)\([^()\n]*\)\s*?{', source)
     return [fn for fn in fns if not fn.startswith('PERM')
             and fn not in ['if', 'for', 'switch', 'while']]
 
+@attr.s
+class Candiate(object):
+    ast: ca.FileAST = attr.ib()
+    seed: Optional[int] = attr.ib(default=None)
+    can_randomize: Optional[int] = attr.ib(default=None)
+
+    orig_fn: ca.FuncDef = attr.ib(init=False, default=None)
+    fn_index: int = attr.ib(init=False, default=0)
+    o_file: Optional[str] = attr.ib(init=False, default=None)
+    cur_ast: ca.FileAST = attr.ib(init=False, default=None)
+    score_value: Optional[int] = attr.ib(init=False, default=None)
+    score_hash: Optional[str] = attr.ib(init=False, default=None)
+    _cache_source: Optional[str] = attr.ib(init=False, default=None)
+
+    @staticmethod
+    @functools.lru_cache(maxsize=1)
+    def _cache_start_source(source: str):
+        parser = CParser()
+        ast = parser.parse(source)
+        orig_fn, fn_index = ast_util.find_fn(ast)
+        ast_util.normalize_ast(orig_fn, ast)
+        return orig_fn, fn_index, ast
+
+    @classmethod
+    def from_source(cls, source: str, cparser: CParser, seed: Optional[int] = None) -> 'Candiate':
+        orig_fn, fn_index, ast = cls._cache_start_source(source)
+        p: Candiate = cls(ast=ast, seed=seed)
+        p.orig_fn = orig_fn
+        p.fn_index = fn_index
+        ast_util.normalize_ast(p.orig_fn, ast)
+        p.reset_ast()
+        return p
+
+    def reset_ast(self) -> None:
+        self.ast.ext[self.fn_index] = copy.deepcopy(self.orig_fn)
+        self._cache_source = None
+
+    def randomize_ast(self, randomizer: Randomizer) -> None:
+        if randomizer.random.uniform(0, 1) >= RANDOMIZER_KEEP_PROB:
+            self.reset_ast()
+        randomizer.random.seed(self.seed)
+        randomizer.randomize(self.ast, self.fn_index)
+        self._cache_source = None
+
+    def __enter__(self) -> 'Candiate':
+        return self
+
+    def get_source(self) -> str:
+        if self._cache_source is None:
+            self._cache_source = ast_util.to_c(self.ast)
+        return self._cache_source
+
+    def compile(self, compiler: Compiler) -> bool:
+        self._remove_o_file()
+        source = self.get_source()
+        self.o_file = compiler.compile(source)
+        return self.o_file is not None
+
+    def score(self, scorer: Scorer) -> None:
+        self.score_value, self.score_hash = scorer.score(self.o_file)
+
+    def _remove_o_file(self) -> None:
+        if self.o_file is not None:
+            try:
+                os.remove(self.o_file)
+            except:
+                pass
+
+    def __del__(self) -> None:
+        self._remove_o_file()
+
+class Profiler(object):
+    class StatType(Enum):
+        perm = 1
+        compile = 2
+        score = 3
+
+    def __init__(self):
+        self.time_stats = dict([(x, 0.0) for x in Profiler.StatType])
+        
+    def add_stat(self, stat: StatType, time_taken: float) -> None:
+        self.time_stats[stat] += time_taken
+
+    def get_str_stats(self) -> str:
+        total_time = sum([self.time_stats[e] for e in self.time_stats])
+        timings = ", ".join([f'{round(100 * self.time_stats[e] / total_time)}% {e}' for e in self.time_stats])
+        return timings
+
 class Permuter:
     def __init__(self, dir: str, compiler: Compiler, scorer: Scorer, source_file: str, source: str, seed: int):
         self.dir = dir
+        self.random = Random()
+        self.randomizer = Randomizer()
         self.compiler = compiler
         self.scorer = scorer
         self.source_file = source_file
@@ -51,62 +150,72 @@ class Permuter:
         self.fn_name = fns[0]
         self.unique_name = self.fn_name
 
-        self.random = Random()
         self.seed = seed
         self.random.seed(self.seed)
-        self.iteration = 0
 
         self.parser = pycparser.CParser()
         self.permutations = perm.perm_gen(source)
-        self.base_source, self.base_score, base_hash = self.score_base()
-        self.hashes = {base_hash}
+        self.base = self.create_and_score_base()
+        self.hashes = {self.base.score_hash}
 
-        self.iterator = iter(perm.perm_evaluate_all(self.permutations, self.random))
+        #Move outside?
+        self._seed_iterator = iter(perm.get_all_seeds(self.permutations.perm_count, self.random))
 
-    @functools.lru_cache(maxsize=1024)
-    def _get_randomizer(self, source: str) -> Randomizer:
-        ast = self.parser.parse(source)
-        return Randomizer(ast, self.random)
-
-    def score_base(self) -> Tuple[str, int, str]:
+    def create_and_score_base(self) -> Candiate:
         base_source = perm.perm_evaluate_one(self.permutations)
-
-        # Normalize the C code by e.g. stripping whitespace and pragmas
-        randomizer = self._get_randomizer(base_source)
-        base_source = randomizer.get_current_source()
-
-        start_o = self.compiler.compile(base_source)
-        if start_o is None:
+        base_cand = Candiate.from_source(base_source, self.parser)
+        if not base_cand.compile(self.compiler):
             raise Exception(f"Unable to compile {self.source_file}")
+        base_cand.score(self.scorer)
+        return base_cand
 
-        return (base_source, *self.scorer.score(start_o))
-
-    def permutate_next(self) -> bool:
-        cand_c = next(self.iterator, None)
-        if cand_c is None:
-            return False
-
-        randomizer = self._get_randomizer(cand_c)
-        if self.random.uniform(0, 1) >= RANDOMIZER_KEEP_PROB:
-            randomizer.reset()
+    def get_next_seed(self) -> int:
         if self.permutations.is_random():
-            randomizer.randomize()
-        self.cur_cand = randomizer.get_current_source()
-        self.iteration += 1
-        return True
+            max_ran = max([self.permutations.perm_count, 10**9])
+            seed = self.random.randint(0, max_ran)
+        else:
+            seed = next(self._seed_iterator, None)
+            
+        return seed
 
-    def get_source(self) -> str:
-        return self.cur_cand
+    def eval_candidate(self, seed: int) -> Tuple[Candiate, Profiler]:
+        cand_c = self.permutations.evaluate(seed, EvalState())
+        if cand_c is None:
+            return None
 
-    def compile(self) -> Optional[str]:
-        return self.compiler.compile(self.get_source())
+        t0 = time.time()
 
-    def score(self, cand_o: str) -> Tuple[int, str]:
-        return self.scorer.score(cand_o)
+        cand = Candiate.from_source(cand_c, self.parser, seed)
 
-    def print_diff(self) -> None:
-        a = self.base_source.split('\n')
-        b = self.get_source().split('\n')
+        if self.permutations.is_random():
+            cand.randomize_ast(self.randomizer)
+
+        t1 = time.time()
+
+        comp_success = cand.compile(self.compiler)
+
+        t2 = time.time()
+
+        if comp_success:
+            cand.score(self.scorer)
+            new_score, new_hash = cand.score_value, cand.score_hash
+        else:
+            new_hash = None
+            new_score = self.scorer.PENALTY_INF
+
+        t3 = time.time()
+
+        profiler: Profiler = Profiler()
+        profiler.add_stat(Profiler.StatType.perm, t1 - t0)
+        profiler.add_stat(Profiler.StatType.compile, t2 - t1)
+        profiler.add_stat(Profiler.StatType.score, t3 - t2)
+        timings = profiler.get_str_stats()
+
+        return cand, profiler
+
+    def print_diff(self, cand: Candiate) -> None:
+        a = self.base.get_source().split('\n')
+        b = cand.get_source().split('\n')
         for line in difflib.unified_diff(a, b, fromfile='before', tofile='after', lineterm=''):
             print(line)
 
@@ -122,7 +231,81 @@ def write_candidate(perm: Permuter, source: str) -> None:
         except FileExistsError:
             pass
     print(f"wrote to {fname}")
+@attr.s
+class EvalContext():
+    parser: CParser = attr.ib()
+    randomizer: Randomizer = attr.ib()
+    compiler: Compiler = attr.ib()
+    scorer: Scorer = attr.ib()
+    perm: Perm = attr.ib()
 
+   
+    
+def post_score(permuter: Permuter, cand: Candiate, exception: BaseException, profiler: Profiler) -> None:
+    global iteration, errors, overall_profiler
+    if exception != None:
+        print(f"[{permuter.unique_name}] internal permuter failure.")
+        traceback.print_exc()
+        print(f"To reproduce the failure, rerun with: --seed {permuter.seed}")
+        exit(1)
+
+    if options.print_diffs:
+        permuter.print_diff(cand)
+        yn = input("Press any key to continue...")
+
+    iteration += 1
+    if cand.score_value is None:
+        errors += 1
+    disp_score = 'inf' if cand.score_value == permuter.scorer.PENALTY_INF else cand.score_value
+    timings = ''
+    if options.show_timings:
+        assert(profiler)
+        for stattype in profiler.time_stats:
+            overall_profiler.add_stat(stattype, profiler.time_stats[stattype])
+        timings = overall_profiler.get_str_stats()
+    status_line = f"iteration {iteration}, {errors} errors, score = {disp_score}\t{timings}"
+
+    if cand.score_value and cand.score_value <= permuter.base.score_value and cand.score_hash and cand.score_hash not in permuter.hashes and cand.score_value < 20000:
+        permuter.hashes.add(cand.score_hash)
+        print("\r" + " " * (len(status_line) + 10) + "\r", end='')
+        if cand.score_value < permuter.base.score_value:
+            high_scores[permuter] = cand.score_hash
+            print(f"[{permuter.unique_name}] found a better score! ({cand.score_value} vs {permuter.base.score_value})")
+        else:
+            print(f"[{permuter.unique_name}] found different asm with same score")
+
+        source = cand.get_source()
+        write_candidate(permuter, source)
+    print("\b"*10 + " "*10 + "\r" + status_line, end='', flush=True)
+
+def gen_all_seeds(permuters: List[Permuter], heartbeat: Callable[[], None]) -> Iterable[Tuple[int, Permuter]]:
+    i = -1
+    avail_permuters = [(p, p_i) for p, p_i in zip(permuters, range(len(permuters)))]
+
+    while len(avail_permuters) > 0:
+        heartbeat()
+        i = (i + 1) % len(avail_permuters)
+        permuter_item = avail_permuters[i]
+        permuter, perm_ind = permuter_item
+        seed = permuter.get_next_seed()
+        if seed is None:
+            avail_permuters.remove(permuter_item)
+        else:
+            yield perm_ind, seed
+
+def batch(it, batch_size):
+    while True:
+        batch = []
+        for i in range(batch_size):
+            v = next(it, None)
+            if v == None:
+                if len(batch) != 0:
+                    yield batch
+                return
+
+            batch.append(v)
+        yield batch
+        
 def main(options: Options) -> int:
     last_time = time.time()
     try:
@@ -141,11 +324,25 @@ def main(options: Options) -> int:
         # The lru_cache sometimes uses a lot of memory, making normal exit slow
         # due to GC. But since we're sane people and don't use finalizers for
         # cleanup, we can just skip GC and exit immediately.
-        os._exit(0)
+        #os._exit(0)
+
+iteration = 0
+errors = 0
+overall_profiler = Profiler()
+high_scores = {}
+permuters: List[Permuter] = []
+
+def wrap_eval(permuter_seeds):
+    global permuters
+    permuter_index, seed = permuter_seeds
+    permuter = permuters[permuter_index]
+    #print(seed)
+    sys.stdout.flush()
+    return permuter.eval_candidate(seed)
 
 def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> int:
+    global permuters
     print("Loading...")
-
 
     if options.seed is not None:
         start_seed = options.seed
@@ -153,7 +350,6 @@ def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> int:
         start_seed = random.randrange(sys.maxsize) # Random seed from default random
 
     name_counts: Dict[str, int] = {}
-    permuters: List[Permuter] = []
     for d in options.directories:
         heartbeat()
         compile_cmd = os.path.join(d, 'compile.sh')
@@ -175,90 +371,56 @@ def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> int:
 
         # TODO: catch special-purpose permuter exceptions from this
         permuter = Permuter(d, compiler, scorer, base_c, c_source, start_seed)
+        print(f'perm count: {permuter.permutations.perm_count}')
 
         permuters.append(permuter)
         name_counts[permuter.fn_name] = name_counts.get(permuter.fn_name, 0) + 1
     print()
 
-    for perm in permuters:
-        if name_counts[perm.fn_name] > 1:
-            perm.unique_name += f" ({perm.dir})"
-        print(f"[{perm.unique_name}] base score = {perm.base_score}")
+    for permuter in permuters:
+        if name_counts[permuter.fn_name] > 1:
+            permuter.unique_name += f" ({permuter.dir})"
+        print(f"[{permuter.unique_name}] base score = {permuter.base.score_value}")
 
-    iteration = 0
-    errors = 0
-    perm_ind = -1
+    global high_scores
+    high_scores = dict([(p.base.score_value, p) for p in permuters])
 
-    time_perm = 0.0
-    time_compile = 0.0
-    time_score = 0.0
+    with ProcessPoolExecutor(max_workers=options.threads) as executor:
+        perm_seed_iter = gen_all_seeds(permuters, heartbeat)
+        if options.threads == 1:
+            for permuter_index, seed in perm_seed_iter:
+                permuter = permuters[permuter_index]
+                # Run single threaded
+                exception = None
+                try:
+                    cand, profiler = permuter.eval_candidate(seed)
+                except Exception as e:
+                    cand = None
+                    profiler = None
+                    exception = e
+                post_score(permuter, cand, exception, profiler)
+        else:
+            # Run multi-threaded
+            def done(f: Future, permuter: Permuter) -> None:
+                e: BaseException = f.exception()
+                cand = None
+                profiler = None
+                if e == None:
+                    cand, profiler = f.result()
 
-    high_scores = [p.base_score for p in permuters]
-    while len(permuters) > 0:
-        heartbeat()
-        perm_ind = (perm_ind + 1) % len(permuters)
-        perm = permuters[perm_ind]
+                print("Cand: " + str(cand.score_hash))
+                    
+                post_score(permuter, cand, e, profiler)
 
-        try:
-            t0 = time.time()
-            if not perm.permutate_next():
-                permuters.remove(perm)
-                continue
-            t1 = time.time()
+            for bat in batch(iter(perm_seed_iter), options.threads * 100):
+                ps = [permuters[pi] for pi,_ in bat]
+                for f, permuter in zip(executor.map(wrap_eval, bat), ps):
+                    cand, profiler = f
+                    post_score(permuter, cand, None, profiler)
+                    #f.add_done_callback(functools.partial(done, permuter=permuter))
+                    #f.result()
 
-            if options.print_diffs:
-                perm.print_diff()
-                yn = input("More? [Yn]")
-                if yn.lower() == 'n':
-                    break
-                continue
-
-            o_file = perm.compile()
-            t2 = time.time()
-
-            if o_file is None:
-                new_score = scorer.PENALTY_INF
-                new_hash = None
-            else:
-                new_score, new_hash = perm.score(o_file)
-            t3 = time.time()
-        except Exception:
-            print(f"[{perm.unique_name}] internal permuter failure.")
-            traceback.print_exc()
-            print(f"To reproduce the failure, rerun with: --seed {perm.seed}")
-            exit(1)
-
-        iteration += 1
-        if new_hash is None:
-            errors += 1
-        disp_score = 'inf' if new_score == scorer.PENALTY_INF else new_score
-        timings = ''
-        if options.show_timings:
-            time_perm += t1 - t0
-            time_compile += t2 - t1
-            time_score += t3 - t2
-            time_total = time_perm + time_compile + time_score
-            timings = ", {}% perm, {}% compile, {}% score".format(
-                round(100 * time_perm / time_total),
-                round(100 * time_compile / time_total),
-                round(100 * time_score / time_total)
-            )
-        status_line = f"iteration {iteration}, {errors} errors, score = {disp_score}{timings}"
-
-        if new_score <= perm.base_score and new_hash and new_hash not in perm.hashes:
-            perm.hashes.add(new_hash)
-            print("\r" + " " * (len(status_line) + 10) + "\r", end='')
-            if new_score < perm.base_score:
-                high_scores[perm_ind] = new_score
-                print(f"[{perm.unique_name}] found a better score! ({new_score} vs {perm.base_score})")
-            else:
-                print(f"[{perm.unique_name}] found different asm with same score")
-
-            source = perm.get_source()
-            write_candidate(perm, source)
-        print("\b"*10 + " "*10 + "\r" + status_line, end='', flush=True)
-    
-    return min(high_scores)
+    return high_scores
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -273,6 +435,8 @@ if __name__ == "__main__":
             help="Instead of compiling generated sources, display diffs against a base version.")
     parser.add_argument('--seed', dest='seed', type=int,
             help="Base all randomness on this initial seed.")
+    parser.add_argument('-j', dest='threads', type=int, default=1,
+            help="Number of threads.")
     args = parser.parse_args()
 
     options = Options(
@@ -280,5 +444,6 @@ if __name__ == "__main__":
             show_errors=args.show_errors,
             show_timings=args.show_timings,
             print_diffs=args.print_diffs,
-            seed=args.seed)
+            seed=args.seed,
+            threads=args.threads)
     main(options)
