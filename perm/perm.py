@@ -146,3 +146,17 @@ class VarPerm(Perm):
 
     def is_random(self) -> bool:
         return self.expansion is not None and self.expansion.is_random()
+
+class CondNezPerm(Perm):
+    def __init__(self, perm: Perm) -> None:
+        super().__init__()
+        self.children = [perm]
+        self.perm_count = 2
+
+    def evaluate(self, seed: int, state: EvalState) -> str:
+        sub_seed, variation = divmod(seed, self.perm_count)
+        cond = self.children[0].evaluate(sub_seed, state)
+        if variation == 0:
+            return f'{cond}'
+        else:
+            return f'({cond}) != 0'

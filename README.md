@@ -24,6 +24,7 @@ The .c file may be modified with any of the following macros which affect manual
 - `PERM_TERNARY(prefix, a, b, c)` expands to either `prefix a ? b : c` or `if (a) prefix b; else prefix c;`.
 - `PERM_VAR(a, b)` sets the meta-variable `a` to `b`, `PERM_VAR(a)` expands to the meta-variable `a`.
 - `PERM_RANDOMIZE(code)` expands to `code`, but allows randomization within that region.
+- `PERM_CONDNEZ(cond)` expands to either `cond` or `(cond) != 0`.
 
 Nested macros are allowed, so e.g.
 ```
