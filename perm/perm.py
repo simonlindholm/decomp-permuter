@@ -152,7 +152,7 @@ class CondNezPerm(Perm):
     def __init__(self, perm: Perm) -> None:
         super().__init__()
         self.children = [perm]
-        self.perm_count = 2
+        self.perm_count = 2 * count_all(self.children)
 
     def evaluate(self, seed: int, state: EvalState) -> str:
         sub_seed, variation = divmod(seed, self.perm_count)
@@ -167,7 +167,7 @@ class LineSwapPerm(Perm):
         super().__init__()
         self.children = lines
         self.line_permutations = [i for i in itertools.permutations(range(len(lines)))]
-        self.perm_count = len(self.line_permutations)
+        self.perm_count = len(self.line_permutations) * count_all(self.children)
 
     def evaluate(self, seed: int, state: EvalState) -> str:
         sub_seed, variation = divmod(seed, self.perm_count)
