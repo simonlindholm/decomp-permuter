@@ -17,7 +17,7 @@ The permuter expects as input one or more directory containing:
 
 See USAGE.md for more details on how to set these up.
 
-The .c file may be modified with any of the following macros which affect manual permutation. Arguments to the macros are split by `|`:
+The .c file may be modified with any of the following macros which affect manual permutation. Arguments to the macros are split by `|` (when not nested within parenthesis):
 
 - `PERM_GENERAL(a|b|...)` expands to any of `a`, `b`, ...
 - `PERM_TYPECAST(a|b|...)` expands to any of `(a)`, `(b)`, ... (empty argument for no cast at all)
