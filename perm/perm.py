@@ -1,5 +1,6 @@
 from typing import Dict, List, Optional
 import math
+import itertools
 
 import attr
 
@@ -151,7 +152,7 @@ class CondNezPerm(Perm):
     def __init__(self, perm: Perm) -> None:
         super().__init__()
         self.children = [perm]
-        self.perm_count = 2
+        self.perm_count = 2 * count_all(self.children)
 
     def evaluate(self, seed: int, state: EvalState) -> str:
         sub_seed, variation = divmod(seed, self.perm_count)
@@ -160,3 +161,16 @@ class CondNezPerm(Perm):
             return f'{cond}'
         else:
             return f'({cond}) != 0'
+
+class LineSwapPerm(Perm):
+    def __init__(self, lines: List[Perm]) -> None:
+        super().__init__()
+        self.children = lines
+        self.line_permutations = [i for i in itertools.permutations(range(len(lines)))]
+        self.perm_count = len(self.line_permutations) * count_all(self.children)
+
+    def evaluate(self, seed: int, state: EvalState) -> str:
+        sub_seed, variation = divmod(seed, self.perm_count)
+        texts = eval_all(sub_seed, self.children, state)
+        result = '\n'.join([texts[i] for i in self.line_permutations[variation]])
+        return result
