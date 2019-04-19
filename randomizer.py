@@ -772,22 +772,11 @@ def perm_reorder_stmts(
     return True
 
 class Randomizer:
-    def __init__(self, start_ast: ca.FileAST, random: Random) -> None:
-        self.orig_fn, self.fn_index = ast_util.find_fn(start_ast)
-        ast_util.normalize_ast(self.orig_fn, start_ast)
-        self.orig_fn = copy.deepcopy(self.orig_fn)
-        self.cur_ast = start_ast
-        self.random = random
+    def __init__(self) -> None:
+        self.random = Random()
 
-    def get_current_source(self) -> str:
-        return ast_util.to_c(self.cur_ast)
-
-    def reset(self) -> None:
-        self.cur_ast.ext[self.fn_index] = copy.deepcopy(self.orig_fn)
-
-    def randomize(self) -> None:
-        ast = self.cur_ast
-        fn = ast.ext[self.fn_index]
+    def randomize(self, ast, fn_index) -> None:
+        fn = ast.ext[fn_index]
         assert isinstance(fn, ca.FuncDef)
         indices = ast_util.compute_node_indices(fn)
         region = get_randomization_region(fn, indices, self.random)
