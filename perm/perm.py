@@ -55,6 +55,8 @@ def count_either(perms: List[Perm]) -> int:
 class TextPerm(Perm):
     def __init__(self, text: str) -> None:
         super().__init__()
+        # Comma escape sequence
+        text = text.replace('(,)', ',')
         self.text = text
 
     def evaluate(self, seed: int, state: EvalState) -> str:
