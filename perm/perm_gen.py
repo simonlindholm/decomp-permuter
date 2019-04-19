@@ -20,7 +20,7 @@ perm_create: Dict[str, Callable[[List[str]], Perm]] = {
     'PERM_TERNARY':   lambda args: TernaryPerm(*split_args(args)),
     'PERM_TYPECAST':  lambda args: TypecastPerm(split_args(args)),
     'PERM_VAR':       lambda args: VarPerm(split_args(args)),
-    'PERM_CONDNE':    lambda args: VarPerm(split_args(args)),
+    'PERM_CONDNE':    lambda args: CondNezPerm(split_args(args)),
     'PERM_LINESWAP':  lambda args: LineSwapPerm(split_args_newline(args)),
 }
 
