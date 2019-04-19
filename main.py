@@ -45,10 +45,12 @@ def find_fns(source: str) -> List[str]:
             and fn not in ['if', 'for', 'switch', 'while']]
 
 @attr.s
-class Candiate(object):
+class Candidate(object):
+    '''
+
+    '''
     ast: ca.FileAST = attr.ib()
     seed: Optional[int] = attr.ib(default=None)
-    can_randomize: Optional[int] = attr.ib(default=None)
 
     orig_fn: ca.FuncDef = attr.ib(init=False, default=None)
     fn_index: int = attr.ib(init=False, default=0)
@@ -67,10 +69,10 @@ class Candiate(object):
         ast_util.normalize_ast(orig_fn, ast)
         return orig_fn, fn_index, ast
 
-    @classmethod
-    def from_source(cls, source: str, cparser: CParser, seed: Optional[int] = None) -> 'Candiate':
-        orig_fn, fn_index, ast = cls._cache_start_source(source)
-        p: Candiate = cls(ast=ast, seed=seed)
+    @staticmethod
+    def from_source(source: str, cparser: CParser, seed: Optional[int] = None) -> 'Candidate':
+        orig_fn, fn_index, ast = Candidate._cache_start_source(source)
+        p: Candidate = Candidate(ast=ast, seed=seed)
         p.orig_fn = orig_fn
         p.fn_index = fn_index
         ast_util.normalize_ast(p.orig_fn, ast)
@@ -88,7 +90,7 @@ class Candiate(object):
         randomizer.randomize(self.ast, self.fn_index)
         self._cache_source = None
 
-    def __enter__(self) -> 'Candiate':
+    def __enter__(self) -> 'Candidate':
         return self
 
     def get_source(self) -> str:
@@ -115,14 +117,14 @@ class Candiate(object):
     def __del__(self) -> None:
         self._remove_o_file()
 
-class Profiler(object):
+class Profiler():
     class StatType(Enum):
         perm = 1
         compile = 2
         score = 3
 
     def __init__(self):
-        self.time_stats = dict([(x, 0.0) for x in Profiler.StatType])
+        self.time_stats = {x: 0.0 for x in Profiler.StatType}
         
     def add_stat(self, stat: StatType, time_taken: float) -> None:
         self.time_stats[stat] += time_taken
@@ -160,9 +162,9 @@ class Permuter:
         #Move outside?
         self._seed_iterator = iter(perm.get_all_seeds(self.permutations.perm_count, self.random))
 
-    def create_and_score_base(self) -> Candiate:
+    def create_and_score_base(self) -> Candidate:
         base_source = perm.perm_evaluate_one(self.permutations)
-        base_cand = Candiate.from_source(base_source, self.parser)
+        base_cand = Candidate.from_source(base_source, self.parser)
         if not base_cand.compile(self.compiler):
             raise Exception(f"Unable to compile {self.source_file}")
         base_cand.score(self.scorer)
@@ -177,14 +179,14 @@ class Permuter:
             
         return seed
 
-    def eval_candidate(self, seed: int) -> Tuple[Candiate, Profiler]:
+    def eval_candidate(self, seed: int) -> Tuple[Candidate, Profiler]:
         cand_c = self.permutations.evaluate(seed, EvalState())
         if cand_c is None:
             return None
 
         t0 = time.time()
 
-        cand = Candiate.from_source(cand_c, self.parser, seed)
+        cand = Candidate.from_source(cand_c, self.parser, seed)
 
         if self.permutations.is_random():
             cand.randomize_ast(self.randomizer)
@@ -212,7 +214,7 @@ class Permuter:
 
         return cand, profiler
 
-    def print_diff(self, cand: Candiate) -> None:
+    def print_diff(self, cand: Candidate) -> None:
         a = self.base.get_source().split('\n')
         b = cand.get_source().split('\n')
         for line in difflib.unified_diff(a, b, fromfile='before', tofile='after', lineterm=''):
@@ -229,18 +231,9 @@ def write_candidate(perm: Permuter, source: str) -> None:
             break
         except FileExistsError:
             pass
-    print(f"wrote to {fname}")
-@attr.s
-class EvalContext():
-    parser: CParser = attr.ib()
-    randomizer: Randomizer = attr.ib()
-    compiler: Compiler = attr.ib()
-    scorer: Scorer = attr.ib()
-    perm: Perm = attr.ib()
-
-   
+    print(f"wrote to {fname}")   
     
-def post_score(permuter: Permuter, cand: Candiate, exception: BaseException, profiler: Profiler) -> None:
+def post_score(permuter: Permuter, cand: Candidate, exception: BaseException, profiler: Profiler) -> None:
     global iteration, errors, overall_profiler
     if exception != None:
         print(f"[{permuter.unique_name}] internal permuter failure.")
@@ -400,24 +393,11 @@ def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> int:
                 post_score(permuter, cand, exception, profiler)
         else:
             # Run multi-threaded
-            def done(f: Future, permuter: Permuter) -> None:
-                e: BaseException = f.exception()
-                cand = None
-                profiler = None
-                if e == None:
-                    cand, profiler = f.result()
-
-                print("Cand: " + str(cand.score_hash))
-                    
-                post_score(permuter, cand, e, profiler)
-
             for bat in batch(iter(perm_seed_iter), options.threads * 100):
                 ps = [permuters[pi] for pi,_ in bat]
                 for f, permuter in zip(executor.map(wrap_eval, bat), ps):
                     cand, profiler = f
                     post_score(permuter, cand, None, profiler)
-                    #f.add_done_callback(functools.partial(done, permuter=permuter))
-                    #f.result()
 
     return high_scores
 
