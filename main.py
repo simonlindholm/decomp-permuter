@@ -248,8 +248,6 @@ def wrap_eval(permuter_seeds):
     global context
     permuter_index, seed = permuter_seeds
     permuter = context.permuters[permuter_index]
-    #print(seed)
-    sys.stdout.flush()
     return permuter.eval_candidate(seed)
 
 def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> int:
