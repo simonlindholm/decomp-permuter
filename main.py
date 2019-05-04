@@ -237,6 +237,11 @@ def main(options: Options) -> int:
         # cleanup, we can just skip GC and exit immediately.
         os._exit(0)
 
+# This has to be a global since we need to access the permuters. 
+# multiprocessing fork()'s the main thread and it works out that the permuters
+# are unmodified because we are simply passing in pre-calculated seeds from the
+# main thread. In theory, we should be able to pass in the context as an argument
+# but haven't been able to get pass various exceptions (probably related to pickling).
 context = EvalContext()
 
 def wrap_eval(permuter_seeds):
