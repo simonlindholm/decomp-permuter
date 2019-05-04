@@ -23,6 +23,7 @@ from scorer import Scorer
 from perm.perm import EvalState, Perm
 import perm
 import ast_util
+import iter_util
 from pycparser import CParser
 from pycparser import c_ast as ca
 from candidate import Candidate
@@ -215,19 +216,6 @@ def gen_all_seeds(permuters: List[Permuter], heartbeat: Callable[[], None]) -> I
             avail_permuters.remove(permuter_item)
         else:
             yield perm_ind, seed
-
-def batch(it, batch_size):
-    while True:
-        batch = []
-        for i in range(batch_size):
-            v = next(it, None)
-            if v == None:
-                if len(batch) != 0:
-                    yield batch
-                return
-
-            batch.append(v)
-        yield batch
         
 def main(options: Options) -> int:
     last_time = time.time()
@@ -318,7 +306,7 @@ def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> int:
                 post_score(context, permuter, cand, exception, profiler)
         else:
             # Run multi-threaded
-            for bat in batch(iter(perm_seed_iter), options.threads * 100):
+            for bat in iter_util.batch(iter(perm_seed_iter), options.threads * 100):
                 ps = [context.permuters[i] for i,_ in bat]
                 for f, permuter in zip(executor.map(wrap_eval, bat), ps):
                     cand, profiler = f
