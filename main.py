@@ -67,6 +67,7 @@ class Permuter:
         self.permutations = perm.perm_gen(source)
         self.base = self.create_and_score_base()
         self.hashes = {self.base.score_hash}
+        self.cand = None
 
         #Move outside?
         self._seed_iterator = iter(perm.get_all_seeds(self.permutations.perm_count, self.random))
@@ -150,41 +151,45 @@ def write_candidate(perm: Permuter, source: str) -> None:
     print(f"wrote to {fname}")   
     
 def post_score(context: EvalContext, permuter: Permuter, cand: Candidate, exception: BaseException, profiler: Profiler) -> None:
-    with cand:
-        if exception != None:
-            print(f"[{permuter.unique_name}] internal permuter failure.")
-            traceback.print_exc()
-            print(f"To reproduce the failure, rerun with: --seed {permuter.seed}")
-            exit(1)
+    if exception != None:
+        print(f"[{permuter.unique_name}] internal permuter failure.")
+        traceback.print_exc()
+        print(f"To reproduce the failure, rerun with: --seed {permuter.seed}")
+        exit(1)
 
-        if options.print_diffs:
-            permuter.print_diff(cand)
-            yn = input("Press any key to continue...")
+    if options.print_diffs:
+        permuter.print_diff(cand)
+        yn = input("Press any key to continue...")
 
-        context.iteration += 1
-        if cand.score_value is None:
-            context.errors += 1
-        disp_score = 'inf' if cand.score_value == permuter.scorer.PENALTY_INF else cand.score_value
-        timings = ''
-        if options.show_timings:
-            assert(profiler)
-            for stattype in profiler.time_stats:
-                context.overall_profiler.add_stat(stattype, profiler.time_stats[stattype])
-            timings = context.overall_profiler.get_str_stats()
-        status_line = f"iteration {context.iteration}, {context.errors} errors, score = {disp_score}\t{timings}"
+    context.iteration += 1
+    if cand.score_value is None:
+        context.errors += 1
+    disp_score = 'inf' if cand.score_value == permuter.scorer.PENALTY_INF else cand.score_value
+    timings = ''
+    if options.show_timings:
+        assert(profiler)
+        for stattype in profiler.time_stats:
+            context.overall_profiler.add_stat(stattype, profiler.time_stats[stattype])
+        timings = context.overall_profiler.get_str_stats()
+    status_line = f"iteration {context.iteration}, {context.errors} errors, score = {disp_score}\t{timings}"
 
-        if cand.score_value and cand.score_value <= permuter.base.score_value and cand.score_hash and cand.score_hash not in permuter.hashes and cand.score_value < 20000:
-            permuter.hashes.add(cand.score_hash)
-            print("\r" + " " * (len(status_line) + 10) + "\r", end='')
-            if cand.score_value < permuter.base.score_value:
-                context.high_scores[permuter] = cand.score_hash
-                print(f"[{permuter.unique_name}] found a better score! ({cand.score_value} vs {permuter.base.score_value})")
-            else:
-                print(f"[{permuter.unique_name}] found different asm with same score")
+    if cand.score_value and cand.score_value <= permuter.base.score_value and cand.score_hash and cand.score_hash not in permuter.hashes and cand.score_value < 20000:
+        permuter.hashes.add(cand.score_hash)
+        print("\r" + " " * (len(status_line) + 10) + "\r", end='')
+        if cand.score_value < permuter.base.score_value:
+            context.high_scores[permuter] = cand.score_hash
+            print(f"[{permuter.unique_name}] found a better score! ({cand.score_value} vs {permuter.base.score_value})")
+        else:
+            print(f"[{permuter.unique_name}] found different asm with same score")
 
-            source = cand.get_source()
-            write_candidate(permuter, source)
-        print("\b"*10 + " "*10 + "\r" + status_line, end='', flush=True)
+        source = cand.get_source()
+        write_candidate(permuter, source)
+    print("\b"*10 + " "*10 + "\r" + status_line, end='', flush=True)
+    
+    # Cleanup cand
+    if cand:
+        with cand:
+            pass
 
 def gen_all_seeds(permuters: List[Permuter], heartbeat: Callable[[], None]) -> Iterable[Tuple[int, Permuter]]:
     i = -1
@@ -289,14 +294,17 @@ def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> int:
         task_queue = Queue()
         results_queue = Queue()
 
-        # Begin workers
         def worker(input, output):
             global context
             for permuter_index, seed in iter(input.get, 'STOP'):
-                permuter = context.permuters[permuter_index]
-                result = permuter.eval_candidate(seed) + (permuter_index,)
+                try:
+                    permuter = context.permuters[permuter_index]
+                    result = permuter.eval_candidate(seed) + (permuter_index,None,)
+                except e:
+                    result = (None, None, permuter_index, e)
                 output.put(result)
 
+        # Begin workers
         for i in range(options.threads):
             Process(target=worker, args=(task_queue, results_queue)).start()
         
@@ -307,15 +315,16 @@ def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> int:
                 task_queue.put(perm_seed)
 
             # Wait for batch to finish
-            for i in range(options.threads):
-                cand, profiler, permuter_index = results_queue.get()
+            for i in range(len(bat)):
+                cand, profiler, permuter_index, e = results_queue.get()
                 permuter = context.permuters[permuter_index]
-                post_score(context, permuter, cand, None, profiler)
+                post_score(context, permuter, cand, e, profiler)
 
         # Tell child processes to stop
         for i in range(options.threads):
             task_queue.put('STOP')
 
+        print() 
 
     return context.high_scores
 
