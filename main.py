@@ -29,6 +29,10 @@ from pycparser import c_ast as ca
 from candidate import Candidate
 from profiler import Profiler
 
+# The probability that the randomizer continues transforming the output it
+# generated last time it was given the same initial C code.
+RANDOMIZER_KEEP_PROB = 0.25
+
 @attr.s
 class Options:
     directories: List[str] = attr.ib()
@@ -90,26 +94,29 @@ class Permuter:
         return seed
 
     def eval_candidate(self, seed: int) -> Tuple[Candidate, Profiler]:
-        cand_c = self.permutations.evaluate(seed, EvalState())
-        if cand_c is None:
-            return None
-
         t0 = time.time()
 
-        cand = Candidate.from_source(cand_c, self.parser, seed)
+        keep = (self.permutations.is_random() 
+            and self.random.uniform(0, 1) >= RANDOMIZER_KEEP_PROB)
+        
+        if not self.cand or not keep:
+            cand_c = self.permutations.evaluate(seed, EvalState())
+            if cand_c is None:
+                return None
+            self.cand = Candidate.from_source(cand_c, self.parser, seed)
 
         if self.permutations.is_random():
-            cand.randomize_ast(self.randomizer)
+            self.cand.randomize_ast(self.randomizer)
 
         t1 = time.time()
 
-        comp_success = cand.compile(self.compiler)
+        comp_success = self.cand.compile(self.compiler)
 
         t2 = time.time()
 
         if comp_success:
-            cand.score(self.scorer)
-            new_score, new_hash = cand.score_value, cand.score_hash
+            self.cand.score(self.scorer)
+            new_score, new_hash = self.cand.score_value, self.cand.score_hash
         else:
             new_hash = None
             new_score = self.scorer.PENALTY_INF
@@ -121,7 +128,7 @@ class Permuter:
         profiler.add_stat(Profiler.StatType.compile, t2 - t1)
         profiler.add_stat(Profiler.StatType.score, t3 - t2)
 
-        return cand, profiler
+        return self.cand, profiler
 
     def print_diff(self, cand: Candidate) -> None:
         a = self.base.get_source().split('\n')

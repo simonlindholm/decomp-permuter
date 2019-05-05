@@ -14,10 +14,6 @@ import ast_util
 from pycparser import CParser
 from pycparser import c_ast as ca
 
-# The probability that the randomizer continues transforming the output it
-# generated last time it was given the same initial C code.
-RANDOMIZER_KEEP_PROB = 0.25
-
 @attr.s
 class Candidate(object):
     '''
@@ -58,8 +54,6 @@ class Candidate(object):
         self._cache_source = None
 
     def randomize_ast(self, randomizer: Randomizer) -> None:
-        if randomizer.random.uniform(0, 1) >= RANDOMIZER_KEEP_PROB:
-            self.reset_ast()
         randomizer.random.seed(self.seed)
         randomizer.randomize(self.ast, self.fn_index)
         self._cache_source = None
