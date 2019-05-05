@@ -9,7 +9,7 @@ import re
 import sys
 import time
 import traceback
-from concurrent.futures import ProcessPoolExecutor, Future
+from multiprocessing import Queue, Process
 from enum import Enum
 
 import attr
@@ -228,12 +228,6 @@ def main(options: Options) -> int:
 # but haven't been able to get pass various exceptions (probably related to pickling).
 context = EvalContext()
 
-def wrap_eval(permuter_seeds):
-    global context
-    permuter_index, seed = permuter_seeds
-    permuter = context.permuters[permuter_index]
-    return permuter.eval_candidate(seed)
-
 def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> int:
     print("Loading...")
 
@@ -277,27 +271,51 @@ def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> int:
 
     context.high_scores = dict([(p.base.score_value, p) for p in context.permuters])
 
-    with ProcessPoolExecutor(max_workers=options.threads) as executor:
-        perm_seed_iter = gen_all_seeds(context.permuters, heartbeat)
-        if options.threads == 1:
-            for permuter_index, seed in perm_seed_iter:
+    perm_seed_iter = gen_all_seeds(context.permuters, heartbeat)
+    if options.threads == 1:
+        for permuter_index, seed in perm_seed_iter:
+            permuter = context.permuters[permuter_index]
+            # Run single threaded
+            exception = None
+            try:
+                cand, profiler = permuter.eval_candidate(seed)
+            except Exception as e:
+                cand = None
+                profiler = None
+                exception = e
+            post_score(context, permuter, cand, exception, profiler)
+    else: # Run multi-threaded
+        # Create queues
+        task_queue = Queue()
+        results_queue = Queue()
+
+        # Begin workers
+        def worker(input, output):
+            global context
+            for permuter_index, seed in iter(input.get, 'STOP'):
                 permuter = context.permuters[permuter_index]
-                # Run single threaded
-                exception = None
-                try:
-                    cand, profiler = permuter.eval_candidate(seed)
-                except Exception as e:
-                    cand = None
-                    profiler = None
-                    exception = e
-                post_score(context, permuter, cand, exception, profiler)
-        else:
-            # Run multi-threaded
-            for bat in iter_util.batch(iter(perm_seed_iter), options.threads * 100):
-                ps = [context.permuters[i] for i,_ in bat]
-                for f, permuter in zip(executor.map(wrap_eval, bat), ps):
-                    cand, profiler = f
-                    post_score(context, permuter, cand, None, profiler)
+                result = permuter.eval_candidate(seed) + (permuter_index,)
+                output.put(result)
+
+        for i in range(options.threads):
+            Process(target=worker, args=(task_queue, results_queue)).start()
+        
+        # Run batch work
+        for bat in iter_util.batch(iter(perm_seed_iter), options.threads * 100):
+            # Put batch into queue
+            for perm_seed in bat:
+                task_queue.put(perm_seed)
+
+            # Wait for batch to finish
+            for i in range(options.threads):
+                cand, profiler, permuter_index = results_queue.get()
+                permuter = context.permuters[permuter_index]
+                post_score(context, permuter, cand, None, profiler)
+
+        # Tell child processes to stop
+        for i in range(options.threads):
+            task_queue.put('STOP')
+
 
     return context.high_scores
 
