@@ -48,6 +48,10 @@ def find_fns(source: str) -> List[str]:
             and fn not in ['if', 'for', 'switch', 'while']]
 
 class Permuter:
+    '''
+    Represents a single source which can permutation candidates can be generated
+    from. 
+    '''
     def __init__(self, dir: str, compiler: Compiler, scorer: Scorer, source_file: str, source: str, seed: int):
         self.dir = dir
         self.random = Random()
@@ -202,14 +206,19 @@ def post_score(context: EvalContext, permuter: Permuter, cand: Candidate, except
             pass
 
 def gen_all_seeds(permuters: List[Permuter], heartbeat: Callable[[], None]) -> Iterable[Tuple[int, Permuter]]:
+    '''
+    For each permuter, return all possible seed permutations for that permuter.
+    '''
     i = -1
     avail_permuters = [(p, p_i) for p, p_i in zip(permuters, range(len(permuters)))]
 
     while len(avail_permuters) > 0:
-        heartbeat()
+        # select a permuter
         i = (i + 1) % len(avail_permuters)
         permuter_item = avail_permuters[i]
         permuter, perm_ind = permuter_item
+        
+        # get a seed for the permuter
         seed = permuter.get_next_seed()
         if seed is None:
             avail_permuters.remove(permuter_item)
@@ -289,6 +298,7 @@ def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> int:
     perm_seed_iter = gen_all_seeds(context.permuters, heartbeat)
     if options.threads == 1:
         for permuter_index, seed in perm_seed_iter:
+            heartbeat()
             permuter = context.permuters[permuter_index]
             # Run single threaded
             exception = None
@@ -326,6 +336,7 @@ def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> int:
 
             # Wait for batch to finish
             for i in range(len(bat)):
+                heartbeat()
                 cand, profiler, permuter_index, e = results_queue.get()
                 permuter = context.permuters[permuter_index]
                 post_score(context, permuter, cand, e, profiler)
