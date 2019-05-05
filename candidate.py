@@ -17,7 +17,8 @@ from pycparser import c_ast as ca
 @attr.s
 class Candidate(object):
     '''
-    Represents a single permutation
+    Represents a AST candidate created from a source which can be randomized, 
+    reset to its base, compiled, and scored.
     '''
     ast: ca.FileAST = attr.ib()
     seed: Optional[int] = attr.ib(default=None)

@@ -96,15 +96,18 @@ class Permuter:
     def eval_candidate(self, seed: int) -> Tuple[Candidate, Profiler]:
         t0 = time.time()
 
+        # Determine if we should keep the last candidate 
         keep = (self.permutations.is_random() 
             and self.random.uniform(0, 1) >= RANDOMIZER_KEEP_PROB)
         
+        # Create a new candidate if we didn't keep the last one (or if the last one didn't exist)
         if not self.cand or not keep:
             cand_c = self.permutations.evaluate(seed, EvalState())
             if cand_c is None:
                 return None
             self.cand = Candidate.from_source(cand_c, self.parser, seed)
 
+        # Randomize the candidate
         if self.permutations.is_random():
             self.cand.randomize_ast(self.randomizer)
 
