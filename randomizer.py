@@ -470,7 +470,8 @@ def perm_temp_for_expr(
 
     # Always use pointers when replacing structs
     if (not should_make_ptr and isinstance(type, ca.TypeDecl) and
-            isinstance(type.type, ca.Struct) and ast_util.is_lvalue(expr)):
+            isinstance(type.type, (ca.Struct, ca.Union)) and
+            ast_util.is_lvalue(expr)):
         should_make_ptr = True
         expr = ca.UnaryOp('&', expr)
         type = decayed_expr_type(expr, typemap)
@@ -638,6 +639,49 @@ def perm_randomize_type(
 
     return True
 
+def perm_refer_to_var(
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
+) -> bool:
+    """Add `if (variable) {}` or `if (struct.member) {}` in a random place.
+    This will get optimized away but may affect regalloc."""
+    cands: List[Expression] = []
+
+    # Find expression to insert, searching within the randomization region.
+    def rec(block: Block) -> None:
+        for stmt in ast_util.get_block_stmts(block, False):
+            ast_util.for_nested_blocks(stmt, rec)
+            def visitor(expr: Expression) -> None:
+                if not region.contains_node(expr):
+                    return
+                if isinstance(expr, (ca.StructRef, ca.ID)):
+                    cands.append(expr)
+            replace_subexprs(stmt, visitor)
+    rec(fn.body)
+    if not cands:
+        return False
+    expr = random.choice(cands)
+    if ast_util.is_effectful(expr):
+        return False
+    type: SimpleType = decayed_expr_type(expr, build_typemap(ast))
+    if isinstance(type, ca.TypeDecl) and isinstance(type.type, (ca.Struct, ca.Union)):
+        expr = ca.UnaryOp('&', expr)
+
+    if random.choice([True, False]):
+        expr = ca.UnaryOp('!', expr)
+
+    # Insert it wherever -- possibly outside the randomization region, since regalloc
+    # can act at a distance. (Except before a declaration.)
+    ins_cands = get_insertion_points(fn, Region.unbounded())
+    ins_cands = [c for c in ins_cands if not isinstance(c[2], ca.Decl)]
+    if not ins_cands:
+        return False
+
+    cond = copy.deepcopy(expr)
+    stmt = ca.If(cond=cond, iftrue=ca.Compound(block_items=[]), iffalse=None)
+    tob, toi, _ = random.choice(ins_cands)
+    ast_util.insert_statement(tob, toi, stmt)
+    return True
+
 def perm_ins_block(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> bool:
@@ -794,6 +838,7 @@ class Randomizer:
         methods = [
             (perm_temp_for_expr, 100),
             (perm_expand_expr, 20),
+            (perm_refer_to_var, 10),
             (perm_randomize_type, 10),
             (perm_sameline, 10),
             (perm_ins_block, 10),
