@@ -8,7 +8,8 @@ class Compiler:
         self.compile_cmd = compile_cmd
         self.show_errors = show_errors
 
-    def compile(self, source: str) -> Optional[str]:
+    def compile(self, source: str, show_errors=False) -> Optional[str]:
+        show_errors = show_errors or self.show_errors
         with tempfile.NamedTemporaryFile(prefix='permuter', suffix='.c', mode='w', delete=False) as f:
             c_name = f.name
             f.write(source)
@@ -17,10 +18,10 @@ class Compiler:
             o_name = f.name
 
         try:
-            stderr = None if self.show_errors else subprocess.DEVNULL
+            stderr = None if show_errors else subprocess.DEVNULL
             subprocess.check_call(self.compile_cmd + " " + c_name + " -o " + o_name, shell=True, stderr=stderr)
         except subprocess.CalledProcessError:
-            if not self.show_errors:
+            if not show_errors:
                 os.remove(c_name)
             return None
 

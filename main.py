@@ -75,7 +75,7 @@ class Permuter:
         randomizer = self._get_randomizer(base_source)
         base_source = randomizer.get_current_source()
 
-        start_o = self.compiler.compile(base_source)
+        start_o = self.compiler.compile(base_source, show_errors=True)
         if start_o is None:
             raise Exception(f"Unable to compile {self.source_file}")
 
