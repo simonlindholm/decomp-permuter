@@ -50,5 +50,5 @@ randomizer tends to play well with them.
 
 **Should I use this instead of trying to match code by hand?** Well, the manual PERM macros might speed you up if you manage
 to fit the permuter into your workflow. The random mode is however much more of a last ditch sort of thing.
-If often finds nonsensical permutations that happen to match regalloc very well by accident.
+It often finds nonsensical permutations that happen to match regalloc very well by accident.
 Still, it may be useful in pointing out which parts of the code need to be changed to get the code nearer to matching.
