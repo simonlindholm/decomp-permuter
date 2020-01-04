@@ -117,7 +117,7 @@ class Permuter:
 
         t1 = time.time()
 
-        comp_success = self.cand.compile(self.compiler)
+        comp_success = self.cand.compile(self.compiler, show_errors=True)
 
         t2 = time.time()
 

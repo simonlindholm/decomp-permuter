@@ -65,10 +65,10 @@ class Candidate(object):
             self._cache_source = ast_util.to_c(self.ast)
         return self._cache_source
 
-    def compile(self, compiler: Compiler) -> bool:
+    def compile(self, compiler: Compiler, show_errors=False) -> bool:
         self._remove_o_file()
         source = self.get_source()
-        self.o_file = compiler.compile(source)
+        self.o_file = compiler.compile(source, show_errors=show_errors)
         return self.o_file is not None
 
     def score(self, scorer: Scorer) -> None:

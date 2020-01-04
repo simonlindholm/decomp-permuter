@@ -75,6 +75,7 @@ def compute_node_indices(top_node: ca.Node) -> Indices:
     class Visitor(ca.NodeVisitor):
         def generic_visit(self, node: ca.Node) -> None:
             nonlocal cur_index
+            assert node not in indices, "nodes should only appear once in AST"
             indices[node] = cur_index
             cur_index += 1
             super().generic_visit(node)

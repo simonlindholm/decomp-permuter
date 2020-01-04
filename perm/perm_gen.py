@@ -2,15 +2,26 @@ from typing import Callable, Dict, List, Tuple
 import re
 
 from perm.perm import (Perm, CombinePerm, GeneralPerm, RandomizerPerm,
-        TextPerm, TernaryPerm, TypecastPerm, VarPerm, CondNezPerm)
+        TextPerm, TernaryPerm, TypecastPerm, VarPerm, CondNezPerm, LineSwapPerm)
 
-perm_create: Dict[str, Callable[[List[Perm]], Perm]] = {
-    'PERM_GENERAL':   lambda args: GeneralPerm(args),
-    'PERM_RANDOMIZE': lambda args: RandomizerPerm(args[0]),
-    'PERM_TERNARY':   lambda args: TernaryPerm(*args),
-    'PERM_TYPECAST':  lambda args: TypecastPerm(args),
-    'PERM_VAR':       lambda args: VarPerm(args),
-    'PERM_CONDNEZ':    lambda args: CondNezPerm(args),
+def split_args(args: List[str]) -> List[Perm]:
+    perm_args = [rec_perm_gen(arg) for arg in args]
+    return perm_args
+
+def split_args_newline(args: List[str]) -> List[Perm]:
+    s = '\n'.join(args)
+    lines = [line for line in s.split('\n') if line and not line.isspace()]
+    perm_args = [rec_perm_gen(line) for line in lines]
+    return perm_args
+
+perm_create: Dict[str, Callable[[List[str]], Perm]] = {
+    'PERM_GENERAL':   lambda args: GeneralPerm(split_args(args)),
+    'PERM_RANDOMIZE': lambda args: RandomizerPerm(split_args(args)[0]),
+    'PERM_TERNARY':   lambda args: TernaryPerm(*split_args(args)),
+    'PERM_TYPECAST':  lambda args: TypecastPerm(split_args(args)),
+    'PERM_VAR':       lambda args: VarPerm(split_args(args)),
+    'PERM_CONDNE':    lambda args: CondNezPerm(*split_args(args)),
+    'PERM_LINESWAP':  lambda args: LineSwapPerm(split_args_newline(args)),
 }
 
 def get_parenthesis_args(s: str) -> Tuple[List[str], str]:
@@ -65,8 +76,7 @@ def rec_perm_gen(input: str) -> Perm:
         perms.append(TextPerm(between))
 
         # Create new perm
-        perm_args = [rec_perm_gen(arg) for arg in args]
-        perms.append(perm_create[perm_type](perm_args))
+        perms.append(perm_create[perm_type](args))
 
     if len(perms) == 1:
         return perms[0]
