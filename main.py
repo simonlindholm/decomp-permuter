@@ -59,7 +59,7 @@ class Permuter:
     Represents a single source from which permutation candidates can be generated,
     and which keeps track of good scores achieved so far.
     '''
-    def __init__(self, dir: str, compiler: Compiler, scorer: Scorer, source_file: str, source: str, force_seed: Optional[str]):
+    def __init__(self, dir: str, compiler: Compiler, scorer: Scorer, source_file: str, source: str, force_rng_seed: Optional[int]) -> None:
         self.dir = dir
         self.random = Random()
         self.compiler = compiler
@@ -77,20 +77,17 @@ class Permuter:
         self.parser = pycparser.CParser()
         self.permutations = perm.perm_gen(source)
 
+        self.force_rng_seed = force_rng_seed
         self.cur_seed: Optional[Tuple[int, int]] = None
-        if force_seed:
-            seed, rng_seed = map(int, force_seed.split())
-            self.force_rng_seed: Optional[int] = rng_seed
-            self._seed_iterator = itertools.repeat(seed) if self.permutations.is_random() else iter([seed])
-        else:
-            self.force_rng_seed = None
-            self._seed_iterator = iter(perm.perm_gen_all_seeds(self.permutations, self.random))
 
         self.base, base_score, base_hash = self.create_and_score_base()
         self.hashes = {base_hash}
         self.cand: Optional[Candidate] = None
         self.base_score: int = base_score
         self.best_score: int = base_score
+
+    def reseed_random(self) -> None:
+        self.random = Random()
 
     def create_and_score_base(self) -> Tuple[Candidate, int, str]:
         base_source = perm.perm_evaluate_one(self.permutations)
@@ -100,9 +97,6 @@ class Permuter:
             raise Exception(f"Unable to compile {self.source_file}")
         base_score, base_hash = base_cand.score(self.scorer, o_file)
         return base_cand, base_score, base_hash
-
-    def get_next_seed(self) -> Optional[int]:
-        return next(self._seed_iterator, None)
 
     def eval_candidate(self, seed: int) -> Tuple[Candidate, Profiler]:
         t0 = time.time()
@@ -147,7 +141,7 @@ class Permuter:
         try:
             cand, profiler = self.eval_candidate(seed)
             return cand, profiler
-        except:
+        except Exception:
             return EvalError(exc_str=traceback.format_exc(), seed=self.cur_seed)
 
     def print_diff(self, cand: Candidate) -> None:
@@ -180,9 +174,11 @@ def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> 
     if isinstance(result, EvalError):
         print(f"[{permuter.unique_name}] internal permuter failure.")
         print(result.exc_str)
-        seed = result.seed
-        if seed is not None:
-            print(f"To reproduce the failure, rerun with: --seed {seed[0]},{seed[1]}")
+        if result.seed is not None:
+            seed_str = str(result.seed[1])
+            if result.seed[0] != 0:
+                seed_str = f"{result.seed[0]},{seed_str}"
+            print(f"To reproduce the failure, rerun with: --seed {seed_str}")
         sys.exit(1)
 
     cand, profiler = result
@@ -219,47 +215,67 @@ def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> 
         write_candidate(permuter, source)
     print("\b"*10 + " "*10 + "\r" + status_line, end='', flush=True)
 
-def gen_all_seeds(permuters: List[Permuter]) -> Iterable[Tuple[int, int]]:
+def cycle_seeds(permuters: List[Permuter], force_seed: Optional[int]) -> Iterable[Tuple[int, int]]:
     '''
     Return all possible (permuter index, seed) pairs, cycling over permuters.
+    If a permuter is randomized, it will keep repeating seeds infinitely.
     '''
+    iterators: List[Iterator[Tuple[int, int]]] = []
+    for perm_ind, permuter in enumerate(permuters):
+        it: Iterable[int]
+        if not force_seed:
+            it = perm.perm_gen_all_seeds(permuter.permutations, Random())
+        elif permuter.permutations.is_random():
+            it = itertools.repeat(force_seed)
+        else:
+            it = [force_seed]
+        iterators.append(zip(itertools.repeat(perm_ind), it))
+
     i = 0
-    avail = list(range(len(permuters)))
-    while avail:
-        perm_ind = avail[i]
-        seed = permuters[perm_ind].get_next_seed()
-        if seed is None:
-            del avail[i]
+    while iterators:
+        item = next(iterators[i], None)
+        if item is None:
+            del iterators[i]
             i -= 1
         else:
-            yield perm_ind, seed
-        i = (i + 1) % len(avail)
+            yield item
+        i = (i + 1) % len(iterators)
 
-# This has to be a global since we need to access the permuters.
-# multiprocessing fork()s the main thread and it works out that the permuters
-# are unmodified because we are simply passing in pre-calculated seeds from the
-# main thread. In theory, we should be able to pass in the context as an argument
-# but haven't been able to get pass various exceptions (probably related to pickling).
-# TODO: test this. Candidates can be sent through task queues, so why not contexts?
-# TODO: does this break on Windows, with start method 'spawn'?
+# We need to access the permuters from the worker threads, but passing them
+# as arguments runs into pickle troubles. We work around this by making the
+# permuter array global. This only works on Linux, sadly, where fork() is
+# available -- on Windows, multiprocessing spawns a new Python process and
+# re-executes the script without __name__ == "__main__", making this None.
+# TODO: figure out the pickle errors so we can get rid of this.
+# Candidates can be sent through task queues, so why not permuters?
 global_permuters = None
 
-InputQueue = multiprocessing.Queue[Optional[Tuple[int, int]]]
-OutputQueue = multiprocessing.Queue[Tuple[int, EvalResult]]
-
-def multiprocess_worker(input_queue: InputQueue, output_queue: OutputQueue) -> None:
+def multiprocess_worker(input_queue: "multiprocessing.Queue[Optional[Tuple[int, int]]]", output_queue: "multiprocessing.Queue[Tuple[int, EvalResult]]") -> None:
     global global_permuters
-    while True:
-        queue_item = input_queue.get()
-        if queue_item is None:
-            break
-        permuter_index, seed = queue_item
-        assert global_permuters is not None
-        permuter = global_permuters[permuter_index]
-        result = permuter.try_eval_candidate(seed)
-        # TODO: if result is obviously bad, and print_diffs is off, replace the
-        # candidate by something that takes less pickling overhead
-        output_queue.put((permuter_index, result))
+    input_queue.cancel_join_thread()
+    output_queue.cancel_join_thread()
+
+    # Don't use the same RNGs as the parent
+    global global_permuters
+    for permuter in global_permuters:
+        permuter.reseed_random()
+
+    try:
+        while True:
+            queue_item = input_queue.get()
+            if queue_item is None:
+                break
+            permuter_index, seed = queue_item
+            permuter = global_permuters[permuter_index]
+            result = permuter.try_eval_candidate(seed)
+            # TODO: if result is obviously bad, and print_diffs is off, replace the
+            # candidate by something that takes less pickling overhead
+            output_queue.put((permuter_index, result))
+    except KeyboardInterrupt:
+        # Don't clutter the output with stack traces; Ctrl+C is the expected
+        # way to quit and sends KeyboardInterrupt to all processes.
+        # A heartbeat thing here would be good but is too complex.
+        pass
 
 def main(options: Options) -> List[int]:
     last_time = time.time()
@@ -276,16 +292,26 @@ def main(options: Options) -> List[int]:
             sys.exit(1)
         print()
         print("Exiting.")
-        # The lru_cache sometimes uses a lot of memory, making normal exit slow
-        # due to GC. But since we're sane people and don't use finalizers for
-        # cleanup, we can just skip GC and exit immediately.
-        os._exit(0)
+        if options.threads == 1:
+            # The lru_cache sometimes uses a lot of memory, making normal exit slow
+            # due to GC. But since we're sane people and don't use finalizers for
+            # cleanup, we can just skip GC and exit immediately.
+            os._exit(0)
+        else:
+            # With threads we do need proper cleanup.
+            sys.exit(0)
 
 def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> List[int]:
     print("Loading...")
 
-    force_seed = options.force_seed
     context = EvalContext()
+
+    force_rng_seed: Optional[int] = None
+    force_seed: Optional[int] = None
+    if options.force_seed:
+        seed_parts = list(map(int, options.force_seed.split(',')))
+        force_rng_seed = seed_parts[-1]
+        force_seed = 0 if len(seed_parts) == 1 else seed_parts[0]
 
     name_counts: Dict[str, int] = {}
     for i, d in enumerate(options.directories):
@@ -308,7 +334,7 @@ def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         c_source = preprocess(base_c)
 
         # TODO: catch special-purpose permuter exceptions from this
-        permuter = Permuter(d, compiler, scorer, base_c, c_source, force_seed=force_seed)
+        permuter = Permuter(d, compiler, scorer, base_c, c_source, force_rng_seed=force_rng_seed)
 
         context.permuters.append(permuter)
         name_counts[permuter.fn_name] = name_counts.get(permuter.fn_name, 0) + 1
@@ -319,7 +345,7 @@ def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             permuter.unique_name += f" ({permuter.dir})"
         print(f"[{permuter.unique_name}] base score = {permuter.best_score}")
 
-    perm_seed_iter = gen_all_seeds(context.permuters)
+    perm_seed_iter = cycle_seeds(context.permuters, force_seed)
     if options.threads == 1:
         for permuter_index, seed in perm_seed_iter:
             heartbeat()
@@ -331,8 +357,10 @@ def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         global_permuters = context.permuters
 
         # Create queues
-        task_queue: InputQueue = multiprocessing.Queue()
-        results_queue: OutputQueue = multiprocessing.Queue()
+        task_queue: "multiprocessing.Queue[Optional[Tuple[int, int]]]" = multiprocessing.Queue()
+        results_queue: "multiprocessing.Queue[Tuple[int, EvalResult]]" = multiprocessing.Queue()
+        task_queue.cancel_join_thread()
+        results_queue.cancel_join_thread()
 
         def wait_for_result() -> None:
             heartbeat()
@@ -370,8 +398,8 @@ def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> List[int]:
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()
-    # TODO remove this
-    multiprocessing.set_start_method('spawn')
+    # For testing Windows support (see the comment above global_permuters):
+    # multiprocessing.set_start_method('spawn')
     parser = argparse.ArgumentParser(
             description="Randomly permute C files to better match a target binary.")
     parser.add_argument('directory', nargs='+',

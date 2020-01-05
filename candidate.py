@@ -5,6 +5,8 @@ import os
 
 import attr
 import pycparser
+from pycparser import CParser
+from pycparser import c_ast as ca
 
 from compiler import Compiler
 from randomizer import Randomizer
@@ -12,8 +14,7 @@ from scorer import Scorer
 from perm.perm import EvalState, Perm
 import perm
 import ast_util
-from pycparser import CParser
-from pycparser import c_ast as ca
+from helpers import try_remove
 
 @attr.s
 class Candidate:
@@ -72,8 +73,5 @@ class Candidate:
             self.score_value, self.score_hash = scorer.score(o_file)
         finally:
             if o_file:
-                try:
-                    os.remove(o_file)
-                except:
-                    pass
+                try_remove(o_file)
         return self.score_value, self.score_hash
