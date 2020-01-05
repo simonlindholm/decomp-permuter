@@ -54,42 +54,42 @@ class TestStringMethods(unittest.TestCase):
 
     def test_general(self):
         d = self.tmp_dirs[('test_general.c', 'test_general')].name
-        score = main.main(main.Options(directories=[d]))
+        score, = main.main(main.Options(directories=[d]))
         self.assertEqual(score, 0)
 
     def test_general_3(self):
         d = self.tmp_dirs[('test_general.c', 'test_general_3')].name
-        score = main.main(main.Options(directories=[d]))
+        score, = main.main(main.Options(directories=[d]))
         self.assertEqual(score, 0)
 
     def test_general_multiple(self):
         d = self.tmp_dirs[('test_general.c', 'test_general_multiple')].name
-        score = main.main(main.Options(directories=[d]))
+        score, = main.main(main.Options(directories=[d]))
         self.assertEqual(score, 0)
 
     def test_ternary1(self):
         d = self.tmp_dirs[('test_ternary.c', 'test_ternary1')].name
-        score = main.main(main.Options(directories=[d]))
+        score, = main.main(main.Options(directories=[d]))
         self.assertEqual(score, 0)
 
     def test_ternary2(self):
         d = self.tmp_dirs[('test_ternary.c', 'test_ternary2')].name
-        score = main.main(main.Options(directories=[d]))
+        score, = main.main(main.Options(directories=[d]))
         self.assertEqual(score, 0)
 
     def test_type1(self):
         d = self.tmp_dirs[('test_type.c', 'test_type1')].name
-        score = main.main(main.Options(directories=[d]))
+        score, = main.main(main.Options(directories=[d]))
         self.assertEqual(score, 0)
 
     def test_type2(self):
         d = self.tmp_dirs[('test_type.c', 'test_type2')].name
-        score = main.main(main.Options(directories=[d]))
+        score, = main.main(main.Options(directories=[d]))
         self.assertEqual(score, 0)
 
     def test_type3(self):
         d = self.tmp_dirs[('test_type.c', 'test_type3')].name
-        score = main.main(main.Options(directories=[d]))
+        score, = main.main(main.Options(directories=[d]))
         self.assertEqual(score, 0)
 
 if __name__ == '__main__':

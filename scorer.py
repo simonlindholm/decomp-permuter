@@ -44,8 +44,12 @@ class Scorer:
             ret.append(DiffAsmLine(line))
         return (output, ret)
 
-    def score(self, cand_o: str) -> Tuple[int, str]:
+    def score(self, cand_o: Optional[str]) -> Tuple[int, str]:
+        if not cand_o:
+            return Scorer.PENALTY_INF, ''
+
         objdump_output, cand_seq = self._objdump(cand_o)
+        # TODO: os.remove(cand_o) ?? or where does that happen for the base file
 
         score = 0
         deletions = []

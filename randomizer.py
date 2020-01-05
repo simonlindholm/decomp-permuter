@@ -819,7 +819,7 @@ class Randomizer:
     def __init__(self) -> None:
         self.random = Random()
 
-    def randomize(self, ast, fn_index) -> None:
+    def randomize(self, ast: ca.FileAST, fn_index: int) -> None:
         fn = ast.ext[fn_index]
         assert isinstance(fn, ca.FuncDef)
         indices = ast_util.compute_node_indices(fn)
