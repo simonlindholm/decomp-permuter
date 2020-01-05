@@ -1,6 +1,7 @@
 from typing import List, Dict, Optional, Callable, Optional, Tuple, Iterable, Union
 import argparse
 import difflib
+import itertools
 import functools
 import os
 from random import Random
@@ -18,7 +19,6 @@ from preprocess import preprocess
 import copy
 
 from compiler import Compiler
-from randomizer import Randomizer
 from scorer import Scorer
 from perm.perm import EvalState, Perm
 import perm
@@ -29,7 +29,7 @@ from candidate import Candidate
 from profiler import Profiler
 
 # The probability that the randomizer continues transforming the output it
-# generated last time it was given the same initial C code.
+# generated last time.
 RANDOMIZER_KEEP_PROB = 0.25
 
 @attr.s
@@ -38,7 +38,7 @@ class Options:
     show_errors: bool = attr.ib(default=False)
     show_timings: bool = attr.ib(default=False)
     print_diffs: bool = attr.ib(default=False)
-    seed: Optional[int] = attr.ib(default=None)
+    force_seed: Optional[str] = attr.ib(default=None)
     threads: int = attr.ib(default=1)
 
 def find_fns(source: str) -> List[str]:
@@ -46,17 +46,21 @@ def find_fns(source: str) -> List[str]:
     return [fn for fn in fns if not fn.startswith('PERM')
             and fn not in ['if', 'for', 'switch', 'while']]
 
+@attr.s
+class EvalError:
+    exc_str: str = attr.ib()
+    seed: Optional[Tuple[int, int]] = attr.ib()
+
+EvalResult = Union[Tuple[Candidate, Profiler], EvalError]
+
 class Permuter:
     '''
     Represents a single source from which permutation candidates can be generated,
     and which keeps track of good scores achieved so far.
     '''
-    EvalResult = Union[Tuple[Candidate, Profiler], str]
-
-    def __init__(self, dir: str, compiler: Compiler, scorer: Scorer, source_file: str, source: str, seed: int):
+    def __init__(self, dir: str, compiler: Compiler, scorer: Scorer, source_file: str, source: str, force_seed: Optional[str]):
         self.dir = dir
         self.random = Random()
-        self.randomizer = Randomizer()
         self.compiler = compiler
         self.scorer = scorer
         self.source_file = source_file
@@ -69,23 +73,27 @@ class Permuter:
         self.fn_name = fns[0]
         self.unique_name = self.fn_name
 
-        self.seed = seed
-        self.random.seed(self.seed)
-
         self.parser = pycparser.CParser()
         self.permutations = perm.perm_gen(source)
+
+        self.cur_seed: Optional[Tuple[int, int]] = None
+        if force_seed:
+            seed, rng_seed = map(int, force_seed.split())
+            self.force_rng_seed: Optional[int] = rng_seed
+            self._seed_iterator = itertools.repeat(seed) if self.permutations.is_random() else iter([seed])
+        else:
+            self.force_rng_seed = None
+            self._seed_iterator = iter(perm.perm_gen_all_seeds(self.permutations, self.random))
+
         self.base, base_score, base_hash = self.create_and_score_base()
         self.hashes = {base_hash}
         self.cand: Optional[Candidate] = None
         self.base_score: int = base_score
         self.best_score: int = base_score
 
-        #Move outside?
-        self._seed_iterator = iter(perm.perm_gen_all_seeds(self.permutations, self.random))
-
     def create_and_score_base(self) -> Tuple[Candidate, int, str]:
         base_source = perm.perm_evaluate_one(self.permutations)
-        base_cand = Candidate.from_source(base_source, self.parser, seed=0) # TODO: rename to rng_seed
+        base_cand = Candidate.from_source(base_source, self.parser, rng_seed=0)
         if not base_cand.compile(self.compiler):
             raise Exception(f"Unable to compile {self.source_file}")
         base_score, base_hash = base_cand.score(self.scorer)
@@ -98,8 +106,9 @@ class Permuter:
         t0 = time.time()
 
         # Determine if we should keep the last candidate
-        keep = (self.permutations.is_random()
+        keep = ((self.permutations.is_random()
             and self.random.uniform(0, 1) >= RANDOMIZER_KEEP_PROB)
+            or self.force_rng_seed)
 
         # Create a new candidate if we didn't keep the last one (or if the last one didn't exist)
         # N.B. if we decide to keep the previous candidate, we will skip over the provided seed.
@@ -110,11 +119,13 @@ class Permuter:
             # TODO: this doesn't match the provided return type...
             if cand_c is None:
                 return None
-            self.cand = Candidate.from_source(cand_c, self.parser, seed)
+            rng_seed = self.force_rng_seed or random.randrange(1, 10**20)
+            self.cur_seed = (seed, rng_seed)
+            self.cand = Candidate.from_source(cand_c, self.parser, rng_seed=rng_seed)
 
         # Randomize the candidate
         if self.permutations.is_random():
-            self.cand.randomize_ast(self.randomizer)
+            self.cand.randomize_ast()
 
         t1 = time.time()
 
@@ -138,7 +149,7 @@ class Permuter:
             cand, profiler = self.eval_candidate(seed)
             return cand, profiler
         except:
-            return traceback.format_exc()
+            return EvalError(exc_str=traceback.format_exc(), seed=self.cur_seed)
 
     def print_diff(self, cand: Candidate) -> None:
         a = self.base.get_source().split('\n')
@@ -166,11 +177,13 @@ def write_candidate(perm: Permuter, source: str) -> None:
             pass
     print(f"wrote to {fname}")
 
-def post_score(context: EvalContext, permuter: Permuter, result: Permuter.EvalResult) -> None:
-    if isinstance(result, str):
+def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> None:
+    if isinstance(result, EvalError):
         print(f"[{permuter.unique_name}] internal permuter failure.")
-        print(result)
-        print(f"To reproduce the failure, rerun with: --seed {permuter.seed}")
+        print(result.exc_str)
+        seed = result.seed
+        if seed is not None:
+            print(f"To reproduce the failure, rerun with: --seed {seed[0]},{seed[1]}")
         sys.exit(1)
 
     cand, profiler = result
@@ -260,10 +273,7 @@ context = EvalContext()
 def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> List[int]:
     print("Loading...")
 
-    if options.seed is not None:
-        start_seed = options.seed
-    else:
-        start_seed = random.randrange(sys.maxsize) # Random seed from default random
+    force_seed = options.force_seed
 
     name_counts: Dict[str, int] = {}
     for i, d in enumerate(options.directories):
@@ -286,7 +296,7 @@ def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         c_source = preprocess(base_c)
 
         # TODO: catch special-purpose permuter exceptions from this
-        permuter = Permuter(d, compiler, scorer, base_c, c_source, start_seed + i)
+        permuter = Permuter(d, compiler, scorer, base_c, c_source, force_seed=force_seed)
 
         context.permuters.append(permuter)
         name_counts[permuter.fn_name] = name_counts.get(permuter.fn_name, 0) + 1
@@ -307,7 +317,7 @@ def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> List[int]:
     else:
         # Create queues
         InputQueue = multiprocessing.Queue[Optional[Tuple[int, int]]]
-        OutputQueue = multiprocessing.Queue[Tuple[int, Permuter.EvalResult]]
+        OutputQueue = multiprocessing.Queue[Tuple[int, EvalResult]]
         task_queue: InputQueue = multiprocessing.Queue()
         results_queue: OutputQueue = multiprocessing.Queue()
 
@@ -362,8 +372,7 @@ if __name__ == "__main__":
             help="Display the time taken by permuting vs. compiling vs. scoring.")
     parser.add_argument('--print-diffs', dest='print_diffs', action='store_true',
             help="Instead of compiling generated sources, display diffs against a base version.")
-    parser.add_argument('--seed', dest='seed', type=int,
-            help="Base all randomness on this initial seed.")
+    parser.add_argument('--seed', dest='force_seed', type=str, help=argparse.SUPPRESS)
     parser.add_argument('-j', dest='threads', type=int, default=1,
             help="Number of threads.")
     args = parser.parse_args()
@@ -373,6 +382,6 @@ if __name__ == "__main__":
             show_errors=args.show_errors,
             show_timings=args.show_timings,
             print_diffs=args.print_diffs,
-            seed=args.seed,
+            force_seed=args.force_seed,
             threads=args.threads)
     main(options)

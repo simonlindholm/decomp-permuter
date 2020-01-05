@@ -816,8 +816,8 @@ def perm_reorder_stmts(
     return True
 
 class Randomizer:
-    def __init__(self) -> None:
-        self.random = Random()
+    def __init__(self, rng_seed: int) -> None:
+        self.random = Random(rng_seed)
 
     def randomize(self, ast: ca.FileAST, fn_index: int) -> None:
         fn = ast.ext[fn_index]
