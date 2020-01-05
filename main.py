@@ -129,7 +129,7 @@ class Permuter:
 
         t1 = time.time()
 
-        self.cand.compile(self.compiler, show_errors=True)
+        self.cand.compile(self.compiler)
 
         t2 = time.time()
 
