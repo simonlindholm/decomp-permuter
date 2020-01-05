@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-from typing import List, Dict, Optional, Callable, Optional, Tuple, Iterable, Union
+from typing import List, Dict, Optional, Callable, Optional, Tuple, Iterable, Iterator, Union
 import argparse
 import difflib
 import itertools
@@ -241,23 +241,12 @@ def cycle_seeds(permuters: List[Permuter], force_seed: Optional[int]) -> Iterabl
             yield item
         i = (i + 1) % len(iterators)
 
-# We need to access the permuters from the worker threads, but passing them
-# as arguments runs into pickle troubles. We work around this by making the
-# permuter array global. This only works on Linux, sadly, where fork() is
-# available -- on Windows, multiprocessing spawns a new Python process and
-# re-executes the script without __name__ == "__main__", making this None.
-# TODO: figure out the pickle errors so we can get rid of this.
-# Candidates can be sent through task queues, so why not permuters?
-global_permuters = None
-
-def multiprocess_worker(input_queue: "multiprocessing.Queue[Optional[Tuple[int, int]]]", output_queue: "multiprocessing.Queue[Tuple[int, EvalResult]]") -> None:
-    global global_permuters
+def multiprocess_worker(permuters: List[Permuter], input_queue: "multiprocessing.Queue[Optional[Tuple[int, int]]]", output_queue: "multiprocessing.Queue[Tuple[int, EvalResult]]") -> None:
     input_queue.cancel_join_thread()
     output_queue.cancel_join_thread()
 
     # Don't use the same RNGs as the parent
-    global global_permuters
-    for permuter in global_permuters:
+    for permuter in permuters:
         permuter.reseed_random()
 
     try:
@@ -266,7 +255,7 @@ def multiprocess_worker(input_queue: "multiprocessing.Queue[Optional[Tuple[int, 
             if queue_item is None:
                 break
             permuter_index, seed = queue_item
-            permuter = global_permuters[permuter_index]
+            permuter = permuters[permuter_index]
             result = permuter.try_eval_candidate(seed)
             # TODO: if result is obviously bad, and print_diffs is off, replace the
             # candidate by something that takes less pickling overhead
@@ -353,9 +342,6 @@ def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             result = permuter.try_eval_candidate(seed)
             post_score(context, permuter, result)
     else:
-        global global_permuters
-        global_permuters = context.permuters
-
         # Create queues
         task_queue: "multiprocessing.Queue[Optional[Tuple[int, int]]]" = multiprocessing.Queue()
         results_queue: "multiprocessing.Queue[Tuple[int, EvalResult]]" = multiprocessing.Queue()
@@ -371,7 +357,7 @@ def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         # Begin workers
         processes: List[multiprocessing.Process] = []
         for i in range(options.threads):
-            p = multiprocessing.Process(target=multiprocess_worker, args=(task_queue, results_queue))
+            p = multiprocessing.Process(target=multiprocess_worker, args=(context.permuters, task_queue, results_queue))
             p.start()
             processes.append(p)
 
@@ -398,8 +384,16 @@ def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> List[int]:
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()
-    # For testing Windows support (see the comment above global_permuters):
-    # multiprocessing.set_start_method('spawn')
+
+    # Ideally we would do:
+    #  multiprocessing.set_start_method('spawn')
+    # here, to make multiprocessing behave the same across operating systems.
+    # However, that means that arguments to Process are passed across using
+    # pickling, which mysteriously breaks with pycparser...
+    # (AttributeError: 'CParser' object has no attribute 'p_abstract_declarator_opt')
+    # So, for now we live with the defaults, which make multiprocessing work on Linux,
+    # where it uses fork and don't pickle arguments, and break on Windows. Sigh.
+
     parser = argparse.ArgumentParser(
             description="Randomly permute C files to better match a target binary.")
     parser.add_argument('directory', nargs='+',
