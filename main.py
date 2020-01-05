@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 from typing import List, Dict, Optional, Callable, Optional, Tuple, Iterable, Union
 import argparse
 import difflib
