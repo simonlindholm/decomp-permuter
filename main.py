@@ -159,11 +159,11 @@ class Permuter:
             print(line)
 
 @attr.s
-class EvalContext():
-    iteration = 0
-    errors = 0
-    overall_profiler = Profiler()
-    permuters: List[Permuter] = []
+class EvalContext:
+    iteration: int = attr.ib(default=0)
+    errors: int = attr.ib(default=0)
+    overall_profiler: Profiler = attr.ib(factory=Profiler)
+    permuters: List[Permuter] = attr.ib(factory=list)
 
 def write_candidate(perm: Permuter, source: str) -> None:
     ctr = 0
@@ -237,6 +237,32 @@ def gen_all_seeds(permuters: List[Permuter]) -> Iterable[Tuple[int, int]]:
             yield perm_ind, seed
         i = (i + 1) % len(avail)
 
+# This has to be a global since we need to access the permuters.
+# multiprocessing fork()s the main thread and it works out that the permuters
+# are unmodified because we are simply passing in pre-calculated seeds from the
+# main thread. In theory, we should be able to pass in the context as an argument
+# but haven't been able to get pass various exceptions (probably related to pickling).
+# TODO: test this. Candidates can be sent through task queues, so why not contexts?
+# TODO: does this break on Windows, with start method 'spawn'?
+global_permuters = None
+
+InputQueue = multiprocessing.Queue[Optional[Tuple[int, int]]]
+OutputQueue = multiprocessing.Queue[Tuple[int, EvalResult]]
+
+def multiprocess_worker(input_queue: InputQueue, output_queue: OutputQueue) -> None:
+    global global_permuters
+    while True:
+        queue_item = input_queue.get()
+        if queue_item is None:
+            break
+        permuter_index, seed = queue_item
+        assert global_permuters is not None
+        permuter = global_permuters[permuter_index]
+        result = permuter.try_eval_candidate(seed)
+        # TODO: if result is obviously bad, and print_diffs is off, replace the
+        # candidate by something that takes less pickling overhead
+        output_queue.put((permuter_index, result))
+
 def main(options: Options) -> List[int]:
     last_time = time.time()
     try:
@@ -257,18 +283,11 @@ def main(options: Options) -> List[int]:
         # cleanup, we can just skip GC and exit immediately.
         os._exit(0)
 
-# This has to be a global since we need to access the permuters.
-# multiprocessing fork()'s the main thread and it works out that the permuters
-# are unmodified because we are simply passing in pre-calculated seeds from the
-# main thread. In theory, we should be able to pass in the context as an argument
-# but haven't been able to get pass various exceptions (probably related to pickling).
-# TODO: test this. Candidates can be sent through task queues, so why not contexts?
-context = EvalContext()
-
 def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> List[int]:
     print("Loading...")
 
     force_seed = options.force_seed
+    context = EvalContext()
 
     name_counts: Dict[str, int] = {}
     for i, d in enumerate(options.directories):
@@ -310,22 +329,12 @@ def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             result = permuter.try_eval_candidate(seed)
             post_score(context, permuter, result)
     else:
+        global global_permuters
+        global_permuters = context.permuters
+
         # Create queues
-        InputQueue = multiprocessing.Queue[Optional[Tuple[int, int]]]
-        OutputQueue = multiprocessing.Queue[Tuple[int, EvalResult]]
         task_queue: InputQueue = multiprocessing.Queue()
         results_queue: OutputQueue = multiprocessing.Queue()
-
-        def worker(input_queue: InputQueue, output_queue: OutputQueue) -> None:
-            global context
-            while True:
-                queue_item = input_queue.get()
-                if queue_item is None:
-                    break
-                permuter_index, seed = queue_item
-                permuter = context.permuters[permuter_index]
-                result = (permuter_index, permuter.try_eval_candidate(seed))
-                output_queue.put(result)
 
         def wait_for_result() -> None:
             heartbeat()
@@ -334,8 +343,11 @@ def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             post_score(context, permuter, result)
 
         # Begin workers
+        processes: List[multiprocessing.Process] = []
         for i in range(options.threads):
-            multiprocessing.Process(target=worker, args=(task_queue, results_queue)).start()
+            p = multiprocessing.Process(target=multiprocess_worker, args=(task_queue, results_queue))
+            p.start()
+            processes.append(p)
 
         # Feed the task queue with work, but not too much work at a time
         active_tasks = 0
@@ -346,17 +358,22 @@ def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             task_queue.put(perm_seed)
             active_tasks += 1
 
-        # Tell child processes to stop
-        for i in range(options.threads):
-            task_queue.put(None)
-
         # Await final results
         for i in range(active_tasks):
             wait_for_result()
 
+        # Stop workers
+        for i in range(options.threads):
+            task_queue.put(None)
+        for p in processes:
+            p.join()
+
     return [permuter.best_score for permuter in context.permuters]
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()
+    # TODO remove this
+    multiprocessing.set_start_method('spawn')
     parser = argparse.ArgumentParser(
             description="Randomly permute C files to better match a target binary.")
     parser.add_argument('directory', nargs='+',
