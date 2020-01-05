@@ -49,7 +49,6 @@ class Scorer:
             return Scorer.PENALTY_INF, ''
 
         objdump_output, cand_seq = self._objdump(cand_o)
-        # TODO: os.remove(cand_o) ?? or where does that happen for the base file
 
         score = 0
         deletions = []

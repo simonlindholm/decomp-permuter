@@ -94,9 +94,10 @@ class Permuter:
     def create_and_score_base(self) -> Tuple[Candidate, int, str]:
         base_source = perm.perm_evaluate_one(self.permutations)
         base_cand = Candidate.from_source(base_source, self.parser, rng_seed=0)
-        if not base_cand.compile(self.compiler):
+        o_file = base_cand.compile(self.compiler, show_errors=True)
+        if not o_file:
             raise Exception(f"Unable to compile {self.source_file}")
-        base_score, base_hash = base_cand.score(self.scorer)
+        base_score, base_hash = base_cand.score(self.scorer, o_file)
         return base_cand, base_score, base_hash
 
     def get_next_seed(self) -> Optional[int]:
@@ -129,11 +130,11 @@ class Permuter:
 
         t1 = time.time()
 
-        self.cand.compile(self.compiler)
+        o_file = self.cand.compile(self.compiler)
 
         t2 = time.time()
 
-        self.cand.score(self.scorer)
+        self.cand.score(self.scorer, o_file)
 
         t3 = time.time()
 
@@ -219,12 +220,6 @@ def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> 
         source = cand.get_source()
         write_candidate(permuter, source)
     print("\b"*10 + " "*10 + "\r" + status_line, end='', flush=True)
-
-    # Cleanup cand
-    # TODO: this is silly
-    if cand:
-        with cand:
-            pass
 
 def gen_all_seeds(permuters: List[Permuter]) -> Iterable[Tuple[int, int]]:
     '''

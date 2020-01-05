@@ -27,7 +27,6 @@ class Candidate:
     fn_index: int = attr.ib()
     rng_seed: int = attr.ib()
     randomizer: Randomizer = attr.ib()
-    o_file: Optional[str] = attr.ib(init=False, default=None)
     score_value: Optional[int] = attr.ib(init=False, default=None)
     score_hash: Optional[str] = attr.ib(init=False, default=None)
     _cache_source: Optional[str] = attr.ib(init=False, default=None)
@@ -62,28 +61,19 @@ class Candidate:
             self._cache_source = ast_util.to_c(self.ast)
         return self._cache_source
 
-    def compile(self, compiler: Compiler, show_errors: bool=False) -> bool:
-        self._remove_o_file()
+    def compile(self, compiler: Compiler, show_errors: bool=False) -> Optional[str]:
         source: str = self.get_source()
-        self.o_file = compiler.compile(source, show_errors=show_errors)
+        return compiler.compile(source, show_errors=show_errors)
+
+    def score(self, scorer: Scorer, o_file: Optional[str]) -> Tuple[int, str]:
         self.score_value = None
         self.score_hash = None
-        return self.o_file is not None
-
-    def score(self, scorer: Scorer) -> Tuple[int, str]:
-        self.score_value, self.score_hash = scorer.score(self.o_file)
+        try:
+            self.score_value, self.score_hash = scorer.score(o_file)
+        finally:
+            if o_file:
+                try:
+                    os.remove(o_file)
+                except:
+                    pass
         return self.score_value, self.score_hash
-
-    def _remove_o_file(self) -> None:
-        if self.o_file is not None:
-            try:
-                os.remove(self.o_file)
-            except:
-                pass
-
-    # TODO: the 'with' stuff here is silly
-    def __enter__(self) -> 'Candidate':
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        self._remove_o_file()
