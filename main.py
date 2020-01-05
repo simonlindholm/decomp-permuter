@@ -152,6 +152,7 @@ class Permuter:
 
 @attr.s
 class EvalContext:
+    options: Options = attr.ib()
     iteration: int = attr.ib(default=0)
     errors: int = attr.ib(default=0)
     overall_profiler: Profiler = attr.ib(factory=Profiler)
@@ -187,7 +188,7 @@ def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> 
     assert score_value is not None
     assert score_hash is not None
 
-    if options.print_diffs:
+    if context.options.print_diffs:
         permuter.print_diff(cand)
         input("Press any key to continue...")
 
@@ -196,13 +197,13 @@ def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> 
         context.errors += 1
     disp_score = 'inf' if cand.score_value == permuter.scorer.PENALTY_INF else cand.score_value
     timings = ''
-    if options.show_timings:
+    if context.options.show_timings:
         for stattype in profiler.time_stats:
             context.overall_profiler.add_stat(stattype, profiler.time_stats[stattype])
         timings = '\t' + context.overall_profiler.get_str_stats()
     status_line = f"iteration {context.iteration}, {context.errors} errors, score = {disp_score}{timings}"
 
-    if score_value and score_value <= permuter.base_score and score_hash not in permuter.hashes:
+    if score_value is not None and score_value <= permuter.base_score and score_hash not in permuter.hashes:
         permuter.hashes.add(score_hash)
         permuter.best_score = min(permuter.best_score, score_value)
         print("\r" + " " * (len(status_line) + 10) + "\r", end='')
@@ -233,13 +234,14 @@ def cycle_seeds(permuters: List[Permuter], force_seed: Optional[int]) -> Iterabl
 
     i = 0
     while iterators:
+        i %= len(iterators)
         item = next(iterators[i], None)
         if item is None:
             del iterators[i]
             i -= 1
         else:
             yield item
-        i = (i + 1) % len(iterators)
+            i += 1
 
 def multiprocess_worker(permuters: List[Permuter], input_queue: "multiprocessing.Queue[Optional[Tuple[int, int]]]", output_queue: "multiprocessing.Queue[Tuple[int, EvalResult]]") -> None:
     input_queue.cancel_join_thread()
@@ -266,13 +268,13 @@ def multiprocess_worker(permuters: List[Permuter], input_queue: "multiprocessing
         # A heartbeat thing here would be good but is too complex.
         pass
 
-def main(options: Options) -> List[int]:
+def run(options: Options) -> List[int]:
     last_time = time.time()
     try:
         def heartbeat() -> None:
             nonlocal last_time
             last_time = time.time()
-        return wrapped_main(options, heartbeat)
+        return run_inner(options, heartbeat)
     except KeyboardInterrupt:
         if time.time() - last_time > 5:
             print()
@@ -290,10 +292,10 @@ def main(options: Options) -> List[int]:
             # With threads we do need proper cleanup.
             sys.exit(0)
 
-def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> List[int]:
+def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
     print("Loading...")
 
-    context = EvalContext()
+    context = EvalContext(options)
 
     force_rng_seed: Optional[int] = None
     force_seed: Optional[int] = None
@@ -382,7 +384,7 @@ def wrapped_main(options: Options, heartbeat: Callable[[], None]) -> List[int]:
 
     return [permuter.best_score for permuter in context.permuters]
 
-if __name__ == "__main__":
+def main() -> None:
     multiprocessing.freeze_support()
 
     # Ideally we would do:
@@ -416,4 +418,8 @@ if __name__ == "__main__":
             print_diffs=args.print_diffs,
             force_seed=args.force_seed,
             threads=args.threads)
-    main(options)
+
+    run(options)
+
+if __name__ == "__main__":
+    main()
