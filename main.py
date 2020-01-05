@@ -117,9 +117,6 @@ class Permuter:
         # we're randomizing anyway.
         if not self.cand or not keep:
             cand_c = self.permutations.evaluate(seed, EvalState())
-            # TODO: this doesn't match the provided return type...
-            if cand_c is None:
-                return None
             rng_seed = self.force_rng_seed or random.randrange(1, 10**20)
             self.cur_seed = (seed, rng_seed)
             self.cand = Candidate.from_source(cand_c, self.parser, rng_seed=rng_seed)
