@@ -2,7 +2,7 @@
 * put a compile command into `<dir>/compile.sh` (see e.g. `compile_example.sh`; it will be invoked as `./compile.sh input.c -o output.o`)
 * `gcc -E -P -I header_dir -D'__attribute__(x)=' orig_c_file.c > <dir>/base.c`
 * `python3 strip_other_fns.py <dir>/base.c func_name`
-* put asm for func_name into `<dir>/target.s`, with the following header:
+* put asm for `func_name` into `<dir>/target.s`, with the following header:
 
 ```asm
 .set noat
@@ -18,4 +18,4 @@
 * optional sanity checks:
   - `<dir>/compile.sh <dir>/base.c -o <dir>/base.o`
   - `./diff.sh <dir>/target.o <dir>/base.o`
-* `python3 main.py <dir>`
+* `./permuter.py <dir>`

@@ -404,7 +404,7 @@ def main() -> None:
             help="Instead of compiling generated sources, display diffs against a base version.")
     parser.add_argument('--seed', dest='force_seed', type=str, help=argparse.SUPPRESS)
     parser.add_argument('-j', dest='threads', type=int, default=1,
-            help="Number of threads.")
+            help="Number of threads (default: %(default)s).")
     args = parser.parse_args()
 
     options = Options(

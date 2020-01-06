@@ -8,14 +8,27 @@ The modes can also be combined, by using the `PERM_RANDOMIZE` macro.
 
 [<img src="https://asciinema.org/a/232846.svg" height="300" />](https://asciinema.org/a/232846)
 
+The main target for the tool is MIPS code compiled by old compilers (IDO, possibly GCC).
+Getting it to work on other architectures shouldn't be too hard, however.
+
 ## Usage
+
+`./permuter.py directory/` runs the permuter; see below for the meaning of the directory.
+Pass `-h` to see possible flags.
+
+You'll first need to install a couple of prerequisites: `python3 -m pip install attrs pycparser`
 
 The permuter expects as input one or more directory containing:
   - a .c file with a single function,
   - a .o file to match,
   - a .sh file that compiles the .c file.
 
-See USAGE.md for more details on how to set these up.
+For projects with a properly configured makefile, you should be able to set these up by running
+```
+./import.py <path/to/file.c> <path/to/file.s>`
+```
+where file.c contains the function to be permuted, and file.s is its assembly in a self-contained file.
+Otherwise, see USAGE.md for more details.
 
 The .c file may be modified with any of the following macros which affect manual permutation:
 
@@ -51,4 +64,12 @@ randomizer tends to play well with them.
 **Should I use this instead of trying to match code by hand?** Well, the manual PERM macros might speed you up if you manage
 to fit the permuter into your workflow. The random mode is however much more of a last ditch sort of thing.
 It often finds nonsensical permutations that happen to match regalloc very well by accident.
-Still, it may be useful in pointing out which parts of the code need to be changed to get the code nearer to matching.
+Still, it's often useful in pointing out which parts of the code need to be changed to get the code nearer to matching.
+
+## Helping out
+
+There's tons of room for helping out with the permuter!
+Many more randomization passes could be added, the scoring function is far from optimal,
+the permuter could be made easier to use, etc. etc. The GitHub Issues list has some ideas.
+
+Ideally, `mypy permuter.py` should succeed with no errors, and `python3 -m test.test_perm` serves as a decent smoke-test.
