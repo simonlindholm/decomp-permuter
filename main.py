@@ -259,8 +259,6 @@ def multiprocess_worker(permuters: List[Permuter], input_queue: "multiprocessing
             permuter_index, seed = queue_item
             permuter = permuters[permuter_index]
             result = permuter.try_eval_candidate(seed)
-            # TODO: if result is obviously bad, and print_diffs is off, replace the
-            # candidate by something that takes less pickling overhead
             output_queue.put((permuter_index, result))
     except KeyboardInterrupt:
         # Don't clutter the output with stack traces; Ctrl+C is the expected
