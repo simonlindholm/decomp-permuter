@@ -161,12 +161,14 @@ def write_candidate(perm: Permuter, source: str) -> None:
     while True:
         ctr += 1
         try:
-            fname = f'output-{perm.fn_name}-{ctr}.c'
-            with open(fname, 'x') as f:
-                f.write(source)
+            output_dir = os.path.join(perm.dir, f'output-{ctr}')
+            os.mkdir(output_dir)
             break
         except FileExistsError:
             pass
+    fname = os.path.join(output_dir, 'source.c')
+    with open(fname, 'x') as f:
+        f.write(source)
     print(f"wrote to {fname}")
 
 def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> None:
