@@ -49,47 +49,44 @@ class TestStringMethods(unittest.TestCase):
             
     @classmethod
     def tearDownClass(cls):
-        for _, d in cls.tmp_dirs:
-            del d
+        for d in cls.tmp_dirs.values():
+            d.cleanup()
+
+    def go(self, filename, fn_name) -> int:
+        d = self.tmp_dirs[(filename, fn_name)].name
+        score, = main.run(main.Options(directories=[d]))
+        return score
 
     def test_general(self):
-        d = self.tmp_dirs[('test_general.c', 'test_general')].name
-        score = main.main(main.Options(directories=[d]))
+        score = self.go('test_general.c', 'test_general')
         self.assertEqual(score, 0)
 
     def test_general_3(self):
-        d = self.tmp_dirs[('test_general.c', 'test_general_3')].name
-        score = main.main(main.Options(directories=[d]))
+        score = self.go('test_general.c', 'test_general_3')
         self.assertEqual(score, 0)
 
     def test_general_multiple(self):
-        d = self.tmp_dirs[('test_general.c', 'test_general_multiple')].name
-        score = main.main(main.Options(directories=[d]))
+        score = self.go('test_general.c', 'test_general_multiple')
         self.assertEqual(score, 0)
 
     def test_ternary1(self):
-        d = self.tmp_dirs[('test_ternary.c', 'test_ternary1')].name
-        score = main.main(main.Options(directories=[d]))
+        score = self.go('test_ternary.c', 'test_ternary1')
         self.assertEqual(score, 0)
 
     def test_ternary2(self):
-        d = self.tmp_dirs[('test_ternary.c', 'test_ternary2')].name
-        score = main.main(main.Options(directories=[d]))
+        score = self.go('test_ternary.c', 'test_ternary2')
         self.assertEqual(score, 0)
 
     def test_type1(self):
-        d = self.tmp_dirs[('test_type.c', 'test_type1')].name
-        score = main.main(main.Options(directories=[d]))
+        score = self.go('test_type.c', 'test_type1')
         self.assertEqual(score, 0)
 
     def test_type2(self):
-        d = self.tmp_dirs[('test_type.c', 'test_type2')].name
-        score = main.main(main.Options(directories=[d]))
+        score = self.go('test_type.c', 'test_type2')
         self.assertEqual(score, 0)
 
     def test_type3(self):
-        d = self.tmp_dirs[('test_type.c', 'test_type3')].name
-        score = main.main(main.Options(directories=[d]))
+        score = self.go('test_type.c', 'test_type3')
         self.assertEqual(score, 0)
 
 if __name__ == '__main__':

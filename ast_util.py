@@ -70,7 +70,7 @@ def find_fn(ast: ca.FileAST) -> Tuple[ca.FuncDef, int]:
     return ret[0]
 
 def compute_node_indices(top_node: ca.Node) -> Indices:
-    indices = {}
+    indices: Indices = {}
     cur_index = 0
     class Visitor(ca.NodeVisitor):
         def generic_visit(self, node: ca.Node) -> None:

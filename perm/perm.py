@@ -28,7 +28,7 @@ class Perm:
     def is_random(self) -> bool:
         return any(p.is_random() for p in self.children)
 
-def eval_all(seed: int, perms: List[Perm], state: EvalState) -> List[str]:
+def _eval_all(seed: int, perms: List[Perm], state: EvalState) -> List[str]:
     ret = []
     for p in perms:
         seed, sub_seed = divmod(seed, p.perm_count)
@@ -36,20 +36,20 @@ def eval_all(seed: int, perms: List[Perm], state: EvalState) -> List[str]:
     assert seed == 0, "seed must be in [0, prod(counts))"
     return ret
 
-def count_all(perms: List[Perm]) -> int:
+def _count_all(perms: List[Perm]) -> int:
     res = 1
     for p in perms:
         res *= p.perm_count
     return res
 
-def eval_either(seed: int, perms: List[Perm], state: EvalState) -> str:
+def _eval_either(seed: int, perms: List[Perm], state: EvalState) -> str:
     for p in perms:
         if seed < p.perm_count:
             return p.evaluate(seed, state)
         seed -= p.perm_count
     assert False, "seed must be in [0, sum(counts))"
 
-def count_either(perms: List[Perm]) -> int:
+def _count_either(perms: List[Perm]) -> int:
     return sum(p.perm_count for p in perms)
 
 class TextPerm(Perm):
@@ -66,10 +66,10 @@ class CombinePerm(Perm):
     def __init__(self, parts: List[Perm]) -> None:
         super().__init__()
         self.children = parts
-        self.perm_count = count_all(parts)
+        self.perm_count = _count_all(parts)
 
     def evaluate(self, seed: int, state: EvalState) -> str:
-        texts = eval_all(seed, self.children, state)
+        texts = _eval_all(seed, self.children, state)
         return ''.join(texts)
 
 class RandomizerPerm(Perm):
@@ -91,21 +91,21 @@ class RandomizerPerm(Perm):
 class GeneralPerm(Perm):
     def __init__(self, candidates: List[Perm]) -> None:
         super().__init__()
-        self.perm_count = count_either(candidates)
+        self.perm_count = _count_either(candidates)
         self.children = candidates
 
     def evaluate(self, seed: int, state: EvalState) -> str:
-        return eval_either(seed, self.children, state)
+        return _eval_either(seed, self.children, state)
 
 class TernaryPerm(Perm):
     def __init__(self, pre: Perm, cond: Perm, iftrue: Perm, iffalse: Perm) -> None:
         super().__init__()
         self.children = [pre, cond, iftrue, iffalse]
-        self.perm_count = 2 * count_all(self.children)
+        self.perm_count = 2 * _count_all(self.children)
 
     def evaluate(self, seed: int, state: EvalState) -> str:
         sub_seed, variation = divmod(seed, 2)
-        pre, cond, iftrue, iffalse = eval_all(sub_seed, self.children, state)
+        pre, cond, iftrue, iffalse = _eval_all(sub_seed, self.children, state)
         if variation > 0:
             return f'{pre}({cond} ? {iftrue} : {iffalse});'
         else:
@@ -114,11 +114,11 @@ class TernaryPerm(Perm):
 class TypecastPerm(Perm):
     def __init__(self, types: List[Perm]) -> None:
         super().__init__()
-        self.perm_count = count_either(types)
+        self.perm_count = _count_either(types)
         self.children = types
 
     def evaluate(self, seed: int, state: EvalState) -> str:
-        t = eval_either(seed, self.children, state)
+        t = _eval_either(seed, self.children, state)
         if not t.strip():
             return ''
         else:
@@ -154,7 +154,7 @@ class CondNezPerm(Perm):
     def __init__(self, perm: Perm) -> None:
         super().__init__()
         self.children = [perm]
-        self.perm_count = 2 * count_all(self.children)
+        self.perm_count = 2 * _count_all(self.children)
 
     def evaluate(self, seed: int, state: EvalState) -> str:
         sub_seed, variation = divmod(seed, self.perm_count)
@@ -169,10 +169,10 @@ class LineSwapPerm(Perm):
         super().__init__()
         self.children = lines
         self.line_permutations = [i for i in itertools.permutations(range(len(lines)))]
-        self.perm_count = len(self.line_permutations) * count_all(self.children)
+        self.perm_count = len(self.line_permutations) * _count_all(self.children)
 
     def evaluate(self, seed: int, state: EvalState) -> str:
         sub_seed, variation = divmod(seed, self.perm_count)
-        texts = eval_all(sub_seed, self.children, state)
+        texts = _eval_all(sub_seed, self.children, state)
         result = '\n'.join([texts[i] for i in self.line_permutations[variation]])
         return result
