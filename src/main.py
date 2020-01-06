@@ -18,12 +18,12 @@ import attr
 import pycparser
 from pycparser import CParser, c_ast as ca
 
-from . import perm
+from .perm import perm_gen, perm_eval
 from . import ast_util
 from .preprocess import preprocess
 from .compiler import Compiler
 from .scorer import Scorer
-from .perm.perm import EvalState, Perm
+from .perm.perm import EvalState
 from .candidate import Candidate
 from .profiler import Profiler
 
@@ -73,7 +73,7 @@ class Permuter:
         self.unique_name = self.fn_name
 
         self.parser = pycparser.CParser()
-        self.permutations = perm.perm_gen(source)
+        self.permutations = perm_gen.perm_gen(source)
 
         self.force_rng_seed = force_rng_seed
         self.cur_seed: Optional[Tuple[int, int]] = None
@@ -88,7 +88,7 @@ class Permuter:
         self.random = Random()
 
     def create_and_score_base(self) -> Tuple[Candidate, int, str]:
-        base_source = perm.perm_evaluate_one(self.permutations)
+        base_source = perm_eval.perm_evaluate_one(self.permutations)
         base_cand = Candidate.from_source(base_source, self.parser, rng_seed=0)
         o_file = base_cand.compile(self.compiler, show_errors=True)
         if not o_file:
@@ -225,7 +225,7 @@ def cycle_seeds(permuters: List[Permuter], force_seed: Optional[int]) -> Iterabl
     for perm_ind, permuter in enumerate(permuters):
         it: Iterable[int]
         if not force_seed:
-            it = perm.perm_gen_all_seeds(permuter.permutations, Random())
+            it = perm_eval.perm_gen_all_seeds(permuter.permutations, Random())
         elif permuter.permutations.is_random():
             it = itertools.repeat(force_seed)
         else:

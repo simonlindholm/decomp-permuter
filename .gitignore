@@ -3,5 +3,6 @@
 *.c
 *.py[cod]
 .mypy_cache/
+.cache/
 __pycache__/
 !test/*.c
