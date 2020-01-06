@@ -1,7 +1,7 @@
 from typing import Callable, Dict, List, Tuple
 import re
 
-from perm.perm import (Perm, CombinePerm, GeneralPerm, RandomizerPerm,
+from .perm import (Perm, CombinePerm, GeneralPerm, RandomizerPerm,
         TextPerm, TernaryPerm, TypecastPerm, VarPerm, CondNezPerm, LineSwapPerm)
 
 def split_args(args: List[str]) -> List[Perm]:

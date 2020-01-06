@@ -4,17 +4,15 @@ import functools
 import os
 
 import attr
-import pycparser
-from pycparser import CParser
-from pycparser import c_ast as ca
+from pycparser import CParser, c_ast as ca
 
-from compiler import Compiler
-from randomizer import Randomizer
-from scorer import Scorer
-from perm.perm import EvalState, Perm
-import perm
-import ast_util
-from helpers import try_remove
+from .compiler import Compiler
+from .randomizer import Randomizer
+from .scorer import Scorer
+from .perm.perm import EvalState, Perm
+from .helpers import try_remove
+from . import perm
+from . import ast_util
 
 @attr.s
 class Candidate:

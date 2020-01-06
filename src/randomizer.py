@@ -2,16 +2,16 @@ from typing import Dict, Union, List, Tuple, Callable, Optional, Any, Set
 import attr
 import bisect
 import copy
-from random import Random
 import sys
 import time
 import typing
-import ast_util
-from ast_util import Block, Indices, Statement, Expression
+from random import Random
 
 from pycparser import c_ast as ca, c_parser, c_generator
 
-from ast_types import (SimpleType, TypeMap, build_typemap, decayed_expr_type,
+from . import ast_util
+from .ast_util import Block, Indices, Statement, Expression
+from .ast_types import (SimpleType, TypeMap, build_typemap, decayed_expr_type,
         resolve_typedefs, same_type, set_decl_name)
 
 # Set to true to perform expression type detection eagerly. This can help when

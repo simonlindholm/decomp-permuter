@@ -6,6 +6,8 @@ import difflib
 
 import attr
 
+from .objdump import objdump
+
 @attr.s(init=False, hash=True)
 class DiffAsmLine:
     line: str = attr.ib(cmp=False)
@@ -38,10 +40,10 @@ class Scorer:
 
     def _objdump(self, o_file: str) -> Tuple[str, List[DiffAsmLine]]:
         ret = []
-        output = subprocess.check_output(['./objdump.sh', o_file]).decode()
-        for line in output.split('\n'):
+        lines = objdump(o_file)
+        for line in lines:
             ret.append(DiffAsmLine(line))
-        return (output, ret)
+        return '\n'.join(lines), ret
 
     def score(self, cand_o: Optional[str]) -> Tuple[int, str]:
         if not cand_o:

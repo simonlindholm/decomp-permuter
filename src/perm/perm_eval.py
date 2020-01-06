@@ -1,7 +1,7 @@
 from typing import List, Iterable, Set
 from random import Random
 
-from perm.perm import Perm, EvalState
+from .perm import Perm, EvalState
 
 def _gen_all_seeds(total_count: int, random: Random) -> Iterable[int]:
     """Generate all numbers 0..total_count-1 in random order, in expected time

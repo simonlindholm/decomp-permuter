@@ -14,4 +14,4 @@ INPUT1="$1"
 INPUT2="$2"
 shift
 shift
-wdiff -n <(./objdump.sh "$INPUT1" "$@") <(./objdump.sh "$INPUT2" "$@") | colordiff | less
+wdiff -n <(python3 ./src/objdump.py "$INPUT1" "$@") <(python3 ./src/objdump.py "$INPUT2" "$@") | colordiff | less

@@ -1,14 +1,14 @@
 import unittest
-import main
-import os.path as path
 import os
 import tempfile
-from strip_other_fns import strip_other_fns_and_write
 import shutil
-from compiler import Compiler
 from pathlib import Path
-from preprocess import preprocess
 import re
+
+from strip_other_fns import strip_other_fns_and_write
+from src.compiler import Compiler
+from src.preprocess import preprocess
+from src import main
 
 c_files_list = [
     ['test_general.c', 'test_general'],
@@ -28,10 +28,10 @@ class TestStringMethods(unittest.TestCase):
         cls.tmp_dirs = {}
         for test_c, test_fn in c_files_list:
             d = tempfile.TemporaryDirectory()
-            file_test = path.join('test', test_c)
-            file_actual = path.join(d.name, "actual.c")
-            file_base = path.join(d.name, "base.c")
-            file_target = path.join(d.name, "target.o")
+            file_test = os.path.join('test', test_c)
+            file_actual = os.path.join(d.name, "actual.c")
+            file_base = os.path.join(d.name, "base.c")
+            file_target = os.path.join(d.name, "target.o")
 
             actual_preprocessed = preprocess(file_test, cpp_args=['-DACTUAL'])
             base_preprocessed = preprocess(file_test, cpp_args=['-UACTUAL'])

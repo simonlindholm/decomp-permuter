@@ -9,7 +9,7 @@ import typing
 
 from pycparser import c_ast as ca, c_parser, c_generator
 
-from ast_types import (SimpleType, TypeMap, build_typemap, decayed_expr_type,
+from .ast_types import (SimpleType, TypeMap, build_typemap, decayed_expr_type,
         resolve_typedefs, same_type, set_decl_name)
 
 Indices = Dict[ca.Node, int]

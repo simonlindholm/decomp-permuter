@@ -1,33 +1,31 @@
-#!/usr/bin/env python3
 from typing import List, Dict, Optional, Callable, Optional, Tuple, Iterable, Iterator, Union
 import argparse
 import difflib
 import itertools
 import functools
 import os
-from random import Random
 import random
 import re
 import sys
 import time
 import traceback
 import multiprocessing
+import copy
 from enum import Enum
+from random import Random
 
 import attr
 import pycparser
-from preprocess import preprocess
-import copy
+from pycparser import CParser, c_ast as ca
 
-from compiler import Compiler
-from scorer import Scorer
-from perm.perm import EvalState, Perm
-import perm
-import ast_util
-from pycparser import CParser
-from pycparser import c_ast as ca
-from candidate import Candidate
-from profiler import Profiler
+from . import perm
+from . import ast_util
+from .preprocess import preprocess
+from .compiler import Compiler
+from .scorer import Scorer
+from .perm.perm import EvalState, Perm
+from .candidate import Candidate
+from .profiler import Profiler
 
 # The probability that the randomizer continues transforming the output it
 # generated last time.

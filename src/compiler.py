@@ -2,7 +2,7 @@ from typing import Optional
 import tempfile
 import subprocess
 
-from helpers import try_remove
+from .helpers import try_remove
 
 class Compiler:
     def __init__(self, compile_cmd: str, show_errors: bool=False) -> None:
