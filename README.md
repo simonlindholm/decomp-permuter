@@ -25,7 +25,7 @@ The permuter expects as input one or more directory containing:
 
 For projects with a properly configured makefile, you should be able to set these up by running
 ```
-./import.py <path/to/file.c> <path/to/file.s>`
+./import.py <path/to/file.c> <path/to/file.s>
 ```
 where file.c contains the function to be permuted, and file.s is its assembly in a self-contained file.
 Otherwise, see USAGE.md for more details.
@@ -72,4 +72,4 @@ There's tons of room for helping out with the permuter!
 Many more randomization passes could be added, the scoring function is far from optimal,
 the permuter could be made easier to use, etc. etc. The GitHub Issues list has some ideas.
 
-Ideally, `mypy permuter.py` should succeed with no errors, and `python3 -m test.test_perm` serves as a decent smoke-test.
+Ideally, `mypy permuter.py` and `./run-tests.sh` should succeed with no errors.
