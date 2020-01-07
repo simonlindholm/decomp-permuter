@@ -840,34 +840,27 @@ def perm_inequalities(
     def minus1(node: ca.Node):
         return ca.BinaryOp('-', node, ca.Constant('int', 1))
 
-    # I wish node[side] = fn[side](node[side]) was a thing
-    def change_side(node: ca.BinaryOp, side: int, fn):
-        if side == 0:
-            node.left = fn[side](node.left)
-        else:
-            node.right = fn[side](node.right)
+    # Don't change the operator, change both operands (can produce fake matches sometimes)
+    #   Ex: a > b -> a + 1 > b + 1
+    if random.random() < 0.25:
+        change = random.choice([plus1, minus1])
+        node.left  = change(node.left)
+        node.right = change(node.right)
 
-    # oh god
-    lt =  [plus1, minus1]
-    gt =  [minus1, plus1]
-
-    lte = [minus1, plus1]
-    gte = [plus1, minus1]
-
-    side = random.getrandbits(1)
-
-    if node.op == '>':
-        node.op += '='
-        change_side(node, side, gt)
-    elif node.op == '<':
-        node.op += '='
-        change_side(node, side, lt)
-    elif node.op == '>=':
-        node.op = node.op[0]
-        change_side(node, side, gte)
     else:
-        node.op = node.op[0]
-        change_side(node, side, lte)
+        if node.op in ['<', '>=']:
+            node.op = {'<': '<=', '>=': '>'}[node.op]
+            if random.choice([True, False]):
+                node.left  = plus1(node.left)
+            else:
+                node.right = minus1(node.right)
+        else:
+            node.op = {'>': '>=', '<=': '<'}[node.op]
+            if random.choice([True, False]):
+                node.left  = minus1(node.left)
+            else:
+                node.right = plus1(node.right)
+
     return True
 
 class Randomizer:
