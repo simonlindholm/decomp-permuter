@@ -815,6 +815,54 @@ def perm_reorder_stmts(
     ast_util.insert_statement(tob, toi, stmt)
     return True
 
+def perm_inequalities(
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
+) -> bool:
+    """Adjusts inequalities to equivalent versions that sometimes produce different code.
+    For example, a > b and a >= b + 1, a < b to a <= b - 1 (and vice versa)"""
+    cands: List[ca.BinaryOp] = []
+    inequalities = ['<', '>', '<=', '>=']
+    class Visitor(ca.NodeVisitor):
+        def visit_BinaryOp(self, node: ca.BinaryOp) -> None:
+            if node.op in inequalities and region.contains_node(node):
+                cands.append(node)
+    Visitor().visit(fn.body)
+    if not cands:
+        return False
+
+    node = random.choice(cands)
+
+    # Does not simplify, 'a <= (b + 1)' becomes 'a < ((b + 1) + 1)'
+
+    def plus1(node: ca.Node):
+        return ca.BinaryOp('+', node, ca.Constant('int', 1))
+
+    def minus1(node: ca.Node):
+        return ca.BinaryOp('-', node, ca.Constant('int', 1))
+
+    # Don't change the operator, change both operands (can produce fake matches sometimes)
+    #   Ex: a > b -> a + 1 > b + 1
+    if random.random() < 0.25:
+        change = random.choice([plus1, minus1])
+        node.left  = change(node.left)
+        node.right = change(node.right)
+
+    else:
+        if node.op in ['<', '>=']:
+            node.op = {'<': '<=', '>=': '>'}[node.op]
+            if random.choice([True, False]):
+                node.left  = plus1(node.left)
+            else:
+                node.right = minus1(node.right)
+        else:
+            node.op = {'>': '>=', '<=': '<'}[node.op]
+            if random.choice([True, False]):
+                node.left  = minus1(node.left)
+            else:
+                node.right = plus1(node.right)
+
+    return True
+
 class Randomizer:
     def __init__(self, rng_seed: int) -> None:
         self.random = Random(rng_seed)
@@ -834,6 +882,7 @@ class Randomizer:
             (perm_add_self_assignment, 5),
             (perm_reorder_stmts, 5),
             (perm_associative, 5),
+            (perm_inequalities, 5),
         ]
         while True:
             method = self.random.choice([x for (elem, prob) in methods for x in [elem]*prob])
