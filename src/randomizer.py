@@ -836,11 +836,11 @@ def perm_inequalities(
 
     # Does not simplify, 'a <= (b + 1)' becomes 'a < ((b + 1) + 1)'
 
-    def plus1(node: ca.Node):
-        return ca.BinaryOp('+', node, ca.Constant('int', 1))
+    def plus1(node: ca.Node) -> ca.BinaryOp:
+        return ca.BinaryOp('+', node, ca.Constant('int', '1'))
 
-    def minus1(node: ca.Node):
-        return ca.BinaryOp('-', node, ca.Constant('int', 1))
+    def minus1(node: ca.Node) -> ca.BinaryOp:
+        return ca.BinaryOp('-', node, ca.Constant('int', '1'))
 
     # Don't change the operator, change both operands (can produce fake matches sometimes)
     #   Ex: a > b -> a + 1 > b + 1
