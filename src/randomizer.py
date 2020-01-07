@@ -818,7 +818,8 @@ def perm_reorder_stmts(
 def perm_inequalities(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> bool:
-    """Change a > b to a >= b + 1, a < b to a <= b + 1 (and vice versa)"""
+    """Adjusts inequalities to equivalent versions that sometimes produce different code.
+    For example, a > b and a >= b + 1, a < b to a <= b - 1 (and vice versa)"""
     cands: List[ca.BinaryOp] = []
     inequalities = ['<', '>', '<=', '>=']
     class Visitor(ca.NodeVisitor):
@@ -831,14 +832,42 @@ def perm_inequalities(
 
     node = random.choice(cands)
 
-    # Does not simplify, 'a <= (b + 1)' becomes 'a < ((b + 1) - 1)'
+    # Does not simplify, 'a <= (b + 1)' becomes 'a < ((b + 1) + 1)'
 
-    if len(node.op) == 1:
+    def plus1(node: ca.Node):
+        return ca.BinaryOp('+', node, ca.Constant('int', 1))
+
+    def minus1(node: ca.Node):
+        return ca.BinaryOp('-', node, ca.Constant('int', 1))
+
+    # I wish node[side] = fn[side](node[side]) was a thing
+    def change_side(node: ca.BinaryOp, side: int, fn):
+        if side == 0:
+            node.left = fn[side](node.left)
+        else:
+            node.right = fn[side](node.right)
+
+    # oh god
+    lt =  [plus1, minus1]
+    gt =  [minus1, plus1]
+
+    lte = [minus1, plus1]
+    gte = [plus1, minus1]
+
+    side = random.getrandbits(1)
+
+    if node.op == '>':
         node.op += '='
-        node.right = ca.BinaryOp('+', node.right, ca.Constant('int', 1))
+        change_side(node, side, gt)
+    elif node.op == '<':
+        node.op += '='
+        change_side(node, side, lt)
+    elif node.op == '>=':
+        node.op = node.op[0]
+        change_side(node, side, gte)
     else:
         node.op = node.op[0]
-        node.right = ca.BinaryOp('-', node.right, ca.Constant('int', 1))
+        change_side(node, side, lte)
     return True
 
 class Randomizer:
