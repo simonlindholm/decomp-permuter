@@ -751,6 +751,7 @@ def perm_associative(
         def visit_BinaryOp(self, node: ca.BinaryOp) -> None:
             if node.op in commutative_ops and region.contains_node(node):
                 cands.append(node)
+    Visitor().visit(fn.body)
     if not cands:
         return False
     node = random.choice(cands)
@@ -771,6 +772,7 @@ def perm_add_self_assignment(
         def visit_Decl(self, decl: ca.Decl) -> None:
             if decl.name:
                 vars.append(decl.name)
+    Visitor().visit(fn.body)
     if not vars or not cands:
         return False
     var = random.choice(vars)
