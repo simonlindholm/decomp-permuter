@@ -815,6 +815,32 @@ def perm_reorder_stmts(
     ast_util.insert_statement(tob, toi, stmt)
     return True
 
+def perm_inequalities(
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
+) -> bool:
+    """Change a > b to a >= b + 1, a < b to a <= b + 1 (and vice versa)"""
+    cands: List[ca.BinaryOp] = []
+    inequalities = ['<', '>', '<=', '>=']
+    class Visitor(ca.NodeVisitor):
+        def visit_BinaryOp(self, node: ca.BinaryOp) -> None:
+            if node.op in inequalities and region.contains_node(node):
+                cands.append(node)
+    Visitor().visit(fn.body)
+    if not cands:
+        return False
+
+    node = random.choice(cands)
+
+    # Does not simplify, 'a <= (b + 1)' becomes 'a < ((b + 1) - 1)'
+
+    if len(node.op) == 1:
+        node.op += '='
+        node.right = ca.BinaryOp('+', node.right, ca.Constant('int', 1))
+    else:
+        node.op = node.op[0]
+        node.right = ca.BinaryOp('-', node.right, ca.Constant('int', 1))
+    return True
+
 class Randomizer:
     def __init__(self, rng_seed: int) -> None:
         self.random = Random(rng_seed)
@@ -834,6 +860,7 @@ class Randomizer:
             (perm_add_self_assignment, 5),
             (perm_reorder_stmts, 5),
             (perm_associative, 5),
+            (perm_inequalities, 5),
         ]
         while True:
             method = self.random.choice([x for (elem, prob) in methods for x in [elem]*prob])
