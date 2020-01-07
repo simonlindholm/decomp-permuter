@@ -15,8 +15,8 @@ class Compiler:
             c_name = f.name
             f.write(source)
 
-        with tempfile.NamedTemporaryFile(prefix='permuter', suffix='.o', delete=False) as f:
-            o_name = f.name
+        with tempfile.NamedTemporaryFile(prefix='permuter', suffix='.o', delete=False) as f2:
+            o_name = f2.name
 
         try:
             stderr = None if show_errors else subprocess.DEVNULL
