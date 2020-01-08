@@ -865,6 +865,107 @@ def perm_inequalities(
 
     return True
 
+def perm_struct_ref(
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
+) -> bool:
+    """Permute struct references: (a + b)->c, and (*(a + b)).c, a[b].c, (&a[b])->c"""
+    cands: List[ca.StructRef] = []
+    class Visitor(ca.NodeVisitor):
+        def visit_StructRef(self, node: ca.StructRef) -> None:
+            if region.contains_node(node):
+                cands.append(node)
+    Visitor().visit(fn.body)
+    if not cands:
+        return False
+
+    # TODO: This might need to handle nested BinaryOps
+    def choose_side(left: ca.Node, right: ca.BinaryOp) -> ca.BinaryOp:
+        """Try moving parentheses to the left side sometimes (sadly, it seems to matter)"""
+        if random.choice([True, False]):
+            # ((a + b) - c)
+            return ca.BinaryOp(right.op, ca.BinaryOp('+', left, right.left), right.right)
+        else:
+            # (a + (b - c))
+            return ca.BinaryOp('+', left, right)
+
+    # Conversions
+    def to_array(left: ca.Node, right: ca.Node) -> ca.ArrayRef:
+        """a[b].c"""
+        return ca.ArrayRef(left, right)
+
+    def to_binop(left: ca.Node, right: ca.Node) -> ca.BinaryOp:
+        """(a + b)->c"""
+        if isinstance(right, ca.BinaryOp):
+            return choose_side(left, right)
+        return ca.BinaryOp('+', left, right)
+
+    # Add / subtract a level of indirection
+    def deref(node: ca.Node) -> ca.UnaryOp:
+        return ca.UnaryOp('*', node)
+
+    def addr(node: ca.Node) -> ca.UnaryOp:
+        return ca.UnaryOp('&', node)
+
+    node = random.choice(cands)
+
+    convert = random.choice([True, False])
+
+    indir = -1
+    # Determine what change to make.
+    # FIXME: Not sure what type to return to make mypy stop whining
+    # FIXME: This wouldn't be necessary if I knew how to modify the node in the same function...
+    def try_convert(node: ca.Node) -> Union[None, ca.Node]:
+        nonlocal indir
+        # Found (a + b)
+        if isinstance(node, ca.BinaryOp) and node.op == '+':
+            indir = 0
+            return to_array(node.left, node.right)
+        # Found a[b]
+        elif isinstance(node, ca.ArrayRef):
+            indir = 1
+            return to_binop(node.name, node.subscript)
+
+        # Found a.b or a->b
+        return None
+
+
+    # Visit the StructRef until an ArrayRef or BinaryOp is found
+    # This assumes that the only UnaryOps found will be * or &
+    def rec(node: ca.Node) -> bool:
+        # Search for an ArrayRef or BinaryOp
+        if isinstance(node, ca.UnaryOp):
+            if node.op in ['*', '&']:
+                conv = try_convert(node.expr)
+                if conv is not None:
+                    node.expr = conv
+                    return True
+                else:
+                    return rec(node.expr)
+        elif isinstance(node, ca.StructRef):
+            conv = try_convert(node.name)
+            if conv is not None:
+                node.name = conv
+                return True
+
+        return False
+
+    if convert:
+        if rec(node):
+            node.type = {0: '.', 1: '->'}[indir]
+
+    # Just change the struct operator (sometimes change it back after converting lhs)
+    if not convert or random.choice([True, False]):
+        node.name = {'.': addr, '->': deref}[node.type](node.name)
+        node.type = {'.': '->', '->': '.'}[node.type]
+        # Debug FIXME: Sometimes multiple unary ops are added?
+        #if convert:
+        #    print("\nchanging again")
+        #    print(c_generator.CGenerator().visit(node))
+        return True
+
+    return convert
+
+
 class Randomizer:
     def __init__(self, rng_seed: int) -> None:
         self.random = Random(rng_seed)
@@ -881,6 +982,7 @@ class Randomizer:
             (perm_randomize_type, 10),
             (perm_sameline, 10),
             (perm_ins_block, 10),
+            (perm_struct_ref, 10),
             (perm_add_self_assignment, 5),
             (perm_reorder_stmts, 5),
             (perm_associative, 5),
