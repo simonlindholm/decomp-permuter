@@ -889,15 +889,18 @@ def perm_struct_ref(
             return ca.BinaryOp('+', left, right)
 
     # Conversions
-    def to_array(left: ca.Node, right: ca.Node) -> ca.ArrayRef:
+    def to_array(node: ca.BinaryOp) -> ca.ArrayRef:
         """a[b].c"""
-        return ca.ArrayRef(left, right)
+        # Handle different expressions like (a - 1)->c
+        if (node.op == '-'):
+            node.right = ca.UnaryOp('-', node.right)
+        return ca.ArrayRef(node.left, node.right)
 
-    def to_binop(left: ca.Node, right: ca.Node) -> ca.BinaryOp:
+    def to_binop(node: ca.ArrayRef) -> ca.BinaryOp:
         """(a + b)->c"""
-        if isinstance(right, ca.BinaryOp):
-            return choose_side(left, right)
-        return ca.BinaryOp('+', left, right)
+        if isinstance(node.subscript, ca.BinaryOp):
+            return choose_side(node.name, node.subscript)
+        return ca.BinaryOp('+', node.name, node.subscript)
 
     # Add / subtract a level of indirection
     def deref(node: ca.Node) -> ca.UnaryOp:
@@ -910,48 +913,48 @@ def perm_struct_ref(
 
     convert = random.choice([True, False])
 
-    indir = -1
-    # Determine what change to make.
-    # FIXME: Not sure what type to return to make mypy stop whining
-    # FIXME: This wouldn't be necessary if I knew how to modify the node in the same function...
-    def try_convert(node: ca.Node) -> Union[None, ca.Node]:
-        nonlocal indir
-        # Found (a + b)
-        if isinstance(node, ca.BinaryOp) and node.op == '+':
-            indir = 0
-            return to_array(node.left, node.right)
-        # Found a[b]
-        elif isinstance(node, ca.ArrayRef):
-            indir = 1
-            return to_binop(node.name, node.subscript)
+    conversions = {ca.BinaryOp: (to_array, -1), ca.ArrayRef: (to_binop, 1)}
 
-        # Found a.b or a->b
-        return None
-
+    # How the conversion affected the StructRef's level of indirection
+    # By default it stays the same. Changing to array access decreases by one level, and changing to pointer access increases it
+    # TODO: This feels ugly
+    indir = 0
 
     # Visit the StructRef until an ArrayRef or BinaryOp is found
     # This assumes that the only UnaryOps found will be * or &
     def rec(node: ca.Node) -> bool:
+        nonlocal indir
         # Search for an ArrayRef or BinaryOp
         if isinstance(node, ca.UnaryOp):
+            # This check might not be necessary. Would simplify things a bit.
+            # Theoretically, these could be in the code:
+            #
+            # struct **a, int b...
+            #       (++(*(a + b)))->c
+            #       ((*(a + b))++)->c
+            #
+            # but in those cases, just changing (a + b) to a[b] wouldn't work, the unary * has to be removed. (Added when changing back)
             if node.op in ['*', '&']:
-                conv = try_convert(node.expr)
-                if conv is not None:
-                    node.expr = conv
+                if (type(node.expr)) in conversions:
+                    conv, indir = conversions[type(node.expr)]
+                    node.expr = conv(node.expr)
                     return True
-                else:
-                    return rec(node.expr)
+                return rec(node.expr)
         elif isinstance(node, ca.StructRef):
-            conv = try_convert(node.name)
-            if conv is not None:
-                node.name = conv
+            if (type(node.name)) in conversions:
+                conv, indir = conversions[type(node.name)]
+                node.name = conv(node.name)
                 return True
 
         return False
 
+    # Change the lhs
     if convert:
         if rec(node):
-            node.type = {0: '.', 1: '->'}[indir]
+            # Balance out the indirection of the StructRef
+            node.type = {-1: '.', 1: '->'}[indir]
+            # print(c_generator.CGenerator().visit(node))
+
 
     # Just change the struct operator (sometimes change it back after converting lhs)
     if not convert or random.choice([True, False]):
