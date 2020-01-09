@@ -879,7 +879,7 @@ def perm_struct_ref(
         return False
 
     # TODO: This might need to handle nested BinaryOps
-    def choose_side(left: ca.Node, right: ca.BinaryOp) -> ca.BinaryOp:
+    def randomize_associative_binop(left: ca.Node, right: ca.BinaryOp) -> ca.BinaryOp:
         """Try moving parentheses to the left side sometimes (sadly, it seems to matter)"""
         if random.choice([True, False]):
             # ((a + b) - c)
@@ -899,7 +899,7 @@ def perm_struct_ref(
     def to_binop(node: ca.ArrayRef) -> ca.BinaryOp:
         """(a + b)->c"""
         if isinstance(node.subscript, ca.BinaryOp):
-            return choose_side(node.name, node.subscript)
+            return randomize_associative_binop(node.name, node.subscript)
         return ca.BinaryOp('+', node.name, node.subscript)
 
     # Add / subtract a level of indirection
@@ -910,8 +910,6 @@ def perm_struct_ref(
         return ca.UnaryOp('&', node)
 
     node = random.choice(cands)
-
-    convert = random.choice([True, False])
 
     conversions = {ca.BinaryOp: (to_array, -1), ca.ArrayRef: (to_binop, 1)}
 
@@ -948,25 +946,22 @@ def perm_struct_ref(
 
         return False
 
+    convert = random.choice([True, False])
+    changed = False
     # Change the lhs
     if convert:
         if rec(node):
             # Balance out the indirection of the StructRef
             node.type = {-1: '.', 1: '->'}[indir]
-            # print(c_generator.CGenerator().visit(node))
-
+            changed = True
 
     # Just change the struct operator (sometimes change it back after converting lhs)
-    if not convert or random.choice([True, False]):
+    if not changed or random.choice([True, False]):
         node.name = {'.': addr, '->': deref}[node.type](node.name)
         node.type = {'.': '->', '->': '.'}[node.type]
-        # Debug FIXME: Sometimes multiple unary ops are added?
-        #if convert:
-        #    print("\nchanging again")
-        #    print(c_generator.CGenerator().visit(node))
         return True
 
-    return convert
+    return changed
 
 
 class Randomizer:
