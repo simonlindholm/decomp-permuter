@@ -881,7 +881,7 @@ def perm_struct_ref(
     # TODO: This might need to handle nested BinaryOps
     def randomize_associative_binop(left: ca.Node, right: ca.BinaryOp) -> ca.BinaryOp:
         """Try moving parentheses to the left side sometimes (sadly, it seems to matter)"""
-        if random.choice([True, False]):
+        if random.choice([True, False]) and right.op in ['+', '-']:
             # ((a + b) - c)
             return ca.BinaryOp(right.op, ca.BinaryOp('+', left, right.left), right.right)
         else:
@@ -911,57 +911,127 @@ def perm_struct_ref(
 
     node = random.choice(cands)
 
-    conversions = {ca.BinaryOp: (to_array, -1), ca.ArrayRef: (to_binop, 1)}
+    cg = c_generator.CGenerator()
 
     # How the conversion affected the StructRef's level of indirection
     # By default it stays the same. Changing to array access decreases by one level, and changing to pointer access increases it
     # TODO: This feels ugly
-    indir = 0
+    #indir = 0
+    #indirection = {to_array: -1, to_binop: 1}
+    #conversions = {ca.BinaryOp: to_array, ca.ArrayRef: to_binop}
 
-    # Visit the StructRef until an ArrayRef or BinaryOp is found
-    # This assumes that the only UnaryOps found will be * or &
+    ## Visit the StructRef until an ArrayRef or BinaryOp is found
+    ## This assumes that the only UnaryOps found will be * or &
+    ## TODO: Tuple?
+    ## FIXME: This can fail with struct_refs like: (*(*a + b)).c
+    #def rec(node: ca.Node) -> bool:
+    #    nonlocal indir
+    #    # Search for an ArrayRef or BinaryOp
+    #    if isinstance(node, ca.UnaryOp):
+    #        # This check might not be necessary. Would simplify things a bit.
+    #        # Theoretically, these could be in the code:
+    #        #
+    #        # struct **a, int b...
+    #        #       (++(*(a + b)))->c
+    #        #       ((*(a + b))++)->c
+    #        #
+    #        # but in those cases, just changing (a + b) to a[b] wouldn't work, the unary * has to be removed. (Added when changing back)
+    #        if node.op in ['*', '&']:
+    #            if type(node.expr) in conversions:
+    #                conv, indir = conversions[type(node.expr)]
+    #                node.expr = conv(node.expr)
+    #                return True
+    #            return rec(node.expr)
+    #    if isinstance(node, ca.StructRef):
+    #        if type(node.name) in conversions:
+    #            conv, indir = conversions[type(node.name)] # or (None, 0)
+    #            node.name = conv(node.name)
+    #            return True
+
+    #    return False
+
+    #convert = random.choice([True, False])
+    #changed = False
+    ## Change the lhs
+    #if convert:
+    #    if rec(node):
+    #        # Balance out the indirection of the StructRef
+    #        node.type = {-1: '.', 1: '->'}[indir]
+    #        changed = True
+
+    ## Just change the struct operator (sometimes change it back after converting lhs)
+    #if not changed or random.choice([True, False]):
+    #    node.name = {'.': addr, '->': deref}[node.type](node.name)
+    #    node.type = {'.': '->', '->': '.'}[node.type]
+    #    return True
+
+    # Step 1: Simplify by converting lhs to BinaryOp 
+    nodes = []
     def rec(node: ca.Node) -> bool:
-        nonlocal indir
-        # Search for an ArrayRef or BinaryOp
-        if isinstance(node, ca.UnaryOp):
-            # This check might not be necessary. Would simplify things a bit.
-            # Theoretically, these could be in the code:
-            #
-            # struct **a, int b...
-            #       (++(*(a + b)))->c
-            #       ((*(a + b))++)->c
-            #
-            # but in those cases, just changing (a + b) to a[b] wouldn't work, the unary * has to be removed. (Added when changing back)
-            if node.op in ['*', '&']:
-                if (type(node.expr)) in conversions:
-                    conv, indir = conversions[type(node.expr)]
-                    node.expr = conv(node.expr)
-                    return True
-                return rec(node.expr)
-        elif isinstance(node, ca.StructRef):
-            if (type(node.name)) in conversions:
-                conv, indir = conversions[type(node.name)]
-                node.name = conv(node.name)
+        nonlocal nodes
+        if isinstance(node, ca.UnaryOp) and node.op in ['&', '*']:
+            if rec(node.expr):
+                nodes.append(node)
                 return True
-
+        if isinstance(node, (ca.ArrayRef, ca.BinaryOp)):
+            nodes.append(node)
+            return True
+        return False
+    if not rec(node.name):
         return False
 
-    convert = random.choice([True, False])
-    changed = False
-    # Change the lhs
-    if convert:
-        if rec(node):
-            # Balance out the indirection of the StructRef
-            node.type = {-1: '.', 1: '->'}[indir]
-            changed = True
+    # (Oh god why) 
 
-    # Just change the struct operator (sometimes change it back after converting lhs)
-    if not changed or random.choice([True, False]):
-        node.name = {'.': addr, '->': deref}[node.type](node.name)
-        node.type = {'.': '->', '->': '.'}[node.type]
-        return True
+    def apply_child(parent: ca.Node, func):
+        if isinstance(parent, ca.StructRef):
+            parent.name = func(parent.name)
+        elif isinstance(parent, ca.UnaryOp):
+            parent.expr = func(parent.expr)
 
-    return changed
+    def set_child(parent: ca.Node, child):
+        if isinstance(parent, ca.StructRef):
+            parent.name = child
+        elif isinstance(parent, ca.UnaryOp):
+            parent.expr = child
+
+    def get_child(parent: ca.Node):
+        if isinstance(parent, ca.StructRef):
+            return parent.name
+        elif isinstance(parent, ca.UnaryOp):
+            return parent.expr
+
+    print('\033[94m')
+    print(cg.visit(node),end='')
+    print('\033[m')
+
+    node.show()
+    if node.type == '->':
+        node.type = '.'
+        node.name = deref(node.name)
+        nodes.append(node.name)
+    nodes.append(node)
+
+    lhs, parent = nodes[0], nodes[1]
+
+    if isinstance(lhs, ca.ArrayRef):
+        apply_child(parent, deref)
+        parent = get_child(parent)
+        nodes.insert(1, parent)
+        apply_child(parent, to_binop)
+
+# Step 3: Convert lhs back to array ref
+# bug: Doesn't remove deref operators, which would ruin everything below
+    if random.choice([True, False]):
+        apply_child(parent, to_array)
+        set_child(nodes[-1], nodes[-2])
+
+# Step 4: Convert the StructRef type back
+    if random.choice([True, False]):
+        apply_child(node, addr)
+        node.type = '->'
+    print('\033[32m',cg.visit(node),'\033[m')
+
+    return True
 
 
 class Randomizer:
@@ -974,17 +1044,17 @@ class Randomizer:
         indices = ast_util.compute_node_indices(fn)
         region = get_randomization_region(fn, indices, self.random)
         methods = [
-            (perm_temp_for_expr, 100),
-            (perm_expand_expr, 20),
-            (perm_refer_to_var, 10),
-            (perm_randomize_type, 10),
-            (perm_sameline, 10),
-            (perm_ins_block, 10),
-            (perm_struct_ref, 10),
-            (perm_add_self_assignment, 5),
-            (perm_reorder_stmts, 5),
-            (perm_associative, 5),
-            (perm_inequalities, 5),
+            #(perm_temp_for_expr, 100),
+            #(perm_expand_expr, 20),
+            #(perm_refer_to_var, 10),
+            #(perm_randomize_type, 10),
+            #(perm_sameline, 10),
+            #(perm_ins_block, 10),
+            (perm_struct_ref, 100),
+            #(perm_add_self_assignment, 5),
+            #(perm_reorder_stmts, 5),
+            #(perm_associative, 5),
+            #(perm_inequalities, 5),
         ]
         while True:
             method = self.random.choice([x for (elem, prob) in methods for x in [elem]*prob])
