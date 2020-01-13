@@ -904,84 +904,31 @@ def perm_struct_ref(
 
     # Add / subtract a level of indirection
     def deref(node: ca.Node) -> ca.UnaryOp:
+        # This should be possible but it would mess up my crappy list handling code :|
+        #
+        #if isinstance(node, ca.UnaryOp) and node.op == '&':
+        #    return node.expr
         return ca.UnaryOp('*', node)
 
     def addr(node: ca.Node) -> ca.UnaryOp:
+        # This should be possible but it would mess up my crappy list handling code :|
+        #
+        #if isinstance(node, ca.UnaryOp) and node.op == '*':
+        #    return node.expr
         return ca.UnaryOp('&', node)
 
-    node = random.choice(cands)
-
-    cg = c_generator.CGenerator()
-
-    # How the conversion affected the StructRef's level of indirection
-    # By default it stays the same. Changing to array access decreases by one level, and changing to pointer access increases it
-    # TODO: This feels ugly
-    #indir = 0
-    #indirection = {to_array: -1, to_binop: 1}
-    #conversions = {ca.BinaryOp: to_array, ca.ArrayRef: to_binop}
-
-    ## Visit the StructRef until an ArrayRef or BinaryOp is found
-    ## This assumes that the only UnaryOps found will be * or &
-    ## TODO: Tuple?
-    ## FIXME: This can fail with struct_refs like: (*(*a + b)).c
-    #def rec(node: ca.Node) -> bool:
-    #    nonlocal indir
-    #    # Search for an ArrayRef or BinaryOp
-    #    if isinstance(node, ca.UnaryOp):
-    #        # This check might not be necessary. Would simplify things a bit.
-    #        # Theoretically, these could be in the code:
-    #        #
-    #        # struct **a, int b...
-    #        #       (++(*(a + b)))->c
-    #        #       ((*(a + b))++)->c
-    #        #
-    #        # but in those cases, just changing (a + b) to a[b] wouldn't work, the unary * has to be removed. (Added when changing back)
-    #        if node.op in ['*', '&']:
-    #            if type(node.expr) in conversions:
-    #                conv, indir = conversions[type(node.expr)]
-    #                node.expr = conv(node.expr)
-    #                return True
-    #            return rec(node.expr)
-    #    if isinstance(node, ca.StructRef):
-    #        if type(node.name) in conversions:
-    #            conv, indir = conversions[type(node.name)] # or (None, 0)
-    #            node.name = conv(node.name)
-    #            return True
-
-    #    return False
-
-    #convert = random.choice([True, False])
-    #changed = False
-    ## Change the lhs
-    #if convert:
-    #    if rec(node):
-    #        # Balance out the indirection of the StructRef
-    #        node.type = {-1: '.', 1: '->'}[indir]
-    #        changed = True
-
-    ## Just change the struct operator (sometimes change it back after converting lhs)
-    #if not changed or random.choice([True, False]):
-    #    node.name = {'.': addr, '->': deref}[node.type](node.name)
-    #    node.type = {'.': '->', '->': '.'}[node.type]
-    #    return True
-
-    # Step 1: Simplify by converting lhs to BinaryOp 
-    nodes = []
-    def rec(node: ca.Node) -> bool:
-        nonlocal nodes
+    def rec(node: ca.Node, nodes: List[ca.Node]) -> bool:
         if isinstance(node, ca.UnaryOp) and node.op in ['&', '*']:
-            if rec(node.expr):
+            if rec(node.expr, nodes):
                 nodes.append(node)
                 return True
-        if isinstance(node, (ca.ArrayRef, ca.BinaryOp)):
+        else:
             nodes.append(node)
-            return True
-        return False
-    if not rec(node.name):
+            return isinstance(node, (ca.ArrayRef, ca.BinaryOp))
+
         return False
 
     # (Oh god why) 
-
     def apply_child(parent: ca.Node, func):
         if isinstance(parent, ca.StructRef):
             parent.name = func(parent.name)
@@ -1000,36 +947,55 @@ def perm_struct_ref(
         elif isinstance(parent, ca.UnaryOp):
             return parent.expr
 
+    sref = random.choice(cands)
+    nodes = []
+    binop_or_aref = rec(sref.name, nodes)
+
+    cg = c_generator.CGenerator()
     print('\033[94m')
-    print(cg.visit(node),end='')
+    print(cg.visit(sref),end='')
     print('\033[m')
 
-    node.show()
-    if node.type == '->':
-        node.type = '.'
-        node.name = deref(node.name)
-        nodes.append(node.name)
-    nodes.append(node)
+    # Step 1: Simplify (...)->c to (*(...)).c
+    if sref.type == '->':
+        sref.type = '.'
+        sref.name = deref(sref.name)
+        nodes.append(sref.name)
+        #print('-> changed: \033[32m',cg.visit(sref),'\033[m')
+    nodes.append(sref)
+    if not binop_or_aref:
+        if random.choice([True, False]):
+            apply_child(sref, addr)
+            sref.type = '->'
+            #print('After changing back to ->: \033[33m',cg.visit(sref),'\033[m')
 
-    lhs, parent = nodes[0], nodes[1]
+    else:
+        # nodes now contains at least 3 elements: [the arrayref or binop, at least one * or &, the structref]
+        # For binops, a lhs like  &(a+b)->c is impossible, because a + b is an rvalue
 
-    if isinstance(lhs, ca.ArrayRef):
-        apply_child(parent, deref)
-        parent = get_child(parent)
-        nodes.insert(1, parent)
-        apply_child(parent, to_binop)
+        # Step 2: Simplify further by converting ArrayRef to BinaryOp
+        if isinstance(nodes[0], ca.ArrayRef):
+            apply_child(nodes[1], deref)
+            nodes.insert(1, get_child(nodes[1]))
+            apply_child(nodes[1], to_binop)
+            nodes[0] = get_child(nodes[1])
+            #print('Simplified: \033[33m',cg.visit(sref),'\033[m')
 
-# Step 3: Convert lhs back to array ref
-# bug: Doesn't remove deref operators, which would ruin everything below
-    if random.choice([True, False]):
-        apply_child(parent, to_array)
-        set_child(nodes[-1], nodes[-2])
+        # Step 3: Convert back to ArrayRef
+        if random.choice([True, False]):
+            # Sanity check that there's at least one dereference
+            if isinstance(nodes[1], ca.UnaryOp) and nodes[1].op == '*':
+                apply_child(nodes[1], to_array)
+                nodes[0] = get_child(nodes[1])
+                set_child(nodes[2], nodes[0])
+                #print('Converted to array: \033[33m',cg.visit(sref),'\033[m')
 
-# Step 4: Convert the StructRef type back
-    if random.choice([True, False]):
-        apply_child(node, addr)
-        node.type = '->'
-    print('\033[32m',cg.visit(node),'\033[m')
+        # Step 4: Convert the StructRef type back
+        if random.choice([True, False]):
+            apply_child(sref, addr)
+            sref.type = '->'
+            #print('Converted back to ->: \033[33m',cg.visit(sref),'\033[m')
+        print('final: \033[92m',cg.visit(sref),'\033[m\n')
 
     return True
 
