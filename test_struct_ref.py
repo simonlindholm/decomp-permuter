@@ -21,7 +21,7 @@ def write_output_header(f):
             "};\n" +
             "\n" +
             "int main() {\n" +
-            "    int b;\n" +
+            "    int b = 0;\n" +
             "    struct test t = {69};\n" +
             "    struct test *a, **p2, ***p3;\n" +
             "    a = &t;\n" +
@@ -83,22 +83,24 @@ def addr(node: ca.Node) -> ca.UnaryOp:
 
 cg = c_generator.CGenerator()
 
-# Step 1: Simplify by converting lhs to BinaryOp 
-nodes = []
-def rec(node: ca.Node) -> bool:
-    global nodes
-    if isinstance(node, ca.UnaryOp) and node.op in ['&', '*']:
-        if rec(node.expr):
+# Step 1: Simplify by converting lhs to BinaryOp
+def rec(node: ca.Node, nodes):
+    if isinstance(node, ca.UnaryOp):
+        if not node.op in ['&', '*']:
+            return False, True
+        else:
+            binop_or_aref, failed = rec(node.expr, nodes)
+            if failed:
+                return binop_or_aref, failed
             nodes.append(node)
-            return True
+            return binop_or_aref, False
     else:
         nodes.append(node)
-        return isinstance(node, (ca.ArrayRef, ca.BinaryOp))
+        return isinstance(node, (ca.ArrayRef, ca.BinaryOp)), False
 
-    return False
+    return False, True
 
-# (Oh god why) 
-
+# (Oh god why)
 def apply_child(parent: ca.Node, func):
     if isinstance(parent, ca.StructRef):
         parent.name = func(parent.name)
@@ -118,7 +120,6 @@ def get_child(parent: ca.Node):
         return parent.expr
 
 def perm_struct_ref(sref, f):
-    global nodes
     print('\033[94m')
     print(cg.visit(sref),end='')
     print('\033[m')
@@ -126,9 +127,12 @@ def perm_struct_ref(sref, f):
     for choices in product([True, False], [True, False]):
         print(choices)
         cur_sref = copy.deepcopy(sref)
-        nodes = []
 
-        binop_or_aref = rec(cur_sref.name)
+        nodes = []
+        binop_or_aref, failed = rec(cur_sref.name, nodes)
+        if (failed):
+            print('\033[91mPerm will cancel here\033[m')
+            return False
         if cur_sref.type == '->':
             cur_sref.type = '.'
             cur_sref.name = deref(cur_sref.name)
@@ -182,26 +186,26 @@ with out.open('w') as f:
 
 # sref                # type of a         # possible conversion
 ################################################################
-# (a + b).c;          # impossible        # 
+# (a + b).c;          # impossible        #
 # (a + b)->c;         # s*                # a[b].c
 # (*(a + b)).c;       # s*                # a[b].c
 # (*(a + b))->c;      # s**               # (*(a[b]).c
-# &(a + b).c;         # impossible        # 
-# &(a + b)->c;        # impossible        # 
-# (*(&(a + b))).c;    # impossible        # 
+# (&(a + b)).c;       # impossible        #
+# (&(a + b))->c;      # impossible        #
+# (*(&(a + b))).c;    # impossible        #
 # (*(&(a + b)))->c;   # imp: a+b=rvalue   # (*(&(a[b]))).c
-# (&(*(a + b))).c;    # impossible        # 
+# (&(*(a + b))).c;    # impossible        #
 # (&(*(a + b)))->c;   # s*                # a[b].c (-&* req.)
 ################################################################
 # (a[b]).c;           # s*                # (a + b)->c
 # (a[b])->c;          # s**               # (*(a + b))->c
 # (*(a[b])).c;        # s**               # (*(a + b))->c
 # (*(a[b]))->c;       # s***              # (*(*(a + b)))->c
-# (&(a[b])).c;        # impossible        # 
+# (&(a[b])).c;        # impossible        #
 # (&(a[b]))->c;       # s*                # (&(*(a + b)))->c
 # (*(&(a[b]))).c;     # s*                # (*(&(a + b)))->c
 # (*(&(a[b])))->c;    # s**               # (*(&(*(a + b))))->c
-# (&(*(a[b]))).c;     # impossible        # 
+# (&(*(a[b]))).c;     # impossible        #
 # (&(*(a[b])))->c;    # s**               # (&(*(*(a + b))))->c
 ################################################################
 # a.c                 # s                 # (&a)->c

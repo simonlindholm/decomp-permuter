@@ -917,18 +917,23 @@ def perm_struct_ref(
         #    return node.expr
         return ca.UnaryOp('&', node)
 
-    def rec(node: ca.Node, nodes: List[ca.Node]) -> bool:
-        if isinstance(node, ca.UnaryOp) and node.op in ['&', '*']:
-            if rec(node.expr, nodes):
+    def rec(node: ca.Node, nodes: List[ca.Node]):
+        if isinstance(node, ca.UnaryOp):
+            if not node.op in ['&', '*']:
+                return False, True
+            else:
+                binop_or_aref, failed = rec(node.expr, nodes)
+                if failed:
+                    return binop_or_aref, failed
                 nodes.append(node)
-                return True
+                return binop_or_aref, False
         else:
             nodes.append(node)
-            return isinstance(node, (ca.ArrayRef, ca.BinaryOp))
+            return isinstance(node, (ca.ArrayRef, ca.BinaryOp)), False
 
-        return False
+        return False, True
 
-    # (Oh god why) 
+    # (Oh god why)
     def apply_child(parent: ca.Node, func):
         if isinstance(parent, ca.StructRef):
             parent.name = func(parent.name)
@@ -949,7 +954,10 @@ def perm_struct_ref(
 
     sref = random.choice(cands)
     nodes = []
-    binop_or_aref = rec(sref.name, nodes)
+    binop_or_aref, failed = rec(sref.name, nodes)
+    if (failed):
+        #print('\033[91mPerm will cancel here\033[m')
+        return False
 
     #cg = c_generator.CGenerator()
     #print('\033[94m')
@@ -1010,17 +1018,17 @@ class Randomizer:
         indices = ast_util.compute_node_indices(fn)
         region = get_randomization_region(fn, indices, self.random)
         methods = [
-            (perm_temp_for_expr, 100),
-            (perm_expand_expr, 20),
-            (perm_refer_to_var, 10),
-            (perm_randomize_type, 10),
-            (perm_sameline, 10),
-            (perm_ins_block, 10),
-            (perm_struct_ref, 10),
-            (perm_add_self_assignment, 5),
-            (perm_reorder_stmts, 5),
-            (perm_associative, 5),
-            (perm_inequalities, 5),
+            #(perm_temp_for_expr, 100),
+            #(perm_expand_expr, 20),
+            #(perm_refer_to_var, 10),
+            #(perm_randomize_type, 10),
+            #(perm_sameline, 10),
+            #(perm_ins_block, 10),
+            (perm_struct_ref, 100),
+            #(perm_add_self_assignment, 5),
+            #(perm_reorder_stmts, 5),
+            #(perm_associative, 5),
+            #(perm_inequalities, 5),
         ]
         while True:
             method = self.random.choice([x for (elem, prob) in methods for x in [elem]*prob])
