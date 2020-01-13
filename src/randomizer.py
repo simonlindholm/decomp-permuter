@@ -951,10 +951,10 @@ def perm_struct_ref(
     nodes = []
     binop_or_aref = rec(sref.name, nodes)
 
-    cg = c_generator.CGenerator()
-    print('\033[94m')
-    print(cg.visit(sref),end='')
-    print('\033[m')
+    #cg = c_generator.CGenerator()
+    #print('\033[94m')
+    #print(cg.visit(sref),end='')
+    #print('\033[m')
 
     # Step 1: Simplify (...)->c to (*(...)).c
     if sref.type == '->':
@@ -995,7 +995,7 @@ def perm_struct_ref(
             apply_child(sref, addr)
             sref.type = '->'
             #print('Converted back to ->: \033[33m',cg.visit(sref),'\033[m')
-        print('final: \033[92m',cg.visit(sref),'\033[m\n')
+        #print('final: \033[92m',cg.visit(sref),'\033[m\n')
 
     return True
 
@@ -1010,17 +1010,17 @@ class Randomizer:
         indices = ast_util.compute_node_indices(fn)
         region = get_randomization_region(fn, indices, self.random)
         methods = [
-            #(perm_temp_for_expr, 100),
-            #(perm_expand_expr, 20),
-            #(perm_refer_to_var, 10),
-            #(perm_randomize_type, 10),
-            #(perm_sameline, 10),
-            #(perm_ins_block, 10),
-            (perm_struct_ref, 100),
-            #(perm_add_self_assignment, 5),
-            #(perm_reorder_stmts, 5),
-            #(perm_associative, 5),
-            #(perm_inequalities, 5),
+            (perm_temp_for_expr, 100),
+            (perm_expand_expr, 20),
+            (perm_refer_to_var, 10),
+            (perm_randomize_type, 10),
+            (perm_sameline, 10),
+            (perm_ins_block, 10),
+            (perm_struct_ref, 10),
+            (perm_add_self_assignment, 5),
+            (perm_reorder_stmts, 5),
+            (perm_associative, 5),
+            (perm_inequalities, 5),
         ]
         while True:
             method = self.random.choice([x for (elem, prob) in methods for x in [elem]*prob])
