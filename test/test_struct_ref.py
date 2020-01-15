@@ -2,10 +2,14 @@
 
 from pycparser import c_ast as ca, c_parser, c_generator
 from pathlib import Path
-from collections import defaultdict
 from random import Random
 from itertools import product
 import copy
+
+#TODO TODO TODO:
+#   * Make this a real unit test instead of copying perm_struct_ref :\
+#   * Optionally disable the prints
+#   * auto compile, run, and remove output
 
 source = Path('test_struct_ref.c').read_text()
 
@@ -15,21 +19,22 @@ cg = c_generator.CGenerator()
 random = Random()
 
 def write_output_header(f):
-    f.write("#include <stdio.h>\n" +
-            "struct test{\n" +
-            "    int c;\n" +
-            "};\n" +
-            "\n" +
-            "int main() {\n" +
-            "    int b = 0;\n" +
-            "    struct test t = {69};\n" +
-            "    struct test *a, **p2, ***p3;\n" +
-            "    a = &t;\n" +
-            "    p2 = &a;\n" +
-            "    p3 = &p2;\n")
+    f.write('\n'.join(["#include <stdio.h>",
+                      "struct test {",
+                      "    int c;",
+                      "};",
+                      "",
+                      "int main() {",
+                      "    int b = 0;",
+                      "    struct test t = {69};",
+                      "    struct test *a, **p2, ***p3;",
+                      "    a = &t;",
+                      "    p2 = &a;",
+                      "    p3 = &p2;"]))
 
 def write_output(f, cg, node):
-    f.write(f'    printf("%-30s: %d\\n", "{cg.visit(node)}", {cg.visit(node)});\n')
+    out = cg.visit(node)
+    f.write(f'    printf("%-30s: %d\\n", "{out}", {out});\n')
 
 def write_output_footer(f):
     f.write('    puts("nice");\n}\n');
@@ -119,6 +124,36 @@ def get_child(parent: ca.Node):
     elif isinstance(parent, ca.UnaryOp):
         return parent.expr
 
+# struct_ref          # type of a         # easiest conversion
+################################################################
+# (a + b).c;          # impossible        #
+# (a + b)->c;         # s*                # a[b].c
+# (*(a + b)).c;       # s*                # a[b].c
+# (*(a + b))->c;      # s**               # (*(a[b]).c
+# (&(a + b)).c;       # impossible        #
+# (&(a + b))->c;      # impossible        #
+# (*(&(a + b))).c;    # impossible        #
+# (*(&(a + b)))->c;   # imp: a+b=rvalue   # (*(&(a[b]))).c
+# (&(*(a + b))).c;    # impossible        #
+# (&(*(a + b)))->c;   # s*                # a[b].c (-&* req.)
+################################################################
+# (a[b]).c;           # s*                # (a + b)->c
+# (a[b])->c;          # s**               # (*(a + b))->c
+# (*(a[b])).c;        # s**               # (*(a + b))->c
+# (*(a[b]))->c;       # s***              # (*(*(a + b)))->c
+# (&(a[b])).c;        # impossible        #
+# (&(a[b]))->c;       # s*                # (&(*(a + b)))->c
+# (*(&(a[b]))).c;     # s*                # (*(&(a + b)))->c
+# (*(&(a[b])))->c;    # s**               # (*(&(*(a + b))))->c
+# (&(*(a[b]))).c;     # impossible        #
+# (&(*(a[b])))->c;    # s**               # (&(*(*(a + b))))->c
+################################################################
+# a.c                 # s                 # (&a)->c
+# a->c                # s*                # (*a).c
+# (*a).c              # s*                # a->c
+# (*a)->c             # s**               # (*(*a)).c
+# (&a).c              # impossible        #
+# (&a)->c             # s                 # (*(&a)).c
 def perm_struct_ref(sref, f):
     print('\033[94m')
     print(cg.visit(sref),end='')
@@ -184,33 +219,3 @@ with out.open('w') as f:
         perm_struct_ref(sref, f)
     write_output_footer(f)
 
-# sref                # type of a         # possible conversion
-################################################################
-# (a + b).c;          # impossible        #
-# (a + b)->c;         # s*                # a[b].c
-# (*(a + b)).c;       # s*                # a[b].c
-# (*(a + b))->c;      # s**               # (*(a[b]).c
-# (&(a + b)).c;       # impossible        #
-# (&(a + b))->c;      # impossible        #
-# (*(&(a + b))).c;    # impossible        #
-# (*(&(a + b)))->c;   # imp: a+b=rvalue   # (*(&(a[b]))).c
-# (&(*(a + b))).c;    # impossible        #
-# (&(*(a + b)))->c;   # s*                # a[b].c (-&* req.)
-################################################################
-# (a[b]).c;           # s*                # (a + b)->c
-# (a[b])->c;          # s**               # (*(a + b))->c
-# (*(a[b])).c;        # s**               # (*(a + b))->c
-# (*(a[b]))->c;       # s***              # (*(*(a + b)))->c
-# (&(a[b])).c;        # impossible        #
-# (&(a[b]))->c;       # s*                # (&(*(a + b)))->c
-# (*(&(a[b]))).c;     # s*                # (*(&(a + b)))->c
-# (*(&(a[b])))->c;    # s**               # (*(&(*(a + b))))->c
-# (&(*(a[b]))).c;     # impossible        #
-# (&(*(a[b])))->c;    # s**               # (&(*(*(a + b))))->c
-################################################################
-# a.c                 # s                 # (&a)->c
-# a->c                # s*                # (*a).c
-# (*a).c              # s*                # a->c
-# (*a)->c             # s**               # (*(*a)).c
-# (&a).c              # impossible        #
-# (&a)->c             # s                 # (*(&a)).c

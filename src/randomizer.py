@@ -865,6 +865,36 @@ def perm_inequalities(
 
     return True
 
+# struct_ref          # type of a         # easiest conversion
+################################################################
+# (a + b).c;          # impossible        #
+# (a + b)->c;         # s*                # a[b].c
+# (*(a + b)).c;       # s*                # a[b].c
+# (*(a + b))->c;      # s**               # (*(a[b]).c
+# (&(a + b)).c;       # impossible        #
+# (&(a + b))->c;      # impossible        #
+# (*(&(a + b))).c;    # impossible        #
+# (*(&(a + b)))->c;   # imp: a+b=rvalue   # (*(&(a[b]))).c
+# (&(*(a + b))).c;    # impossible        #
+# (&(*(a + b)))->c;   # s*                # a[b].c (-&* req.)
+################################################################
+# (a[b]).c;           # s*                # (a + b)->c
+# (a[b])->c;          # s**               # (*(a + b))->c
+# (*(a[b])).c;        # s**               # (*(a + b))->c
+# (*(a[b]))->c;       # s***              # (*(*(a + b)))->c
+# (&(a[b])).c;        # impossible        #
+# (&(a[b]))->c;       # s*                # (&(*(a + b)))->c
+# (*(&(a[b]))).c;     # s*                # (*(&(a + b)))->c
+# (*(&(a[b])))->c;    # s**               # (*(&(*(a + b))))->c
+# (&(*(a[b]))).c;     # impossible        #
+# (&(*(a[b])))->c;    # s**               # (&(*(*(a + b))))->c
+################################################################
+# a.c                 # s                 # (&a)->c
+# a->c                # s*                # (*a).c
+# (*a).c              # s*                # a->c
+# (*a)->c             # s**               # (*(*a)).c
+# (&a).c              # impossible        #
+# (&a)->c             # s                 # (*(&a)).c
 def perm_struct_ref(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> bool:
@@ -890,20 +920,22 @@ def perm_struct_ref(
 
     # Conversions
     def to_array(node: ca.BinaryOp) -> ca.ArrayRef:
-        """a[b].c"""
+        """Change a BinaryOp StructRef (of the form (a + b)->c or (*(a + b)).c)
+        to an ArrayRef StructRef of the form a[b].c"""
         # Handle different expressions like (a - 1)->c
         if (node.op == '-'):
             node.right = ca.UnaryOp('-', node.right)
         return ca.ArrayRef(node.left, node.right)
 
     def to_binop(node: ca.ArrayRef) -> ca.BinaryOp:
-        """(a + b)->c"""
+        """Change an ArrayRef StructRef (of the form a[b].c or (&(a[b]))->c)
+        to an BinaryOp StructRef of the form (a + b)->c"""
         if isinstance(node.subscript, ca.BinaryOp):
             return randomize_associative_binop(node.name, node.subscript)
         return ca.BinaryOp('+', node.name, node.subscript)
 
-    # Add / subtract a level of indirection
     def deref(node: ca.Node) -> ca.UnaryOp:
+        """Surround the given node with a dereference operator"""
         # This should be possible but it would mess up my crappy list handling code :|
         #
         #if isinstance(node, ca.UnaryOp) and node.op == '&':
@@ -911,22 +943,26 @@ def perm_struct_ref(
         return ca.UnaryOp('*', node)
 
     def addr(node: ca.Node) -> ca.UnaryOp:
+        """Surround the given node with an address-of operator"""
         # This should be possible but it would mess up my crappy list handling code :|
         #
         #if isinstance(node, ca.UnaryOp) and node.op == '*':
         #    return node.expr
         return ca.UnaryOp('&', node)
 
-    def rec(node: ca.Node, nodes: List[ca.Node]):
+    def rec(node: ca.Node, nodes: List[ca.Node]) -> Tuple[bool, bool]:
+        """Add each child node of the StructRef to a list, stopping when the node is not a
+        dereference or address-of unary operator. Returns 'failed' when a UnaryOp with an
+        op other than * or & was encountered."""
         if isinstance(node, ca.UnaryOp):
             if not node.op in ['&', '*']:
                 return False, True
             else:
-                binop_or_aref, failed = rec(node.expr, nodes)
+                binop_or_array_ref, failed = rec(node.expr, nodes)
                 if failed:
-                    return binop_or_aref, failed
+                    return binop_or_array_ref, failed
                 nodes.append(node)
-                return binop_or_aref, False
+                return binop_or_array_ref, False
         else:
             nodes.append(node)
             return isinstance(node, (ca.ArrayRef, ca.BinaryOp)), False
@@ -934,51 +970,52 @@ def perm_struct_ref(
         return False, True
 
     # (Oh god why)
-    def apply_child(parent: ca.Node, func):
+    def apply_child(parent: ca.Node, func: Callable[[Any]]) -> None:
         if isinstance(parent, ca.StructRef):
             parent.name = func(parent.name)
         elif isinstance(parent, ca.UnaryOp):
             parent.expr = func(parent.expr)
 
-    def set_child(parent: ca.Node, child):
+    def set_child(parent: ca.Node, child: ca.Node) -> None:
         if isinstance(parent, ca.StructRef):
             parent.name = child
         elif isinstance(parent, ca.UnaryOp):
             parent.expr = child
 
-    def get_child(parent: ca.Node):
+    def get_child(parent: ca.Node) -> ca.Node:
         if isinstance(parent, ca.StructRef):
             return parent.name
         elif isinstance(parent, ca.UnaryOp):
             return parent.expr
 
-    sref = random.choice(cands)
-    nodes = []
-    binop_or_aref, failed = rec(sref.name, nodes)
-    if (failed):
+    struct_ref = random.choice(cands)
+    nodes: List[ca.Node] = []
+    binop_or_array_ref, failed = rec(struct_ref.name, nodes)
+    if failed:
         #print('\033[91mPerm will cancel here\033[m')
         return False
 
     #cg = c_generator.CGenerator()
     #print('\033[94m')
-    #print(cg.visit(sref),end='')
+    #print(cg.visit(struct_ref),end='')
     #print('\033[m')
 
     # Step 1: Simplify (...)->c to (*(...)).c
-    if sref.type == '->':
-        sref.type = '.'
-        sref.name = deref(sref.name)
-        nodes.append(sref.name)
-        #print('-> changed: \033[32m',cg.visit(sref),'\033[m')
-    nodes.append(sref)
-    if not binop_or_aref:
+    if struct_ref.type == '->':
+        struct_ref.type = '.'
+        struct_ref.name = deref(struct_ref.name)
+        nodes.append(struct_ref.name)
+        #print('-> changed: \033[32m',cg.visit(struct_ref),'\033[m')
+    nodes.append(struct_ref)
+    if not binop_or_array_ref:
         if random.choice([True, False]):
-            apply_child(sref, addr)
-            sref.type = '->'
-            #print('After changing back to ->: \033[33m',cg.visit(sref),'\033[m')
+            apply_child(struct_ref, addr)
+            struct_ref.type = '->'
+            #print('After changing back to ->: \033[33m',cg.visit(struct_ref),'\033[m')
 
     else:
-        # nodes now contains at least 3 elements: [the arrayref or binop, at least one * or &, the structref]
+        # nodes now contains at least 3 elements:
+        # [the arrayref or binop, at least one * or &, the structref]
         # For binops, a lhs like  &(a+b)->c is impossible, because a + b is an rvalue
 
         # Step 2: Simplify further by converting ArrayRef to BinaryOp
@@ -987,7 +1024,7 @@ def perm_struct_ref(
             nodes.insert(1, get_child(nodes[1]))
             apply_child(nodes[1], to_binop)
             nodes[0] = get_child(nodes[1])
-            #print('Simplified: \033[33m',cg.visit(sref),'\033[m')
+            #print('Simplified: \033[33m',cg.visit(struct_ref),'\033[m')
 
         # Step 3: Convert back to ArrayRef
         if random.choice([True, False]):
@@ -996,14 +1033,14 @@ def perm_struct_ref(
                 apply_child(nodes[1], to_array)
                 nodes[0] = get_child(nodes[1])
                 set_child(nodes[2], nodes[0])
-                #print('Converted to array: \033[33m',cg.visit(sref),'\033[m')
+                #print('Converted to array: \033[33m',cg.visit(struct_ref),'\033[m')
 
         # Step 4: Convert the StructRef type back
         if random.choice([True, False]):
-            apply_child(sref, addr)
-            sref.type = '->'
-            #print('Converted back to ->: \033[33m',cg.visit(sref),'\033[m')
-        #print('final: \033[92m',cg.visit(sref),'\033[m\n')
+            apply_child(struct_ref, addr)
+            struct_ref.type = '->'
+            #print('Converted back to ->: \033[33m',cg.visit(struct_ref),'\033[m')
+        #print('final: \033[92m',cg.visit(struct_ref),'\033[m\n')
 
     return True
 
