@@ -970,7 +970,7 @@ def perm_struct_ref(
         return False, True
 
     # (Oh god why)
-    def apply_child(parent: ca.Node, func: Callable[[Any]]) -> None:
+    def apply_child(parent: ca.Node, func) -> None:
         if isinstance(parent, ca.StructRef):
             parent.name = func(parent.name)
         elif isinstance(parent, ca.UnaryOp):
