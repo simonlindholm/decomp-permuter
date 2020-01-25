@@ -865,6 +865,46 @@ def perm_inequalities(
 
     return True
 
+def perm_add_mask(
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
+) -> bool:
+    """Add a mask of 0xFF[FFFFFFFFFFFFFF] to a random expression of integer type.
+    In some cases this mask is optimized out but affects regalloc."""
+    typemap = build_typemap(ast)
+    cands: List[Expression] = []
+
+    # Find expression to add the mask to
+    def rec(block: Block) -> None:
+        for stmt in ast_util.get_block_stmts(block, False):
+            ast_util.for_nested_blocks(stmt, rec)
+            def visitor(expr: Expression) -> None:
+                if not region.contains_node(expr):
+                    return
+                cands.append(expr)
+            replace_subexprs(stmt, visitor)
+    rec(fn.body)
+    if not cands:
+        return False
+
+    expr = random.choice(cands)
+    type: SimpleType = decayed_expr_type(expr, typemap)
+    base_type = resolve_typedefs(type, typemap)
+
+    if not isinstance(base_type, ca.TypeDecl):
+        return False
+    if not isinstance(base_type.type, ca.IdentifierType):
+        return False
+    if all(x not in base_type.type.names for x in ['int', 'char', 'long', 'short', 'unsigned']):
+        return False
+
+    # Mask as if restricting the value to 8, 16, 32, or 64-bit width.
+    # Sometimes use an unsigned mask like '0xFFu'
+    masks: List[str] = ['0xFF', '0xFFFF', '0xFFFFFFFF', '0xFFFFFFFFFFFFFFFF']
+    mask = random.choice(masks) + random.choice(['', 'u'])
+
+    visit_replace(fn.body, lambda n, _: ca.BinaryOp('&', expr, ca.Constant('int', mask)) if n is expr else None)
+    return True
+
 class Randomizer:
     def __init__(self, rng_seed: int) -> None:
         self.random = Random(rng_seed)
@@ -877,6 +917,7 @@ class Randomizer:
         methods = [
             (perm_temp_for_expr, 100),
             (perm_expand_expr, 20),
+            (perm_add_mask, 20),
             (perm_refer_to_var, 10),
             (perm_randomize_type, 10),
             (perm_sameline, 10),
