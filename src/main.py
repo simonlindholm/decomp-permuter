@@ -156,7 +156,8 @@ class EvalContext:
     overall_profiler: Profiler = attr.ib(factory=Profiler)
     permuters: List[Permuter] = attr.ib(factory=list)
 
-def write_candidate(perm: Permuter, source: str) -> None:
+def write_candidate(perm: Permuter, cand: Candidate) -> None:
+    """Write the candidate's C source and score to the next output directory"""
     ctr = 0
     while True:
         ctr += 1
@@ -166,10 +167,13 @@ def write_candidate(perm: Permuter, source: str) -> None:
             break
         except FileExistsError:
             pass
-    fname = os.path.join(output_dir, 'source.c')
-    with open(fname, 'x') as f:
-        f.write(source)
-    print(f"wrote to {fname}")
+    source = os.path.join(output_dir, 'source.c')
+    score = os.path.join(output_dir, 'score.txt')
+    with open(source, 'x') as f:
+        f.write(cand.get_source())
+    with open(score, 'x') as f:
+        f.write(f"{cand.score_value}\n")
+    print(f"wrote to {output_dir}")
 
 def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> None:
     if isinstance(result, EvalError):
@@ -213,7 +217,7 @@ def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> 
             print(f"[{permuter.unique_name}] found different asm with same score")
 
         source = cand.get_source()
-        write_candidate(permuter, source)
+        write_candidate(permuter, cand)
     print("\b"*10 + " "*10 + "\r" + status_line, end='', flush=True)
 
 def cycle_seeds(permuters: List[Permuter], force_seed: Optional[int]) -> Iterable[Tuple[int, int]]:
