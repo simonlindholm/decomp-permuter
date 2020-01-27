@@ -874,7 +874,7 @@ def perm_inequalities(
 # (&(a + b)).c;       # impossible        #
 # (&(a + b))->c;      # impossible        #
 # (*(&(a + b))).c;    # impossible        #
-# (*(&(a + b)))->c;   # imp: a+b=rvalue   # (*(&(a[b]))).c
+# (*(&(a + b)))->c;   # imp: a+b=rvalue   #
 # (&(*(a + b))).c;    # impossible        #
 # (&(*(a + b)))->c;   # s*                # a[b].c (-&* req.)
 ################################################################
@@ -908,7 +908,7 @@ def perm_struct_ref(
     if not cands:
         return False
 
-    # TODO: This might need to handle nested BinaryOps
+    # TODO: Split into separate perm? Need a separate one for arrayrefs, (a + b)[1] to a[b + 1]
     def randomize_associative_binop(left: ca.Node, right: ca.BinaryOp) -> ca.BinaryOp:
         """Try moving parentheses to the left side sometimes (sadly, it seems to matter)"""
         if random.choice([True, False]) and right.op in ['+', '-']:
@@ -922,6 +922,7 @@ def perm_struct_ref(
     def to_array(node: ca.BinaryOp) -> ca.ArrayRef:
         """Change a BinaryOp, a + b, to an ArrayRef, a[b]
         The operator is expected to be + or -"""
+        # TODO: Permute binops like to_binop() does
         if (node.op == '-'):
             # Convert to a[-b]
             node.right = ca.UnaryOp('-', node.right)
@@ -944,17 +945,15 @@ def perm_struct_ref(
         return ca.UnaryOp('&', node)
 
     def rec(node: ca.Node, nodes: List[ca.Node]) -> bool:
-        """
-        Recurse down the StructRef tree, until a BinaryOp, ArrayRef, or other leaf node is found.
-        * and & operators are added to the list
+        """ Recurse down the StructRef tree, until a BinaryOp, ArrayRef, or other leaf node is found.
+        * and & operators are added to the list.
         Throws ValueError when a UnaryOp other than * or & was encountered."""
         if isinstance(node, ca.UnaryOp):
             if node.op not in ['&', '*']:
                 raise ValueError
             else:
-                binop_or_array_ref = rec(node.expr, nodes)
                 nodes.append(node)
-                return binop_or_array_ref
+                return rec(node.expr, nodes)
         else:
             nodes.append(node)
             return isinstance(node, (ca.ArrayRef, ca.BinaryOp))
@@ -978,22 +977,26 @@ def perm_struct_ref(
             return parent.expr
 
     struct_ref = random.choice(cands)
-    nodes: List[ca.Node] = []
-    try:
-        binop_or_array_ref = rec(struct_ref.name, nodes)
-    except ValueError:
-        return False
+    nodes: List[ca.Node] = [struct_ref]
 
     #cg = c_generator.CGenerator()
     #print('\033[94m',cg.visit(struct_ref),'\033[m')
 
     # Step 1: Simplify (...)->c to (*(...)).c
+    changed = False
     if struct_ref.type == '->':
         struct_ref.type = '.'
         struct_ref.name = deref(struct_ref.name)
         nodes.append(struct_ref.name)
+        changed = True
         #print('-> changed: \033[32m',cg.visit(struct_ref),'\033[m')
-    nodes.append(struct_ref)
+
+    # Step 2: 
+    try:
+        binop_or_array_ref = rec(struct_ref.name, nodes)
+    except ValueError:
+        return changed
+
     if not binop_or_array_ref:
         if random.choice([True, False]):
             struct_ref.name = addr(struct_ref.name)
@@ -1002,24 +1005,24 @@ def perm_struct_ref(
 
     else:
         # nodes now contains at least 3 elements:
-        # [the arrayref or binop, at least one * or &, the structref]
+        # [the root structref, at least one * or &, the arrayref or binop]
         # For binops, a lhs like  &(a+b)->c is impossible, because a + b is an rvalue
 
         # Step 2: Simplify further by converting ArrayRef to BinaryOp
-        if isinstance(nodes[0], ca.ArrayRef):
-            apply_child(nodes[1], deref)
-            nodes.insert(1, get_child(nodes[1]))
-            apply_child(nodes[1], to_binop)
-            nodes[0] = get_child(nodes[1])
+        if isinstance(nodes[-1], ca.ArrayRef):
+            apply_child(nodes[-2], deref)
+            nodes.insert(-1, get_child(nodes[-2]))
+            apply_child(nodes[-2], to_binop)
+            nodes[-1] = get_child(nodes[-2])
             #print('Simplified: \033[33m',cg.visit(struct_ref),'\033[m')
 
         # Step 3: Convert back to ArrayRef
         if random.choice([True, False]):
             # Sanity check that there's at least one dereference
-            if isinstance(nodes[1], ca.UnaryOp) and nodes[1].op == '*':
-                apply_child(nodes[1], to_array)
-                nodes[0] = get_child(nodes[1])
-                set_child(nodes[2], nodes[0])
+            if isinstance(nodes[-2], ca.UnaryOp) and nodes[-2].op == '*':
+                apply_child(nodes[-2], to_array)
+                nodes[-1] = get_child(nodes[-2])
+                set_child(nodes[-3], nodes[-1])
                 #print('Converted to array: \033[33m',cg.visit(struct_ref),'\033[m')
 
         # Step 4: Convert the StructRef type back
