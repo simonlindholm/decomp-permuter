@@ -980,8 +980,7 @@ def perm_struct_ref(
     except ValueError:
         return False
 
-    changed_sref = False
-    changed_array = False
+    changed = False
 
     # Step 2: Simplify (...)->c to (*(...)).c
     if struct_ref.type == '->':
@@ -989,7 +988,7 @@ def perm_struct_ref(
         struct_ref.name = deref(struct_ref.name)
         if parent is struct_ref:
             parent = struct_ref.name
-        changed_sref = True
+        changed = True
 
     # Simple StructRefs only need their type permuted
     if isinstance(get_child(parent), (ca.ArrayRef, ca.BinaryOp)):
@@ -1000,7 +999,7 @@ def perm_struct_ref(
             apply_child(parent, to_binop)
             apply_child(parent, deref)
             parent = typing.cast('Union[ca.StructRef, ca.UnaryOp]', get_child(parent))
-            changed_array = True
+            changed = True
 
         # Step 4: Convert back to ArrayRef
         if random.choice([True, False]):
@@ -1008,15 +1007,15 @@ def perm_struct_ref(
             if isinstance(parent, ca.UnaryOp) and parent.op == '*':
                 apply_child(parent, to_array)
                 apply_child(parent, addr)
-                changed_array = not changed_array
+                changed = True
 
     # Step 5: Convert the StructRef type back
     if random.choice([True, False]):
         struct_ref.name = addr(struct_ref.name)
         struct_ref.type = '->'
-        changed_sref = not changed_sref
+        changed = True
 
-    return changed_sref or changed_array
+    return changed
 
 
 class Randomizer:
