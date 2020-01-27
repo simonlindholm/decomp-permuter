@@ -920,56 +920,45 @@ def perm_struct_ref(
 
     # Conversions
     def to_array(node: ca.BinaryOp) -> ca.ArrayRef:
-        """Change a BinaryOp StructRef (of the form (a + b)->c or (*(a + b)).c)
-        to an ArrayRef StructRef of the form a[b].c"""
-        # Handle different expressions like (a - 1)->c
+        """Change a BinaryOp, a + b, to an ArrayRef, a[b]
+        The operator is expected to be + or -"""
         if (node.op == '-'):
+            # Convert to a[-b]
             node.right = ca.UnaryOp('-', node.right)
         return ca.ArrayRef(node.left, node.right)
 
     def to_binop(node: ca.ArrayRef) -> ca.BinaryOp:
-        """Change an ArrayRef StructRef (of the form a[b].c or (&(a[b]))->c)
-        to an BinaryOp StructRef of the form (a + b)->c"""
+        """Change an ArrayRef, a[b], to a BinaryOp, a + b
+        If b is also BinaryOp, such as a[b - 1], sometimes change the order of operations,
+        ie: a + (b - 1) vs (a + b) - 1"""
         if isinstance(node.subscript, ca.BinaryOp):
             return randomize_associative_binop(node.name, node.subscript)
         return ca.BinaryOp('+', node.name, node.subscript)
 
     def deref(node: ca.Node) -> ca.UnaryOp:
         """Surround the given node with a dereference operator"""
-        # This should be possible but it would mess up my crappy list handling code :|
-        #
-        #if isinstance(node, ca.UnaryOp) and node.op == '&':
-        #    return node.expr
         return ca.UnaryOp('*', node)
 
     def addr(node: ca.Node) -> ca.UnaryOp:
         """Surround the given node with an address-of operator"""
-        # This should be possible but it would mess up my crappy list handling code :|
-        #
-        #if isinstance(node, ca.UnaryOp) and node.op == '*':
-        #    return node.expr
         return ca.UnaryOp('&', node)
 
-    def rec(node: ca.Node, nodes: List[ca.Node]) -> Tuple[bool, bool]:
-        """Add each child node of the StructRef to a list, stopping when the node is not a
-        dereference or address-of unary operator. Returns 'failed' when a UnaryOp with an
-        op other than * or & was encountered."""
+    def rec(node: ca.Node, nodes: List[ca.Node]) -> bool:
+        """
+        Recurse down the StructRef tree, until a BinaryOp, ArrayRef, or other leaf node is found.
+        * and & operators are added to the list
+        Throws ValueError when a UnaryOp other than * or & was encountered."""
         if isinstance(node, ca.UnaryOp):
-            if not node.op in ['&', '*']:
-                return False, True
+            if node.op not in ['&', '*']:
+                raise ValueError
             else:
-                binop_or_array_ref, failed = rec(node.expr, nodes)
-                if failed:
-                    return binop_or_array_ref, failed
+                binop_or_array_ref = rec(node.expr, nodes)
                 nodes.append(node)
-                return binop_or_array_ref, False
+                return binop_or_array_ref
         else:
             nodes.append(node)
-            return isinstance(node, (ca.ArrayRef, ca.BinaryOp)), False
+            return isinstance(node, (ca.ArrayRef, ca.BinaryOp))
 
-        return False, True
-
-    # (Oh god why)
     def apply_child(parent: ca.Node, func) -> None:
         if isinstance(parent, ca.StructRef):
             parent.name = func(parent.name)
@@ -990,15 +979,13 @@ def perm_struct_ref(
 
     struct_ref = random.choice(cands)
     nodes: List[ca.Node] = []
-    binop_or_array_ref, failed = rec(struct_ref.name, nodes)
-    if failed:
-        #print('\033[91mPerm will cancel here\033[m')
+    try:
+        binop_or_array_ref = rec(struct_ref.name, nodes)
+    except ValueError:
         return False
 
     #cg = c_generator.CGenerator()
-    #print('\033[94m')
-    #print(cg.visit(struct_ref),end='')
-    #print('\033[m')
+    #print('\033[94m',cg.visit(struct_ref),'\033[m')
 
     # Step 1: Simplify (...)->c to (*(...)).c
     if struct_ref.type == '->':
@@ -1009,7 +996,7 @@ def perm_struct_ref(
     nodes.append(struct_ref)
     if not binop_or_array_ref:
         if random.choice([True, False]):
-            apply_child(struct_ref, addr)
+            struct_ref.name = addr(struct_ref.name)
             struct_ref.type = '->'
             #print('After changing back to ->: \033[33m',cg.visit(struct_ref),'\033[m')
 
@@ -1037,7 +1024,7 @@ def perm_struct_ref(
 
         # Step 4: Convert the StructRef type back
         if random.choice([True, False]):
-            apply_child(struct_ref, addr)
+            struct_ref.name = addr(struct_ref.name)
             struct_ref.type = '->'
             #print('Converted back to ->: \033[33m',cg.visit(struct_ref),'\033[m')
         #print('final: \033[92m',cg.visit(struct_ref),'\033[m\n')
