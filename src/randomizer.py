@@ -965,7 +965,7 @@ def perm_struct_ref(
         elif isinstance(parent, ca.UnaryOp):
             parent.expr = func(parent.expr)
 
-    def get_child(parent: Union[ca.StructRef, ca.UnaryOp]) -> ca.AnyNode:
+    def get_child(parent: Union[ca.StructRef, ca.UnaryOp]) -> ca.Node:
         if isinstance(parent, ca.StructRef):
             return parent.name
         elif isinstance(parent, ca.UnaryOp):
