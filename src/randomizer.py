@@ -936,11 +936,13 @@ def perm_struct_ref(
             return randomize_associative_binop(node.name, node.subscript)
         return ca.BinaryOp('+', node.name, node.subscript)
 
-    def deref(node: ca.Node) -> ca.UnaryOp:
+    # TODO, the type that mypy wants is absurdly long
+    def deref(node) -> ca.UnaryOp: # type: ignore
         """Surround the given node with a dereference operator"""
         return ca.UnaryOp('*', node)
 
-    def addr(node: ca.Node) -> ca.UnaryOp:
+    # TODO
+    def addr(node) -> ca.UnaryOp: # type: ignore
         """Surround the given node with an address-of operator"""
         return ca.UnaryOp('&', node)
 
@@ -956,13 +958,14 @@ def perm_struct_ref(
             return rec(node.name) or node
         return None
 
-    def apply_child(parent: ca.Node, func) -> None:
+    # TODO
+    def apply_child(parent: Union[ca.StructRef, ca.UnaryOp], func) -> None: #type: ignore
         if isinstance(parent, ca.StructRef):
             parent.name = func(parent.name)
         elif isinstance(parent, ca.UnaryOp):
             parent.expr = func(parent.expr)
 
-    def get_child(parent: ca.Node) -> ca.Node:
+    def get_child(parent: Union[ca.StructRef, ca.UnaryOp]) -> ca.AnyNode:
         if isinstance(parent, ca.StructRef):
             return parent.name
         elif isinstance(parent, ca.UnaryOp):
@@ -996,7 +999,7 @@ def perm_struct_ref(
         if isinstance(get_child(parent), ca.ArrayRef):
             apply_child(parent, to_binop)
             apply_child(parent, deref)
-            parent = get_child(parent)
+            parent = typing.cast('Union[ca.StructRef, ca.UnaryOp]', get_child(parent))
             changed_array = True
 
         # Step 4: Convert back to ArrayRef
