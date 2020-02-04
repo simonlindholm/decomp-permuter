@@ -37,6 +37,7 @@ class Options:
     show_errors: bool = attr.ib(default=False)
     show_timings: bool = attr.ib(default=False)
     print_diffs: bool = attr.ib(default=False)
+    abort_exceptions: bool = attr.ib(default=False)
     force_seed: Optional[str] = attr.ib(default=None)
     threads: int = attr.ib(default=1)
 
@@ -177,14 +178,17 @@ def write_candidate(perm: Permuter, cand: Candidate) -> None:
 
 def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> None:
     if isinstance(result, EvalError):
-        print(f"[{permuter.unique_name}] internal permuter failure.")
+        print(f"\n[{permuter.unique_name}] internal permuter failure.")
         print(result.exc_str)
         if result.seed is not None:
             seed_str = str(result.seed[1])
             if result.seed[0] != 0:
                 seed_str = f"{result.seed[0]},{seed_str}"
             print(f"To reproduce the failure, rerun with: --seed {seed_str}")
-        sys.exit(1)
+        if context.options.abort_exceptions:
+            sys.exit(1)
+        else:
+            return
 
     cand, profiler = result
     score_value = cand.score_value
@@ -408,6 +412,8 @@ def main() -> None:
             help="Display the time taken by permuting vs. compiling vs. scoring.")
     parser.add_argument('--print-diffs', dest='print_diffs', action='store_true',
             help="Instead of compiling generated sources, display diffs against a base version.")
+    parser.add_argument('--abort-exceptions', dest='abort_exceptions', action='store_true',
+            help="Stop execution when an internal permuter exception occurs.")
     parser.add_argument('--seed', dest='force_seed', type=str, help=argparse.SUPPRESS)
     parser.add_argument('-j', dest='threads', type=int, default=1,
             help="Number of threads (default: %(default)s).")
@@ -418,6 +424,7 @@ def main() -> None:
             show_errors=args.show_errors,
             show_timings=args.show_timings,
             print_diffs=args.print_diffs,
+            abort_exceptions=args.abort_exceptions,
             force_seed=args.force_seed,
             threads=args.threads)
 
