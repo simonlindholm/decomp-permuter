@@ -894,7 +894,7 @@ def perm_add_mask(
         return False
     if not isinstance(base_type.type, ca.IdentifierType):
         return False
-    if all(x not in base_type.type.names for x in ['int', 'char', 'long', 'short', 'unsigned']):
+    if all(x not in base_type.type.names for x in ['int', 'char', 'long', 'short', 'signed', 'unsigned']):
         return False
 
     # Mask as if restricting the value to 8, 16, 32, or 64-bit width.
