@@ -115,7 +115,10 @@ def fixup_build_command(parts, ignore_part):
         ind0 = min(
             i
             for i, arg in enumerate(res)
-            if "asm_processor" in arg or "asm-processor" in arg
+            if any(
+                cmd in arg
+                for cmd in ["asm_processor", "asm-processor", "preprocess.py"]
+            )
         )
         ind1 = res.index("--", ind0 + 1)
         ind2 = res.index("--", ind1 + 1)
