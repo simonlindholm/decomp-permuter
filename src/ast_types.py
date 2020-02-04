@@ -70,7 +70,10 @@ def struct_member_type(struct: StructUnion, field_name: str, typemap: TypeMap) -
             if decl.name == field_name:
                 return decl.type
             if decl.name == None and isinstance(decl.type, (c_ast.Struct, c_ast.Union)):
-                return struct_member_type(decl.type, field_name, typemap)
+                try:
+                    return struct_member_type(decl.type, field_name, typemap)
+                except AssertionError:
+                    pass
 
     assert False, f"No field {field_name} in struct {struct.name}"
 
