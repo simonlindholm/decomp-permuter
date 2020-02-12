@@ -142,6 +142,10 @@ def find_build_command_line(c_file, make_flags):
 
     assembler = DEFAULT_AS_CMDLINE
     for line in debug_output:
+        while "//" in line:
+            line = line.replace("//", "/")
+        while "/./" in line:
+            line = line.replace("/./", "/")
         if rel_c_file not in line:
             continue
         close_match = True
