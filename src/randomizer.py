@@ -905,6 +905,52 @@ def perm_add_mask(
     visit_replace(fn.body, lambda n, _: ca.BinaryOp('&', expr, ca.Constant('int', mask)) if n is expr else None)
     return True
 
+def perm_cast_simple(
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
+) -> bool:
+    """Cast a random expression to a simple type (integral or floating point only)."""
+    typemap = build_typemap(ast)
+    cands: List[Expression] = []
+
+    # Find a random expression
+    def rec(block: Block) -> None:
+        for stmt in ast_util.get_block_stmts(block, False):
+            ast_util.for_nested_blocks(stmt, rec)
+            def visitor(expr: Expression) -> None:
+                if not region.contains_node(expr):
+                    return
+                cands.append(expr)
+            replace_subexprs(stmt, visitor)
+    rec(fn.body)
+    if not cands:
+        return False
+
+    expr = random.choice(cands)
+    type: SimpleType = decayed_expr_type(expr, typemap)
+    base_type = resolve_typedefs(type, typemap)
+
+    if not isinstance(base_type, ca.TypeDecl):
+        return False
+    if not isinstance(base_type.type, ca.IdentifierType):
+        return False
+    if all(x not in base_type.type.names for x in ['int', 'char', 'long', 'short', 'signed', 'unsigned', 'float', 'double']):
+        return False
+
+    integral_type: List[List[str]] = [['int'], ['char'], ['long'], ['short'], ['long', 'long']]
+    floating_type: List[List[str]] = [['float'], ['double'], ['long', 'double']]
+    new_type: List[str]
+    if random.choice([True, False]):
+        # Cast to integral type, sometimes unsigned
+        sign: List[str] = random.choice([[], ['unsigned']])
+        new_type = sign + random.choice(integral_type)
+    else:
+        # Cast to floating point type
+        new_type = random.choice(floating_type)
+
+    visit_replace(fn.body, lambda n, _: ca.Cast(ca.Typename(name=None,quals=[], type=ca.TypeDecl(None, [], ca.IdentifierType(new_type))), expr) if n is expr else None)
+
+    return True
+
 class Randomizer:
     def __init__(self, rng_seed: int) -> None:
         self.random = Random(rng_seed)
@@ -918,6 +964,7 @@ class Randomizer:
             (perm_temp_for_expr, 100),
             (perm_expand_expr, 20),
             (perm_add_mask, 20),
+            (perm_cast_simple, 20),
             (perm_refer_to_var, 10),
             (perm_randomize_type, 10),
             (perm_sameline, 10),
