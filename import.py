@@ -115,7 +115,10 @@ def fixup_build_command(parts, ignore_part):
         ind0 = min(
             i
             for i, arg in enumerate(res)
-            if "asm_processor" in arg or "asm-processor" in arg
+            if any(
+                cmd in arg
+                for cmd in ["asm_processor", "asm-processor", "preprocess.py"]
+            )
         )
         ind1 = res.index("--", ind0 + 1)
         ind2 = res.index("--", ind1 + 1)
@@ -139,6 +142,10 @@ def find_build_command_line(c_file, make_flags):
 
     assembler = DEFAULT_AS_CMDLINE
     for line in debug_output:
+        while "//" in line:
+            line = line.replace("//", "/")
+        while "/./" in line:
+            line = line.replace("/./", "/")
         if rel_c_file not in line:
             continue
         close_match = True
