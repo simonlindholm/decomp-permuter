@@ -107,6 +107,20 @@ def get_randomization_region(top_node: ca.Node, indices: Indices, random: Random
         return Region.unbounded()
     return random.choice(ret)
 
+def get_block_expressions(block: Block, region: Region) -> List[Expression]:
+    exprs: List[Expression] = []
+    def rec(block: Block) -> None:
+        for stmt in ast_util.get_block_stmts(block, False):
+            ast_util.for_nested_blocks(stmt, rec)
+            def visitor(expr: Expression) -> None:
+                if not region.contains_node(expr):
+                    return
+                exprs.append(expr)
+            replace_subexprs(stmt, visitor)
+    rec(block)
+    return exprs
+
+
 def compute_write_locations(
     top_node: ca.Node, indices: Indices
 ) -> Dict[str, List[int]]:
@@ -871,18 +885,9 @@ def perm_add_mask(
     """Add a mask of 0xFF[FFFFFFFFFFFFFF] to a random expression of integer type.
     In some cases this mask is optimized out but affects regalloc."""
     typemap = build_typemap(ast)
-    cands: List[Expression] = []
 
     # Find expression to add the mask to
-    def rec(block: Block) -> None:
-        for stmt in ast_util.get_block_stmts(block, False):
-            ast_util.for_nested_blocks(stmt, rec)
-            def visitor(expr: Expression) -> None:
-                if not region.contains_node(expr):
-                    return
-                cands.append(expr)
-            replace_subexprs(stmt, visitor)
-    rec(fn.body)
+    cands: List[Expression] = get_block_expressions(fn.body, region)
     if not cands:
         return False
 
@@ -910,18 +915,9 @@ def perm_cast_simple(
 ) -> bool:
     """Cast a random expression to a simple type (integral or floating point only)."""
     typemap = build_typemap(ast)
-    cands: List[Expression] = []
 
     # Find a random expression
-    def rec(block: Block) -> None:
-        for stmt in ast_util.get_block_stmts(block, False):
-            ast_util.for_nested_blocks(stmt, rec)
-            def visitor(expr: Expression) -> None:
-                if not region.contains_node(expr):
-                    return
-                cands.append(expr)
-            replace_subexprs(stmt, visitor)
-    rec(fn.body)
+    cands: List[Expression] = get_block_expressions(fn.body, region)
     if not cands:
         return False
 
