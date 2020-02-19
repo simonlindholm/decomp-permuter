@@ -12,7 +12,7 @@ from pycparser import c_ast as ca, c_parser, c_generator
 from . import ast_util
 from .ast_util import Block, Indices, Statement, Expression
 from .ast_types import (SimpleType, TypeMap, build_typemap, decayed_expr_type,
-        resolve_typedefs, same_type, set_decl_name)
+        resolve_typedefs, same_type, allowed_simple_type, set_decl_name)
 
 # Set to true to perform expression type detection eagerly. This can help when
 # debugging crashes in the ast_types code.
@@ -119,7 +119,6 @@ def get_block_expressions(block: Block, region: Region) -> List[Expression]:
             replace_subexprs(stmt, visitor)
     rec(block)
     return exprs
-
 
 def compute_write_locations(
     top_node: ca.Node, indices: Indices
@@ -285,12 +284,7 @@ def replace_subexprs(
     visit_replace(top_node, expr_filter)
 
 def randomize_type(type: SimpleType, typemap: TypeMap, random: Random) -> SimpleType:
-    type2 = resolve_typedefs(type, typemap)
-    if not isinstance(type2, ca.TypeDecl):
-        return type
-    if not isinstance(type2.type, ca.IdentifierType):
-        return type
-    if all(x not in type2.type.names for x in ['int', 'char', 'long', 'short', 'unsigned']):
+    if not allowed_simple_type(type, typemap, ['int', 'char', 'long', 'short', 'signed', 'unsigned']):
         return type
     new_names: List[str] = []
     if random.choice([True, False]):
@@ -893,13 +887,7 @@ def perm_add_mask(
 
     expr = random.choice(cands)
     type: SimpleType = decayed_expr_type(expr, typemap)
-    base_type = resolve_typedefs(type, typemap)
-
-    if not isinstance(base_type, ca.TypeDecl):
-        return False
-    if not isinstance(base_type.type, ca.IdentifierType):
-        return False
-    if all(x not in base_type.type.names for x in ['int', 'char', 'long', 'short', 'signed', 'unsigned']):
+    if not allowed_simple_type(type, typemap, ['int', 'char', 'long', 'short', 'signed', 'unsigned']):
         return False
 
     # Mask as if restricting the value to 8, 16, 32, or 64-bit width.
@@ -923,13 +911,7 @@ def perm_cast_simple(
 
     expr = random.choice(cands)
     type: SimpleType = decayed_expr_type(expr, typemap)
-    base_type = resolve_typedefs(type, typemap)
-
-    if not isinstance(base_type, ca.TypeDecl):
-        return False
-    if not isinstance(base_type.type, ca.IdentifierType):
-        return False
-    if all(x not in base_type.type.names for x in ['int', 'char', 'long', 'short', 'signed', 'unsigned', 'float', 'double']):
+    if not allowed_simple_type(type, typemap, ['int', 'char', 'long', 'short', 'signed', 'unsigned', 'float', 'double']):
         return False
 
     integral_type: List[List[str]] = [['int'], ['char'], ['long'], ['short'], ['long', 'long']]
