@@ -937,7 +937,7 @@ def perm_cast_simple(
         return False
 
     integral_type: List[List[str]] = [['int'], ['char'], ['long'], ['short'], ['long', 'long']]
-    floating_type: List[List[str]] = [['float'], ['double'], ['long', 'double']]
+    floating_type: List[List[str]] = [['float'], ['double']]
     new_type: List[str]
     if random.choice([True, False]):
         # Cast to integral type, sometimes unsigned
@@ -947,7 +947,14 @@ def perm_cast_simple(
         # Cast to floating point type
         new_type = random.choice(floating_type)
 
-    visit_replace(fn.body, lambda n, _: ca.Cast(ca.Typename(name=None,quals=[], type=ca.TypeDecl(None, [], ca.IdentifierType(new_type))), expr) if n is expr else None)
+    # Surround the original expression with a cast to the chosen type
+    def callback(node: ca.Node, is_expr: bool) -> Optional[ca.Node]:
+        if node is expr:
+            typedecl = ca.TypeDecl(None, [], ca.IdentifierType(new_type))
+            return ca.Cast(ca.Typename(None, [], typedecl), expr)
+        return None
+
+    visit_replace(fn.body, callback)
 
     return True
 
@@ -963,8 +970,8 @@ class Randomizer:
         methods = [
             (perm_temp_for_expr, 100),
             (perm_expand_expr, 20),
-            (perm_add_mask, 20),
-            (perm_cast_simple, 20),
+            (perm_add_mask, 10),
+            (perm_cast_simple, 10),
             (perm_refer_to_var, 10),
             (perm_randomize_type, 10),
             (perm_sameline, 10),
