@@ -107,7 +107,7 @@ def get_randomization_region(top_node: ca.Node, indices: Indices, random: Random
         return Region.unbounded()
     return random.choice(ret)
 
-def get_block_expressions(block: Block, region: Region, filter_nodes: Tuple[Any, ...]=()) -> List[Expression]:
+def get_block_expressions(block: Block, region: Region) -> List[Expression]:
     exprs: List[Expression] = []
     def rec(block: Block) -> None:
         for stmt in ast_util.get_block_stmts(block, False):
@@ -115,8 +115,7 @@ def get_block_expressions(block: Block, region: Region, filter_nodes: Tuple[Any,
             def visitor(expr: Expression) -> None:
                 if not region.contains_node(expr):
                     return
-                if not filter_nodes or isinstance(expr, filter_nodes):
-                    exprs.append(expr)
+                exprs.append(expr)
             replace_subexprs(stmt, visitor)
     rec(block)
     return exprs
@@ -654,7 +653,7 @@ def perm_refer_to_var(
     """Add `if (variable) {}` or `if (struct.member) {}` in a random place.
     This will get optimized away but may affect regalloc."""
     # Find expression to insert, searching within the randomization region.
-    cands: List[Expression] = get_block_expressions(fn.body, region, filter_nodes=(ca.StructRef, ca.ID))
+    cands: List[Expression] = [expr for expr in get_block_expressions(fn.body, region) if isinstance(expr, (ca.StructRef, ca.ID))]
     if not cands:
         return False
     expr = random.choice(cands)
