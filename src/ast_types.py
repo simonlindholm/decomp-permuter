@@ -7,7 +7,7 @@ They make a number of simplifying assumptions:
 
 For the purposes of the randomizer these restrictions are acceptable."""
 
-from typing import Union, Dict, Set
+from typing import Union, Dict, Set, List
 import sys
 
 import attr
@@ -203,6 +203,16 @@ def same_type(type1: Type, type2: Type, typemap: TypeMap, allow_similar: bool=Fa
             if isinstance(sub1, IdentifierType) and isinstance(sub2, IdentifierType):
                 return sorted(sub1.names) == sorted(sub2.names)
         return False
+
+def allowed_simple_type(type: SimpleType, typemap: TypeMap, allowed_types: List[str]) -> bool:
+    base_type = resolve_typedefs(type, typemap)
+    if not isinstance(base_type, c_ast.TypeDecl):
+        return False
+    if not isinstance(base_type.type, c_ast.IdentifierType):
+        return False
+    if all(x not in base_type.type.names for x in allowed_types):
+        return False
+    return True
 
 def build_typemap(ast: c_ast.FileAST) -> TypeMap:
     ret = TypeMap()

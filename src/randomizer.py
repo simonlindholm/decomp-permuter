@@ -11,8 +11,16 @@ from pycparser import c_ast as ca, c_parser, c_generator
 
 from . import ast_util
 from .ast_util import Block, Indices, Statement, Expression
-from .ast_types import (SimpleType, TypeMap, build_typemap, decayed_expr_type,
-        resolve_typedefs, same_type, set_decl_name)
+from .ast_types import (
+    SimpleType,
+    TypeMap,
+    build_typemap,
+    decayed_expr_type,
+    resolve_typedefs,
+    same_type,
+    allowed_simple_type,
+    set_decl_name,
+)
 
 # Set to true to perform expression type detection eagerly. This can help when
 # debugging crashes in the ast_types code.
@@ -44,7 +52,8 @@ PROB_KEEP_REPLACED_VAR = 0.2
 
 # Number larger than any node index. (If you're trying to compile a 1 GB large
 # C file to matching asm, you have bigger problems than this limit.)
-MAX_INDEX = 10**9
+MAX_INDEX = 10 ** 9
+
 
 @attr.s
 class Region:
@@ -53,7 +62,7 @@ class Region:
     indices: Optional[Indices] = attr.ib(cmp=False)
 
     @staticmethod
-    def unbounded() -> 'Region':
+    def unbounded() -> "Region":
         return Region(-1, MAX_INDEX, None)
 
     def is_unbounded(self) -> bool:
@@ -81,62 +90,92 @@ class Region:
             return True
         return self.start < index <= self.end
 
+
 def reverse_indices(indices: Indices) -> Dict[int, ca.Node]:
     ret = {}
     for k, v in indices.items():
         ret[v] = k
     return ret
 
-def get_randomization_region(top_node: ca.Node, indices: Indices, random: Random) -> Region:
+
+def get_randomization_region(
+    top_node: ca.Node, indices: Indices, random: Random
+) -> Region:
     ret: List[Region] = []
     cur_start: Optional[int] = None
+
     class Visitor(ca.NodeVisitor):
         def visit_Pragma(self, node: ca.Pragma) -> None:
             nonlocal cur_start
-            if node.string == 'randomizer start':
+            if node.string == "randomizer start":
                 if cur_start is not None:
                     raise Exception("nested PERM_RANDOMIZE not supported")
                 cur_start = indices[node]
-            if node.string == 'randomizer end':
+            if node.string == "randomizer end":
                 assert cur_start is not None, "randomizer end without start"
                 ret.append(Region(cur_start, indices[node], indices))
                 cur_start = None
+
     Visitor().visit(top_node)
     assert cur_start is None, "randomizer start without end"
     if not ret:
         return Region.unbounded()
     return random.choice(ret)
 
+
+def get_block_expressions(block: Block, region: Region) -> List[Expression]:
+    exprs: List[Expression] = []
+
+    def rec(block: Block) -> None:
+        for stmt in ast_util.get_block_stmts(block, False):
+            ast_util.for_nested_blocks(stmt, rec)
+
+            def visitor(expr: Expression) -> None:
+                if not region.contains_node(expr):
+                    return
+                exprs.append(expr)
+
+            replace_subexprs(stmt, visitor)
+
+    rec(block)
+    return exprs
+
+
 def compute_write_locations(
     top_node: ca.Node, indices: Indices
 ) -> Dict[str, List[int]]:
-    writes : Dict[str, List[int]] = {}
+    writes: Dict[str, List[int]] = {}
+
     def add_write(var_name: str, loc: int) -> None:
         if var_name not in writes:
             writes[var_name] = []
         else:
-            assert loc > writes[var_name][-1], \
-                    "consistent traversal order should guarantee monotonicity here"
+            assert (
+                loc > writes[var_name][-1]
+            ), "consistent traversal order should guarantee monotonicity here"
         writes[var_name].append(loc)
+
     class Visitor(ca.NodeVisitor):
         def visit_Decl(self, node: ca.Decl) -> None:
             if node.name:
                 add_write(node.name, indices[node])
             self.generic_visit(node)
+
         def visit_UnaryOp(self, node: ca.UnaryOp) -> None:
-            if node.op in ['p++', 'p--', '++', '--'] and isinstance(node.expr, ca.ID):
+            if node.op in ["p++", "p--", "++", "--"] and isinstance(node.expr, ca.ID):
                 add_write(node.expr.name, indices[node])
             self.generic_visit(node)
+
         def visit_Assignment(self, node: ca.Assignment) -> None:
             if isinstance(node.lvalue, ca.ID):
                 add_write(node.lvalue.name, indices[node])
             self.generic_visit(node)
+
     Visitor().visit(top_node)
     return writes
 
-def compute_read_locations(
-    top_node: ca.Node, indices: Indices
-) -> Dict[str, List[int]]:
+
+def compute_read_locations(top_node: ca.Node, indices: Indices) -> Dict[str, List[int]]:
     reads: Dict[str, List[int]] = {}
     for node in find_var_reads(top_node):
         var_name = node.name
@@ -144,38 +183,44 @@ def compute_read_locations(
         if var_name not in reads:
             reads[var_name] = []
         else:
-            assert loc > reads[var_name][-1], \
-                    "consistent traversal order should guarantee monotonicity here"
+            assert (
+                loc > reads[var_name][-1]
+            ), "consistent traversal order should guarantee monotonicity here"
         reads[var_name].append(loc)
     return reads
 
+
 def find_var_reads(top_node: ca.Node) -> List[ca.ID]:
     ret = []
+
     class Visitor(ca.NodeVisitor):
         def visit_Decl(self, node: ca.Decl) -> None:
             if node.init:
                 self.visit(node.init)
+
         def visit_ID(self, node: ca.ID) -> None:
             ret.append(node)
+
         def visit_UnaryOp(self, node: ca.UnaryOp) -> None:
-            if node.op == '&' and isinstance(node.expr, ca.ID):
+            if node.op == "&" and isinstance(node.expr, ca.ID):
                 return
             self.generic_visit(node)
+
         def visit_StructRef(self, node: ca.StructRef) -> None:
             self.visit(node.name)
+
         def visit_Assignment(self, node: ca.Assignment) -> None:
             if isinstance(node.lvalue, ca.ID):
                 return
             self.generic_visit(node)
+
     Visitor().visit(top_node)
     return ret
 
-def visit_replace(
-    top_node: ca.Node,
-    callback: Callable[[ca.Node, bool], Any]
-) -> None:
-    def rec(orig_node: ca.Node, toplevel: bool=False) -> Any:
-        node: 'ca.AnyNode' = typing.cast('ca.AnyNode', orig_node)
+
+def visit_replace(top_node: ca.Node, callback: Callable[[ca.Node, bool], Any]) -> None:
+    def rec(orig_node: ca.Node, toplevel: bool = False) -> Any:
+        node: "ca.AnyNode" = typing.cast("ca.AnyNode", orig_node)
         repl = callback(node, not toplevel)
         if repl:
             return repl
@@ -189,7 +234,7 @@ def visit_replace(
         elif isinstance(node, (ca.Constant, ca.ID)):
             pass
         elif isinstance(node, ca.UnaryOp):
-            if node.op not in ['p++', 'p--', '++', '--', '&', 'sizeof']:
+            if node.op not in ["p++", "p--", "++", "--", "&", "sizeof"]:
                 node.expr = rec(node.expr)
         elif isinstance(node, ca.BinaryOp):
             node.left = rec(node.left)
@@ -244,14 +289,35 @@ def visit_replace(
             node.iftrue = rec(node.iftrue, True)
             if node.iffalse:
                 node.iffalse = rec(node.iffalse, True)
-        elif isinstance(node, (ca.TypeDecl, ca.PtrDecl, ca.ArrayDecl,
-                ca.Typename, ca.IdentifierType, ca.Struct,
-                ca.Union, ca.Enum, ca.EmptyStatement, ca.Pragma,
-                ca.Break, ca.Continue, ca.Goto, ca.CompoundLiteral,
-                ca.Typedef, ca.FuncDecl, ca.FuncDef,
-                ca.EllipsisParam, ca.Enumerator, ca.EnumeratorList,
-                ca.FileAST, ca.InitList, ca.NamedInitializer,
-                ca.ParamList)):
+        elif isinstance(
+            node,
+            (
+                ca.TypeDecl,
+                ca.PtrDecl,
+                ca.ArrayDecl,
+                ca.Typename,
+                ca.IdentifierType,
+                ca.Struct,
+                ca.Union,
+                ca.Enum,
+                ca.EmptyStatement,
+                ca.Pragma,
+                ca.Break,
+                ca.Continue,
+                ca.Goto,
+                ca.CompoundLiteral,
+                ca.Typedef,
+                ca.FuncDecl,
+                ca.FuncDef,
+                ca.EllipsisParam,
+                ca.Enumerator,
+                ca.EnumeratorList,
+                ca.FileAST,
+                ca.InitList,
+                ca.NamedInitializer,
+                ca.ParamList,
+            ),
+        ):
             pass
         else:
             _: None = node
@@ -260,35 +326,34 @@ def visit_replace(
 
     rec(top_node, True)
 
-def replace_subexprs(
-    top_node: ca.Node,
-    callback: Callable[[Expression], Any]
-) -> None:
+
+def replace_subexprs(top_node: ca.Node, callback: Callable[[Expression], Any]) -> None:
     def expr_filter(node: ca.Node, is_expr: bool) -> Any:
         if not is_expr:
             return None
         return callback(typing.cast(Expression, node))
+
     visit_replace(top_node, expr_filter)
 
+
 def randomize_type(type: SimpleType, typemap: TypeMap, random: Random) -> SimpleType:
-    type2 = resolve_typedefs(type, typemap)
-    if not isinstance(type2, ca.TypeDecl):
-        return type
-    if not isinstance(type2.type, ca.IdentifierType):
-        return type
-    if all(x not in type2.type.names for x in ['int', 'char', 'long', 'short', 'unsigned']):
+    if not allowed_simple_type(
+        type, typemap, ["int", "char", "long", "short", "signed", "unsigned"]
+    ):
         return type
     new_names: List[str] = []
     if random.choice([True, False]):
-        new_names.append('unsigned')
-    new_names.append(random.choice(['char', 'short', 'int', 'int']))
+        new_names.append("unsigned")
+    new_names.append(random.choice(["char", "short", "int", "int"]))
     idtype = ca.IdentifierType(names=new_names)
     return ca.TypeDecl(declname=None, quals=[], type=idtype)
+
 
 def get_insertion_points(
     fn: ca.FuncDef, region: Region
 ) -> List[Tuple[Block, int, Optional[ca.Node]]]:
     cands: List[Tuple[Block, int, Optional[ca.Node]]] = []
+
     def rec(block: Block) -> None:
         stmts = ast_util.get_block_stmts(block, False)
         last_node: ca.Node = block
@@ -299,8 +364,10 @@ def get_insertion_points(
             last_node = stmt
         if region.contains_node(last_node):
             cands.append((block, len(stmts), None))
+
     rec(fn.body)
     return cands
+
 
 def maybe_reuse_var(
     var: Optional[str],
@@ -318,11 +385,13 @@ def maybe_reuse_var(
     var_type: SimpleType = decayed_expr_type(ca.ID(var), typemap)
     if not same_type(var_type, type, typemap, allow_similar=True):
         return None
+
     def find_next(list: List[int], value: int) -> Optional[int]:
         ind = bisect.bisect_left(list, value)
         if ind < len(list):
             return list[ind]
         return None
+
     assignment_ind = indices[assign_before]
     expr_ind = indices[orig_expr]
     write = find_next(writes.get(var, []), assignment_ind)
@@ -337,6 +406,7 @@ def maybe_reuse_var(
         # Our write will be overwritten before we manage to read from it.
         return None
     return var
+
 
 def perm_temp_for_expr(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
@@ -357,7 +427,7 @@ def perm_temp_for_expr(
 
     # Step 0: decide whether to make a pointer to the chosen expression, or to
     # copy it by value.
-    should_make_ptr = (random.uniform(0, 1) < TEMP_PTR_PROB)
+    should_make_ptr = random.uniform(0, 1) < TEMP_PTR_PROB
 
     def surrounding_writes(expr: Expression, base: Expression) -> Tuple[int, int]:
         """Compute the previous and next write to a variable included in expr,
@@ -387,7 +457,7 @@ def perm_temp_for_expr(
     def rec(block: Block, reuse_cands: List[str]) -> None:
         stmts = ast_util.get_block_stmts(block, False)
         reuse_cands = reuse_cands[:]
-        assignment_cands: List[Place] = [] # places to insert before
+        assignment_cands: List[Place] = []  # places to insert before
         past_decls = False
         for index, stmt in enumerate(stmts):
             if isinstance(stmt, ca.Decl):
@@ -415,7 +485,7 @@ def perm_temp_for_expr(
                 if should_make_ptr:
                     if not ast_util.is_lvalue(expr):
                         return
-                    expr = ca.UnaryOp('&', expr)
+                    expr = ca.UnaryOp("&", expr)
 
                 eind = einds.get(expr, 0)
                 prev_write, _ = surrounding_writes(expr, orig_expr)
@@ -439,6 +509,7 @@ def perm_temp_for_expr(
                     candidates.append((prob, (place, expr, reuse_cand)))
 
                 einds[expr] = eind
+
             replace_subexprs(stmt, visitor)
 
     rec(fn.body, [])
@@ -469,11 +540,14 @@ def perm_temp_for_expr(
         return False
 
     # Always use pointers when replacing structs
-    if (not should_make_ptr and isinstance(type, ca.TypeDecl) and
-            isinstance(type.type, (ca.Struct, ca.Union)) and
-            ast_util.is_lvalue(expr)):
+    if (
+        not should_make_ptr
+        and isinstance(type, ca.TypeDecl)
+        and isinstance(type.type, (ca.Struct, ca.Union))
+        and ast_util.is_lvalue(expr)
+    ):
         should_make_ptr = True
-        expr = ca.UnaryOp('&', expr)
+        expr = ca.UnaryOp("&", expr)
         type = decayed_expr_type(expr, typemap)
 
     if should_make_ptr:
@@ -486,26 +560,37 @@ def perm_temp_for_expr(
 
     # Step 3: decide on a variable to hold the expression
     assign_before = place[2]
-    reused_var = maybe_reuse_var(reuse_cand, assign_before, orig_expr, type,
-            reads, writes, indices, typemap, random)
+    reused_var = maybe_reuse_var(
+        reuse_cand,
+        assign_before,
+        orig_expr,
+        type,
+        reads,
+        writes,
+        indices,
+        typemap,
+        random,
+    )
     if reused_var is not None:
         reused = True
         var = reused_var
     else:
         reused = False
-        var = 'new_var'
+        var = "new_var"
         counter = 1
         while var in writes:
             counter += 1
-            var = f'new_var{counter}'
+            var = f"new_var{counter}"
 
     # Step 4: possibly expand the replacement to include duplicate expressions.
     prev_write, next_write = surrounding_writes(expr, orig_expr)
     prev_write = max(prev_write, indices[assign_before] - 1)
     replace_cands: List[Expression] = []
+
     def find_duplicates(e: Expression) -> None:
         if prev_write < indices[e] <= next_write and ast_util.equal_ast(e, orig_expr):
             replace_cands.append(e)
+
     replace_subexprs(fn.body, find_duplicates)
     assert orig_expr in replace_cands
     index = replace_cands.index(orig_expr)
@@ -517,15 +602,16 @@ def perm_temp_for_expr(
     def replacer(e: Expression) -> Optional[Expression]:
         if e in replace_cand_set:
             if should_make_ptr:
-                return ca.UnaryOp('*', ca.ID(var))
+                return ca.UnaryOp("*", ca.ID(var))
             else:
                 return ca.ID(var)
         return None
+
     replace_subexprs(fn.body, replacer)
 
     # Step 6: insert the assignment and any new variable declaration
     block, index, _ = place
-    assignment = ca.Assignment('=', ca.ID(var), expr)
+    assignment = ca.Assignment("=", ca.ID(var), expr)
     ast_util.insert_statement(block, index, assignment)
     if not reused:
         if random.uniform(0, 1) < RANDOMIZE_TYPE_PROB:
@@ -533,6 +619,7 @@ def perm_temp_for_expr(
         ast_util.insert_decl(fn, var, type)
 
     return True
+
 
 def perm_expand_expr(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
@@ -560,7 +647,7 @@ def perm_expand_expr(
     if i == 0:
         # No write to replace the read by.
         return False
-    before = writes[i-1]
+    before = writes[i - 1]
     after = MAX_INDEX if i == len(writes) else writes[i]
     rev_indices = reverse_indices(indices)
     write = rev_indices[before]
@@ -574,8 +661,9 @@ def perm_expand_expr(
         return False
 
     # Step 3: pick of the range of variables to replace
-    repl_cands = [i for i in reads if before < i < after and
-                                      region.contains_pre_index(i)]
+    repl_cands = [
+        i for i in reads if before < i < after and region.contains_pre_index(i)
+    ]
     assert repl_cands, "index is always in repl_cands"
     myi = repl_cands.index(index)
     if random.uniform(0, 1) >= PROB_REPLACE_ALL and len(repl_cands) > 1:
@@ -583,13 +671,13 @@ def perm_expand_expr(
         side = random.randrange(3)
         H = len(repl_cands)
         loi = 0 if side == 0 else random.randint(0, myi)
-        hii = H if side == 1 else random.randint(myi+1, H)
+        hii = H if side == 1 else random.randint(myi + 1, H)
         if loi == 0 and hii == H:
             loi, hii = myi, myi + 1
         repl_cands[loi:hii] = []
         keep_var = True
     else:
-        keep_var = (random.uniform(0, 1) < PROB_KEEP_REPLACED_VAR)
+        keep_var = random.uniform(0, 1) < PROB_KEEP_REPLACED_VAR
     repl_cands_set = set(repl_cands)
 
     # Step 4: do the replacement
@@ -602,10 +690,12 @@ def perm_expand_expr(
             else:
                 return ca.EmptyStatement()
         return None
+
     visit_replace(fn.body, callback)
     if not keep_var and isinstance(write, ca.Decl):
         write.init = None
     return True
+
 
 def perm_randomize_type(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
@@ -615,18 +705,22 @@ def perm_randomize_type(
     and most likely parameters types are already correct). Only variables
     mentioned within the given region are affected."""
     ids: Set[Optional[str]] = set()
+
     class IdVisitor(ca.NodeVisitor):
         def visit_ID(self, node: ca.ID) -> None:
             if region.contains_node(node):
                 ids.add(node.name)
+
     IdVisitor().visit(fn)
 
     typemap = build_typemap(ast)
     decls: List[ca.Decl] = []
+
     class Visitor(ca.NodeVisitor):
         def visit_Decl(self, decl: ca.Decl) -> None:
             if isinstance(decl.type, ca.TypeDecl) and decl.name in ids:
                 decls.append(decl)
+
     Visitor().visit(fn)
 
     if len(decls) == 0:
@@ -639,24 +733,18 @@ def perm_randomize_type(
 
     return True
 
+
 def perm_refer_to_var(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> bool:
     """Add `if (variable) {}` or `if (struct.member) {}` in a random place.
     This will get optimized away but may affect regalloc."""
-    cands: List[Expression] = []
-
     # Find expression to insert, searching within the randomization region.
-    def rec(block: Block) -> None:
-        for stmt in ast_util.get_block_stmts(block, False):
-            ast_util.for_nested_blocks(stmt, rec)
-            def visitor(expr: Expression) -> None:
-                if not region.contains_node(expr):
-                    return
-                if isinstance(expr, (ca.StructRef, ca.ID)):
-                    cands.append(expr)
-            replace_subexprs(stmt, visitor)
-    rec(fn.body)
+    cands: List[Expression] = [
+        expr
+        for expr in get_block_expressions(fn.body, region)
+        if isinstance(expr, (ca.StructRef, ca.ID))
+    ]
     if not cands:
         return False
     expr = random.choice(cands)
@@ -664,10 +752,10 @@ def perm_refer_to_var(
         return False
     type: SimpleType = decayed_expr_type(expr, build_typemap(ast))
     if isinstance(type, ca.TypeDecl) and isinstance(type.type, (ca.Struct, ca.Union)):
-        expr = ca.UnaryOp('&', expr)
+        expr = ca.UnaryOp("&", expr)
 
     if random.choice([True, False]):
-        expr = ca.UnaryOp('!', expr)
+        expr = ca.UnaryOp("!", expr)
 
     # Insert it wherever -- possibly outside the randomization region, since regalloc
     # can act at a distance. (Except before a declaration.)
@@ -682,6 +770,7 @@ def perm_refer_to_var(
     ast_util.insert_statement(tob, toi, stmt)
     return True
 
+
 def perm_ins_block(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> bool:
@@ -689,10 +778,12 @@ def perm_ins_block(
     `do { ... } while(0)`. Control flow can have remote effects, so this
     mostly ignores the region restriction."""
     cands: List[Block] = []
+
     def rec(block: Block) -> None:
         cands.append(block)
         for stmt in ast_util.get_block_stmts(block, False):
             ast_util.for_nested_blocks(stmt, rec)
+
     rec(fn.body)
     block = random.choice(cands)
     stmts = ast_util.get_block_stmts(block, True)
@@ -707,18 +798,20 @@ def perm_ins_block(
     if hi < lo:
         lo, hi = hi, lo
     new_block = ca.Compound(block_items=stmts[lo:hi])
-    if (random.uniform(0, 1) < INS_BLOCK_DOWHILE_PROB and
-            all(region.contains_node(n) for n in stmts[lo:hi])):
-        cond = ca.Constant(type='int', value='0')
+    if random.uniform(0, 1) < INS_BLOCK_DOWHILE_PROB and all(
+        region.contains_node(n) for n in stmts[lo:hi]
+    ):
+        cond = ca.Constant(type="int", value="0")
         stmts[lo:hi] = [
             ca.Pragma("sameline start"),
             ca.DoWhile(cond=cond, stmt=new_block),
             ca.Pragma("sameline end"),
         ]
     else:
-        cond = ca.Constant(type='int', value='1')
+        cond = ca.Constant(type="int", value="1")
         stmts[lo:hi] = [ca.If(cond=cond, iftrue=new_block, iffalse=None)]
     return True
+
 
 def perm_sameline(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
@@ -741,26 +834,30 @@ def perm_sameline(
     ast_util.insert_statement(cands[i][0], cands[i][1], ca.Pragma("sameline start"))
     return True
 
+
 def perm_associative(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> bool:
     """Change a+b into b+a, or similar for other commutative operations."""
     cands: List[ca.BinaryOp] = []
-    commutative_ops = list("+*|&^<>") + ['<=', '>=', '==', '!=']
+    commutative_ops = list("+*|&^<>") + ["<=", ">=", "==", "!="]
+
     class Visitor(ca.NodeVisitor):
         def visit_BinaryOp(self, node: ca.BinaryOp) -> None:
             if node.op in commutative_ops and region.contains_node(node):
                 cands.append(node)
+
     Visitor().visit(fn.body)
     if not cands:
         return False
     node = random.choice(cands)
     node.left, node.right = node.right, node.left
-    if node.op[0] == '<':
-        node.op = '>' + node.op[1:]
-    elif node.op[0] == '>':
-        node.op = '<' + node.op[1:]
+    if node.op[0] == "<":
+        node.op = ">" + node.op[1:]
+    elif node.op[0] == ">":
+        node.op = "<" + node.op[1:]
     return True
+
 
 def perm_add_self_assignment(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
@@ -768,18 +865,21 @@ def perm_add_self_assignment(
     """Introduce a "x = x;" somewhere."""
     cands = get_insertion_points(fn, region)
     vars: List[str] = []
+
     class Visitor(ca.NodeVisitor):
         def visit_Decl(self, decl: ca.Decl) -> None:
             if decl.name:
                 vars.append(decl.name)
+
     Visitor().visit(fn.body)
     if not vars or not cands:
         return False
     var = random.choice(vars)
     where = random.choice(cands)
-    assignment = ca.Assignment('=', ca.ID(var), ca.ID(var))
+    assignment = ca.Assignment("=", ca.ID(var), ca.ID(var))
     ast_util.insert_statement(where[0], where[1], assignment)
     return True
+
 
 def perm_reorder_stmts(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
@@ -797,8 +897,11 @@ def perm_reorder_stmts(
     source_inds = []
     for i, c in enumerate(cands):
         stmt = c[2]
-        if (stmt is not None and not isinstance(stmt, ca.Pragma)
-                and not ast_util.has_nested_block(stmt)):
+        if (
+            stmt is not None
+            and not isinstance(stmt, ca.Pragma)
+            and not ast_util.has_nested_block(stmt)
+        ):
             source_inds.append(i)
 
     if not source_inds:
@@ -817,17 +920,20 @@ def perm_reorder_stmts(
     ast_util.insert_statement(tob, toi, stmt)
     return True
 
+
 def perm_inequalities(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> bool:
     """Adjusts inequalities to equivalent versions that sometimes produce different code.
     For example, a > b and a >= b + 1, a < b to a <= b - 1 (and vice versa)"""
     cands: List[ca.BinaryOp] = []
-    inequalities = ['<', '>', '<=', '>=']
+    inequalities = ["<", ">", "<=", ">="]
+
     class Visitor(ca.NodeVisitor):
         def visit_BinaryOp(self, node: ca.BinaryOp) -> None:
             if node.op in inequalities and region.contains_node(node):
                 cands.append(node)
+
     Visitor().visit(fn.body)
     if not cands:
         return False
@@ -837,33 +943,34 @@ def perm_inequalities(
     # Does not simplify, 'a <= (b + 1)' becomes 'a < ((b + 1) + 1)'
 
     def plus1(node: ca.Node) -> ca.BinaryOp:
-        return ca.BinaryOp('+', node, ca.Constant('int', '1'))
+        return ca.BinaryOp("+", node, ca.Constant("int", "1"))
 
     def minus1(node: ca.Node) -> ca.BinaryOp:
-        return ca.BinaryOp('-', node, ca.Constant('int', '1'))
+        return ca.BinaryOp("-", node, ca.Constant("int", "1"))
 
     # Don't change the operator, change both operands (can produce fake matches sometimes)
     #   Ex: a > b -> a + 1 > b + 1
     if random.random() < 0.25:
         change = random.choice([plus1, minus1])
-        node.left  = change(node.left)
+        node.left = change(node.left)
         node.right = change(node.right)
 
     else:
-        if node.op in ['<', '>=']:
-            node.op = {'<': '<=', '>=': '>'}[node.op]
+        if node.op in ["<", ">="]:
+            node.op = {"<": "<=", ">=": ">"}[node.op]
             if random.choice([True, False]):
-                node.left  = plus1(node.left)
+                node.left = plus1(node.left)
             else:
                 node.right = minus1(node.right)
         else:
-            node.op = {'>': '>=', '<=': '<'}[node.op]
+            node.op = {">": ">=", "<=": "<"}[node.op]
             if random.choice([True, False]):
-                node.left  = minus1(node.left)
+                node.left = minus1(node.left)
             else:
                 node.right = plus1(node.right)
 
     return True
+
 
 def perm_add_mask(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
@@ -871,39 +978,75 @@ def perm_add_mask(
     """Add a mask of 0xFF[FFFFFFFFFFFFFF] to a random expression of integer type.
     In some cases this mask is optimized out but affects regalloc."""
     typemap = build_typemap(ast)
-    cands: List[Expression] = []
 
     # Find expression to add the mask to
-    def rec(block: Block) -> None:
-        for stmt in ast_util.get_block_stmts(block, False):
-            ast_util.for_nested_blocks(stmt, rec)
-            def visitor(expr: Expression) -> None:
-                if not region.contains_node(expr):
-                    return
-                cands.append(expr)
-            replace_subexprs(stmt, visitor)
-    rec(fn.body)
+    cands: List[Expression] = get_block_expressions(fn.body, region)
     if not cands:
         return False
 
     expr = random.choice(cands)
     type: SimpleType = decayed_expr_type(expr, typemap)
-    base_type = resolve_typedefs(type, typemap)
-
-    if not isinstance(base_type, ca.TypeDecl):
-        return False
-    if not isinstance(base_type.type, ca.IdentifierType):
-        return False
-    if all(x not in base_type.type.names for x in ['int', 'char', 'long', 'short', 'signed', 'unsigned']):
+    if not allowed_simple_type(
+        type, typemap, ["int", "char", "long", "short", "signed", "unsigned"]
+    ):
         return False
 
     # Mask as if restricting the value to 8, 16, 32, or 64-bit width.
     # Sometimes use an unsigned mask like '0xFFu'
-    masks: List[str] = ['0xFF', '0xFFFF', '0xFFFFFFFF', '0xFFFFFFFFFFFFFFFF']
-    mask = random.choice(masks) + random.choice(['', 'u'])
+    masks: List[str] = ["0xFF", "0xFFFF", "0xFFFFFFFF", "0xFFFFFFFFFFFFFFFF"]
+    mask = random.choice(masks) + random.choice(["", "u"])
 
-    visit_replace(fn.body, lambda n, _: ca.BinaryOp('&', expr, ca.Constant('int', mask)) if n is expr else None)
+    visit_replace(
+        fn.body,
+        lambda n, _: ca.BinaryOp("&", expr, ca.Constant("int", mask))
+        if n is expr
+        else None,
+    )
     return True
+
+
+def perm_cast_simple(
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
+) -> bool:
+    """Cast a random expression to a simple type (integral or floating point only)."""
+    typemap = build_typemap(ast)
+
+    # Find a random expression
+    cands: List[Expression] = get_block_expressions(fn.body, region)
+    if not cands:
+        return False
+
+    expr = random.choice(cands)
+    type: SimpleType = decayed_expr_type(expr, typemap)
+    if not allowed_simple_type(
+        type,
+        typemap,
+        ["int", "char", "long", "short", "signed", "unsigned", "float", "double"],
+    ):
+        return False
+
+    integral_type = [["int"], ["char"], ["long"], ["short"], ["long", "long"]]
+    floating_type = [["float"], ["double"]]
+    new_type: List[str]
+    if random.choice([True, False]):
+        # Cast to integral type, sometimes unsigned
+        sign: List[str] = random.choice([[], ["unsigned"]])
+        new_type = sign + random.choice(integral_type)
+    else:
+        # Cast to floating point type
+        new_type = random.choice(floating_type)
+
+    # Surround the original expression with a cast to the chosen type
+    def callback(node: ca.Node, is_expr: bool) -> Optional[ca.Node]:
+        if node is expr:
+            typedecl = ca.TypeDecl(None, [], ca.IdentifierType(new_type))
+            return ca.Cast(ca.Typename(None, [], typedecl), expr)
+        return None
+
+    visit_replace(fn.body, callback)
+
+    return True
+
 
 class Randomizer:
     def __init__(self, rng_seed: int) -> None:
@@ -917,7 +1060,8 @@ class Randomizer:
         methods = [
             (perm_temp_for_expr, 100),
             (perm_expand_expr, 20),
-            (perm_add_mask, 20),
+            (perm_add_mask, 10),
+            (perm_cast_simple, 10),
             (perm_refer_to_var, 10),
             (perm_randomize_type, 10),
             (perm_sameline, 10),
@@ -928,7 +1072,9 @@ class Randomizer:
             (perm_inequalities, 5),
         ]
         while True:
-            method = self.random.choice([x for (elem, prob) in methods for x in [elem]*prob])
+            method = self.random.choice(
+                [x for (elem, prob) in methods for x in [elem] * prob]
+            )
             ret = method(fn, ast, indices, region, self.random)
             if ret:
                 break
