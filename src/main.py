@@ -392,6 +392,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
 
 def main() -> None:
     multiprocessing.freeze_support()
+    sys.setrecursionlimit(10000)
 
     # Ideally we would do:
     #  multiprocessing.set_start_method('spawn')
