@@ -143,11 +143,13 @@ class Permuter:
         except Exception:
             return EvalError(exc_str=traceback.format_exc(), seed=self.cur_seed)
 
-    def print_diff(self, cand: Candidate) -> None:
-        a = self.base.get_source().split('\n')
+    def base_source(self) -> str:
+        return self.base.get_source()
+
+    def diff(self, cand: Candidate) -> str:
+        a = self.base_source().split('\n')
         b = cand.get_source().split('\n')
-        for line in difflib.unified_diff(a, b, fromfile='before', tofile='after', lineterm=''):
-            print(line)
+        return '\n'.join(difflib.unified_diff(a, b, fromfile='before', tofile='after', lineterm=''))
 
 @attr.s
 class EvalContext:
@@ -168,12 +170,14 @@ def write_candidate(perm: Permuter, cand: Candidate) -> None:
             break
         except FileExistsError:
             pass
-    source = os.path.join(output_dir, 'source.c')
-    score = os.path.join(output_dir, 'score.txt')
-    with open(source, 'x') as f:
+    with open(os.path.join(output_dir, 'source.c'), 'x') as f:
         f.write(cand.get_source())
-    with open(score, 'x') as f:
+    with open(os.path.join(output_dir, 'base.c'), 'x') as f:
+        f.write(perm.base_source())
+    with open(os.path.join(output_dir, 'score.txt'), 'x') as f:
         f.write(f"{cand.score_value}\n")
+    with open(os.path.join(output_dir, 'diff.txt'), 'x') as f:
+        f.write(perm.diff(cand))
     print(f"wrote to {output_dir}")
 
 def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> None:
@@ -197,7 +201,7 @@ def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> 
     assert score_hash is not None
 
     if context.options.print_diffs:
-        permuter.print_diff(cand)
+        print(permuter.diff(cand))
         input("Press any key to continue...")
 
     context.iteration += 1
