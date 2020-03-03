@@ -237,17 +237,17 @@ def build_typemap(ast: c_ast.FileAST) -> TypeMap:
                 ret.struct_defs[union.name] = union
             # Do not visit decls of this union
         def visit_Decl(self, decl: c_ast.Decl) -> None:
-            if not isinstance(decl.type, FuncDecl):
-                if decl.name is not None:
-                    ret.var_types[decl.name] = decl.type
-                self.visit(decl.type)
-            elif decl in defined_function_decls:
+            if decl.name is not None:
+                ret.var_types[decl.name] = decl.type
+            if not isinstance(decl.type, FuncDecl) or decl in defined_function_decls:
                 # Do not visit declarations in parameter lists of functions
                 # other than our own.
                 self.visit(decl.type)
         def visit_Enumerator(self, enumerator: c_ast.Enumerator) -> None:
             ret.var_types[enumerator.name] = basic_type('int')
         def visit_FuncDef(self, fn: c_ast.FuncDef) -> None:
+            if fn.decl.name is not None:
+                ret.var_types[fn.decl.name] = fn.decl.type
             defined_function_decls.add(fn.decl)
             self.generic_visit(fn)
     Visitor().visit(ast)
