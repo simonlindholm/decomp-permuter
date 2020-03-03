@@ -6,7 +6,7 @@ import string
 import subprocess
 from typing import List, Tuple, Match
 
-OBJDUMP = ['mips-linux-gnu-objdump', '-drz']
+OBJDUMP = ['arm-none-eabi-objdump', '-drz']
 
 # Ignore registers, for cleaner output. (We don't do this right now, but it can
 # be useful for debugging.)
@@ -29,12 +29,11 @@ includes_sp = re.compile(r'\b(sp|s8)\b')
 forbidden = set(string.ascii_letters + '_')
 skip_lines = 1
 branch_likely_instructions = [
-    'beql', 'bnel', 'beqzl', 'bnezl', 'bgezl', 'bgtzl', 'blezl', 'bltzl',
-    'bc1tl', 'bc1fl'
+    'swi', 'bkpt'
 ]
 branch_instructions = [
-    'b', 'beq', 'bne', 'beqz', 'bnez', 'bgez', 'bgtz', 'blez', 'bltz',
-    'bc1t', 'bc1f'
+    'b', 'beq', 'bne', 'bcs', 'bcc', 'bhs', 'blo', 'bmi', 'bpl', 'bvs', 'bvc', 'bhi', 'bls', 'bge', 'blt', 'bgt', 'ble',
+    'bl', 'bx', 'blx'
 ] + branch_likely_instructions
 
 def parse_relocated_line(line: str) -> Tuple[str, str, str]:
@@ -61,9 +60,11 @@ def simplify_objdump(input_lines: List[str]) -> List[str]:
         if index < skip_lines:
             continue
         row = row.rstrip()
+        if 'nop' in row and '(' in row:
+            row = row.split('(')[1].split(')')[0]
         if '>:' in row or not row:
             continue
-        if 'R_MIPS_' in row:
+        if 'R_ARM_' in row:
             prev = output_lines[-1]
             if prev == '<skipped>':
                 continue
@@ -74,17 +75,17 @@ def simplify_objdump(input_lines: List[str]) -> List[str]:
             # since it's rare and applies consistently. But we do need to handle it
             # here to avoid a crash, by pretending that lost imms are zero for
             # relocations.
-            if imm != '0' and imm != 'imm':
+            if imm != '0' and imm != 'imm' and imm != '<target>':
                 repl += '+' + imm if int(imm,0) > 0 else imm
-            if 'R_MIPS_LO16' in row:
-                repl = f'%lo({repl})'
-            elif 'R_MIPS_HI16' in row:
+            if 'R_ARM_THM_CALL' in row:
+                repl = f'%thumb({repl})'
+            elif 'R_ARM_CALL' in row or 'R_ARM_JUMP24' in row:
                 # Ideally we'd pair up R_MIPS_LO16 and R_MIPS_HI16 to generate a
                 # correct addend for each, but objdump doesn't give us the order of
                 # the relocations, so we can't find the right LO16. :(
-                repl = f'%hi({repl})'
+                repl = f'%arm({repl})'
             else:
-                assert 'R_MIPS_26' in row, f"unknown relocation type '{row}'"
+                assert f"unknown relocation type '{row}'"
             output_lines[-1] = before + repl + after
             continue
         row = re.sub(comments, '', row)
@@ -100,6 +101,7 @@ def simplify_objdump(input_lines: List[str]) -> List[str]:
         row_parts = row.split('\t')
         if len(row_parts) == 1:
             row_parts.append('')
+        print(row_parts)
         mnemonic, instr_args = row_parts
         if mnemonic == 'addiu' and includes_sp.search(instr_args):
             row = re.sub(full_num_re, 'imm', row)

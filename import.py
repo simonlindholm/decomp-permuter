@@ -21,7 +21,7 @@ ASM_PRELUDE = """
     \label:
 .endm
 """
-DEFAULT_AS_CMDLINE = ["mips-linux-gnu-as", "-march=vr4300", "-mabi=32"]
+DEFAULT_AS_CMDLINE = ["arm-none-eabi-as", "-march=armv4t", "-mthumb-interwork"]
 
 
 def formatcmd(cmdline):
