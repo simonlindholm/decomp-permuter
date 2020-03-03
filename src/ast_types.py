@@ -257,7 +257,6 @@ def set_decl_name(decl: c_ast.Decl) -> None:
     name = decl.name
     type = decl.type
     while not isinstance(type, TypeDecl):
-        assert isinstance(type, (ArrayDecl, PtrDecl))
         type = type.type
     type.declname = name
 
