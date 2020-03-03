@@ -59,9 +59,9 @@ def simplify_objdump(input_lines: List[str]) -> List[str]:
     for index, row in enumerate(input_lines):
         if index < skip_lines:
             continue
-        row = row.rstrip().split(';')[0].split('@')[0].split('//')[0]
         if 'nop' in row and '(' in row:
             row = row.split('(')[1].split(')')[0]
+        row = row.rstrip().split(';')[0].split('@')[0].split('//')[0]
         if '>:' in row or not row:
             continue
         if 'R_ARM_' in row:
