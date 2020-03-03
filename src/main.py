@@ -197,17 +197,15 @@ def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> 
     cand, profiler = result
     score_value = cand.score_value
     score_hash = cand.score_hash
-    assert score_value is not None
-    assert score_hash is not None
 
     if context.options.print_diffs:
         print(permuter.diff(cand))
         input("Press any key to continue...")
 
     context.iteration += 1
-    if cand.score_value is None:
+    if score_value is None:
         context.errors += 1
-    disp_score = 'inf' if cand.score_value == permuter.scorer.PENALTY_INF else cand.score_value
+    disp_score = 'inf' if score_value == permuter.scorer.PENALTY_INF else score_value
     timings = ''
     if context.options.show_timings:
         for stattype in profiler.time_stats:
@@ -215,7 +213,8 @@ def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> 
         timings = '\t' + context.overall_profiler.get_str_stats()
     status_line = f"iteration {context.iteration}, {context.errors} errors, score = {disp_score}{timings}"
 
-    if score_value is not None and score_value <= permuter.base_score and score_hash not in permuter.hashes:
+    if (score_value is not None and score_hash is not None and
+            score_value <= permuter.base_score and score_hash not in permuter.hashes):
         permuter.hashes.add(score_hash)
         permuter.best_score = min(permuter.best_score, score_value)
         print("\r" + " " * (len(status_line) + 10) + "\r", end='')
