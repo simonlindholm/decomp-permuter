@@ -338,7 +338,7 @@ def main():
         compile_asm(assembler, cwd, target_s_file, target_o_file)
         compile_base(compile_script, base_c_file, base_o_file)
     except:
-        if not parser.keep:
+        if not args.keep:
             print(f"\nDeleting directory {dirname} (run with --keep to preserve it).")
             shutil.rmtree(dirname)
         raise
