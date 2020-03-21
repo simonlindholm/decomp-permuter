@@ -1,4 +1,5 @@
 from typing import (
+    Any,
     List,
     Dict,
     Optional,
@@ -187,8 +188,14 @@ class Permuter:
         return self.base.get_source()
 
     def diff(self, cand: Candidate) -> str:
-        a = self.base_source().split("\n")
-        b = cand.get_source().split("\n")
+        # Return a unified white-space-ignoring diff
+        class Line(str):
+            def __eq__(self, other: Any) -> bool:
+                return isinstance(other, str) and self.strip() == other.strip()
+            def __hash__(self) -> int:
+                return hash(self.strip())
+        a = list(map(Line, self.base_source().split("\n")))
+        b = list(map(Line, cand.get_source().split("\n")))
         return "\n".join(
             difflib.unified_diff(a, b, fromfile="before", tofile="after", lineterm="")
         )
@@ -221,7 +228,7 @@ def write_candidate(perm: Permuter, cand: Candidate) -> None:
     with open(os.path.join(output_dir, "score.txt"), "x") as f:
         f.write(f"{cand.score_value}\n")
     with open(os.path.join(output_dir, "diff.txt"), "x") as f:
-        f.write(perm.diff(cand))
+        f.write(perm.diff(cand) + "\n")
     print(f"wrote to {output_dir}")
 
 
