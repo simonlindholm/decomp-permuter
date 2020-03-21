@@ -40,7 +40,7 @@ from .profiler import Profiler
 
 # The probability that the randomizer continues transforming the output it
 # generated last time.
-RANDOMIZER_KEEP_PROB = 0.25
+RANDOMIZER_KEEP_PROB = 0.6
 
 
 @attr.s
@@ -140,7 +140,7 @@ class Permuter:
         # Determine if we should keep the last candidate
         keep = (
             self.permutations.is_random()
-            and self.random.uniform(0, 1) >= RANDOMIZER_KEEP_PROB
+            and self.random.uniform(0, 1) < RANDOMIZER_KEEP_PROB
         ) or self.force_rng_seed
 
         # Create a new candidate if we didn't keep the last one (or if the last one didn't exist)
