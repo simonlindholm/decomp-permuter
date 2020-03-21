@@ -276,6 +276,11 @@ def compile_base(compile_script, in_file, out_file):
         )
 
 
+def write_to_file(cont, filename):
+    with open(filename, "w") as f:
+        f.write(cont)
+
+
 def try_strip_other_fns_and_write(source, func_name, base_c_file):
     try:
         strip_other_fns_and_write(source, func_name, base_c_file)
@@ -330,9 +335,12 @@ def main():
     target_s_file = f"{dirname}/target.s"
     target_o_file = f"{dirname}/target.o"
     compile_script = f"{dirname}/compile.sh"
+    func_name_file = f"{dirname}/function.txt"
 
     try:
-        try_strip_other_fns_and_write(source, func_name, base_c_file)
+        # try_strip_other_fns_and_write(source, func_name, base_c_file)
+        write_to_file(source, base_c_file)
+        write_to_file(func_name, func_name_file)
         write_compile_command(compiler, cwd, compile_script)
         write_asm(asm_cont, target_s_file)
         compile_asm(assembler, cwd, target_s_file, target_o_file)

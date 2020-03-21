@@ -18,6 +18,7 @@ import attr
 import pycparser
 from pycparser import CParser, c_ast as ca
 
+from .error import CandidateConstructionFailure
 from .perm import perm_gen, perm_eval
 from . import ast_util
 from .preprocess import preprocess
@@ -58,19 +59,23 @@ class Permuter:
     Represents a single source from which permutation candidates can be generated,
     and which keeps track of good scores achieved so far.
     '''
-    def __init__(self, dir: str, compiler: Compiler, scorer: Scorer, source_file: str, source: str, force_rng_seed: Optional[int]) -> None:
+    def __init__(self, dir: str, fn_name: Optional[str], compiler: Compiler, scorer: Scorer, source_file: str, source: str, force_rng_seed: Optional[int]) -> None:
         self.dir = dir
         self.random = Random()
         self.compiler = compiler
         self.scorer = scorer
         self.source_file = source_file
 
-        fns = find_fns(source)
-        if len(fns) == 0:
-            raise Exception(f"{self.source_file} does not contain any function!")
-        if len(fns) > 1:
-            raise Exception(f"{self.source_file} must contain only one function. (Use strip_other_fns.py.)")
-        self.fn_name = fns[0]
+        if fn_name is None:
+            fns = find_fns(source)
+            if len(fns) == 0:
+                raise Exception(f"{self.source_file} does not contain any function!")
+            if len(fns) > 1:
+                raise Exception(f"{self.source_file} must contain only one function, "
+                        "or have a function.txt next to it with a function name.")
+            self.fn_name = fns[0]
+        else:
+            self.fn_name = fn_name
         self.unique_name = self.fn_name
 
         self.parser = pycparser.CParser()
@@ -90,7 +95,7 @@ class Permuter:
 
     def create_and_score_base(self) -> Tuple[Candidate, int, str]:
         base_source = perm_eval.perm_evaluate_one(self.permutations)
-        base_cand = Candidate.from_source(base_source, self.parser, rng_seed=0)
+        base_cand = Candidate.from_source(base_source, self.fn_name, self.parser, rng_seed=0)
         o_file = base_cand.compile(self.compiler, show_errors=True)
         if not o_file:
             raise Exception(f"Unable to compile {self.source_file}")
@@ -113,7 +118,7 @@ class Permuter:
             cand_c = self.permutations.evaluate(seed, EvalState())
             rng_seed = self.force_rng_seed or random.randrange(1, 10**20)
             self.cur_seed = (seed, rng_seed)
-            self.cand = Candidate.from_source(cand_c, self.parser, rng_seed=rng_seed)
+            self.cand = Candidate.from_source(cand_c, self.fn_name, self.parser, rng_seed=rng_seed)
 
         # Randomize the candidate
         if self.permutations.is_random():
@@ -327,14 +332,27 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             print(f"{compile_cmd} must be marked executable.", file=sys.stderr)
             sys.exit(1)
 
-        print(base_c)
+        fn_name: Optional[str] = None
+        try:
+            with open(os.path.join(d, 'function.txt')) as f:
+                fn_name = f.read().strip()
+        except FileNotFoundError:
+            pass
+
+        if fn_name:
+            print(f"{base_c} ({fn_name})")
+        else:
+            print(base_c)
 
         compiler = Compiler(compile_cmd, options.show_errors)
         scorer = Scorer(target_o)
         c_source = preprocess(base_c)
 
-        # TODO: catch special-purpose permuter exceptions from this
-        permuter = Permuter(d, compiler, scorer, base_c, c_source, force_rng_seed=force_rng_seed)
+        try:
+            permuter = Permuter(d, fn_name, compiler, scorer, base_c, c_source, force_rng_seed=force_rng_seed)
+        except CandidateConstructionFailure as e:
+            print(e.message, file=sys.stderr)
+            sys.exit(1)
 
         context.permuters.append(permuter)
         name_counts[permuter.fn_name] = name_counts.get(permuter.fn_name, 0) + 1

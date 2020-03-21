@@ -1,5 +1,5 @@
-import sys
 import re
+import argparse
 from pathlib import Path
 
 def _find_bracket_end(input: str, start_index: int) -> int:
@@ -51,9 +51,15 @@ def strip_other_fns_and_write(source: str, fn_name: str, out_filename=None) -> N
         with open(out_filename, 'w') as f:
             f.write(stripped)
 
+def main():
+    parser = argparse.ArgumentParser(
+        description="Remove all but a single function definition from a file.")
+    parser.add_argument("c_file", help="File containing the function.")
+    parser.add_argument("fn_name", help="Function name.")
+    args = parser.parse_args()
+
+    source = Path(args.c_file).read_text()
+    strip_other_fns_and_write(source, args.fn_name, args.c_file)
+
 if __name__ == "__main__":
-    filename = sys.argv[1]
-    fn_name = sys.argv[2]
-    
-    source = Path(filename).read_text()
-    strip_other_fns_and_write(source, fn_name, filename)
+    main()

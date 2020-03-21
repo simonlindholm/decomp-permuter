@@ -9,6 +9,7 @@ import typing
 
 from pycparser import c_ast as ca, c_parser, c_generator
 
+from .error import CandidateConstructionFailure
 from .ast_types import (SimpleType, TypeMap, build_typemap, decayed_expr_type,
         resolve_typedefs, same_type, set_decl_name)
 
@@ -61,12 +62,23 @@ class PatchedCGenerator(c_generator.CGenerator):
                     iffalse=n.iffalse.block_items[0])
         return super().visit_If(n2) # type: ignore
 
-def find_fn(ast: ca.FileAST) -> Tuple[ca.FuncDef, int]:
+def extract_fn(ast: ca.FileAST, fn_name: str) -> Tuple[ca.FuncDef, int]:
     ret = []
     for i, node in enumerate(ast.ext):
         if isinstance(node, ca.FuncDef):
-            ret.append((node, i))
-    assert len(ret) == 1
+            if node.decl.name == fn_name:
+                ret.append((node, i))
+            else:
+                node = node.decl
+                ast.ext[i] = node
+        if isinstance(node, ca.Decl) and isinstance(node.type, ca.FuncDecl):
+            node.funcspec = [spec for spec in node.funcspec if spec != 'static']
+    if len(ret) == 0:
+        raise CandidateConstructionFailure(f"Function {fn_name} not found in base.c.")
+    if len(ret) > 1:
+        raise CandidateConstructionFailure(
+            f"Found multiple copies of function {fn_name} in base.c."
+        )
     return ret[0]
 
 def compute_node_indices(top_node: ca.Node) -> Indices:
