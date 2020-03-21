@@ -8,6 +8,7 @@ import attr
 
 from .objdump import objdump
 
+
 @attr.s(init=False, hash=True)
 class DiffAsmLine:
     line: str = attr.ib(cmp=False)
@@ -16,14 +17,15 @@ class DiffAsmLine:
 
     def __init__(self, line: str) -> None:
         self.line = line
-        self.mnemonic = line.split('\t')[0]
-        if '%' in line and 'data' not in line and 'jtbl' not in line:
-            self.macro_arg = '%' + line.split('%')[1].split(')')[0] + ')'
+        self.mnemonic = line.split("\t")[0]
+        if "%" in line and "data" not in line and "jtbl" not in line:
+            self.macro_arg = "%" + line.split("%")[1].split(")")[0] + ")"
         else:
-            self.macro_arg = ''
+            self.macro_arg = ""
+
 
 class Scorer:
-    PENALTY_INF = 10**9
+    PENALTY_INF = 10 ** 9
 
     PENALTY_REGALLOC = 10
     PENALTY_SPLIT_DIFF = 20
@@ -34,8 +36,9 @@ class Scorer:
     def __init__(self, target_o: str):
         self.target_o = target_o
         _, self.target_seq = self._objdump(target_o)
-        self.differ: difflib.SequenceMatcher[DiffAsmLine] = \
-                difflib.SequenceMatcher(autojunk=False)
+        self.differ: difflib.SequenceMatcher[DiffAsmLine] = difflib.SequenceMatcher(
+            autojunk=False
+        )
         self.differ.set_seq2(self.target_seq)
 
     def _objdump(self, o_file: str) -> Tuple[str, List[DiffAsmLine]]:
@@ -43,11 +46,11 @@ class Scorer:
         lines = objdump(o_file)
         for line in lines:
             ret.append(DiffAsmLine(line))
-        return '\n'.join(lines), ret
+        return "\n".join(lines), ret
 
     def score(self, cand_o: Optional[str]) -> Tuple[int, str]:
         if not cand_o:
-            return Scorer.PENALTY_INF, ''
+            return Scorer.PENALTY_INF, ""
 
         objdump_output, cand_seq = self._objdump(cand_o)
 
@@ -73,15 +76,15 @@ class Scorer:
         first_ins = None
         self.differ.set_seq1(cand_seq)
         for (tag, i1, i2, j1, j2) in self.differ.get_opcodes():
-            if tag == 'equal':
+            if tag == "equal":
                 for k in range(i2 - i1):
                     old = self.target_seq[j1 + k].line
                     new = cand_seq[i1 + k].line
                     diff_sameline(old, new)
-            if tag == 'replace' or tag == 'delete':
+            if tag == "replace" or tag == "delete":
                 for k in range(i1, i2):
                     diff_insert(cand_seq[k].line)
-            if tag == 'replace' or tag == 'insert':
+            if tag == "replace" or tag == "insert":
                 for k in range(j1, j2):
                     diff_delete(self.target_seq[k].line)
 

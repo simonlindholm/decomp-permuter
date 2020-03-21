@@ -1,4 +1,14 @@
-from typing import List, Dict, Optional, Callable, Optional, Tuple, Iterable, Iterator, Union
+from typing import (
+    List,
+    Dict,
+    Optional,
+    Callable,
+    Optional,
+    Tuple,
+    Iterable,
+    Iterator,
+    Union,
+)
 import argparse
 import difflib
 import itertools
@@ -32,6 +42,7 @@ from .profiler import Profiler
 # generated last time.
 RANDOMIZER_KEEP_PROB = 0.25
 
+
 @attr.s
 class Options:
     directories: List[str] = attr.ib()
@@ -42,24 +53,41 @@ class Options:
     force_seed: Optional[str] = attr.ib(default=None)
     threads: int = attr.ib(default=1)
 
+
 def find_fns(source: str) -> List[str]:
-    fns = re.findall(r'(\w+)\([^()\n]*\)\s*?{', source)
-    return [fn for fn in fns if not fn.startswith('PERM')
-            and fn not in ['if', 'for', 'switch', 'while']]
+    fns = re.findall(r"(\w+)\([^()\n]*\)\s*?{", source)
+    return [
+        fn
+        for fn in fns
+        if not fn.startswith("PERM") and fn not in ["if", "for", "switch", "while"]
+    ]
+
 
 @attr.s
 class EvalError:
     exc_str: str = attr.ib()
     seed: Optional[Tuple[int, int]] = attr.ib()
 
+
 EvalResult = Union[Tuple[Candidate, Profiler], EvalError]
 
+
 class Permuter:
-    '''
+    """
     Represents a single source from which permutation candidates can be generated,
     and which keeps track of good scores achieved so far.
-    '''
-    def __init__(self, dir: str, fn_name: Optional[str], compiler: Compiler, scorer: Scorer, source_file: str, source: str, force_rng_seed: Optional[int]) -> None:
+    """
+
+    def __init__(
+        self,
+        dir: str,
+        fn_name: Optional[str],
+        compiler: Compiler,
+        scorer: Scorer,
+        source_file: str,
+        source: str,
+        force_rng_seed: Optional[int],
+    ) -> None:
         self.dir = dir
         self.random = Random()
         self.compiler = compiler
@@ -71,8 +99,10 @@ class Permuter:
             if len(fns) == 0:
                 raise Exception(f"{self.source_file} does not contain any function!")
             if len(fns) > 1:
-                raise Exception(f"{self.source_file} must contain only one function, "
-                        "or have a function.txt next to it with a function name.")
+                raise Exception(
+                    f"{self.source_file} must contain only one function, "
+                    "or have a function.txt next to it with a function name."
+                )
             self.fn_name = fns[0]
         else:
             self.fn_name = fn_name
@@ -95,7 +125,9 @@ class Permuter:
 
     def create_and_score_base(self) -> Tuple[Candidate, int, str]:
         base_source = perm_eval.perm_evaluate_one(self.permutations)
-        base_cand = Candidate.from_source(base_source, self.fn_name, self.parser, rng_seed=0)
+        base_cand = Candidate.from_source(
+            base_source, self.fn_name, self.parser, rng_seed=0
+        )
         o_file = base_cand.compile(self.compiler, show_errors=True)
         if not o_file:
             raise Exception(f"Unable to compile {self.source_file}")
@@ -106,9 +138,10 @@ class Permuter:
         t0 = time.time()
 
         # Determine if we should keep the last candidate
-        keep = ((self.permutations.is_random()
-            and self.random.uniform(0, 1) >= RANDOMIZER_KEEP_PROB)
-            or self.force_rng_seed)
+        keep = (
+            self.permutations.is_random()
+            and self.random.uniform(0, 1) >= RANDOMIZER_KEEP_PROB
+        ) or self.force_rng_seed
 
         # Create a new candidate if we didn't keep the last one (or if the last one didn't exist)
         # N.B. if we decide to keep the previous candidate, we will skip over the provided seed.
@@ -116,9 +149,11 @@ class Permuter:
         # we're randomizing anyway.
         if not self.cand or not keep:
             cand_c = self.permutations.evaluate(seed, EvalState())
-            rng_seed = self.force_rng_seed or random.randrange(1, 10**20)
+            rng_seed = self.force_rng_seed or random.randrange(1, 10 ** 20)
             self.cur_seed = (seed, rng_seed)
-            self.cand = Candidate.from_source(cand_c, self.fn_name, self.parser, rng_seed=rng_seed)
+            self.cand = Candidate.from_source(
+                cand_c, self.fn_name, self.parser, rng_seed=rng_seed
+            )
 
         # Randomize the candidate
         if self.permutations.is_random():
@@ -152,9 +187,12 @@ class Permuter:
         return self.base.get_source()
 
     def diff(self, cand: Candidate) -> str:
-        a = self.base_source().split('\n')
-        b = cand.get_source().split('\n')
-        return '\n'.join(difflib.unified_diff(a, b, fromfile='before', tofile='after', lineterm=''))
+        a = self.base_source().split("\n")
+        b = cand.get_source().split("\n")
+        return "\n".join(
+            difflib.unified_diff(a, b, fromfile="before", tofile="after", lineterm="")
+        )
+
 
 @attr.s
 class EvalContext:
@@ -164,26 +202,28 @@ class EvalContext:
     overall_profiler: Profiler = attr.ib(factory=Profiler)
     permuters: List[Permuter] = attr.ib(factory=list)
 
+
 def write_candidate(perm: Permuter, cand: Candidate) -> None:
     """Write the candidate's C source and score to the next output directory"""
     ctr = 0
     while True:
         ctr += 1
         try:
-            output_dir = os.path.join(perm.dir, f'output-{ctr}')
+            output_dir = os.path.join(perm.dir, f"output-{ctr}")
             os.mkdir(output_dir)
             break
         except FileExistsError:
             pass
-    with open(os.path.join(output_dir, 'source.c'), 'x') as f:
+    with open(os.path.join(output_dir, "source.c"), "x") as f:
         f.write(cand.get_source())
-    with open(os.path.join(output_dir, 'base.c'), 'x') as f:
+    with open(os.path.join(output_dir, "base.c"), "x") as f:
         f.write(perm.base_source())
-    with open(os.path.join(output_dir, 'score.txt'), 'x') as f:
+    with open(os.path.join(output_dir, "score.txt"), "x") as f:
         f.write(f"{cand.score_value}\n")
-    with open(os.path.join(output_dir, 'diff.txt'), 'x') as f:
+    with open(os.path.join(output_dir, "diff.txt"), "x") as f:
         f.write(perm.diff(cand))
     print(f"wrote to {output_dir}")
+
 
 def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> None:
     if isinstance(result, EvalError):
@@ -210,33 +250,42 @@ def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> 
     context.iteration += 1
     if score_value is None:
         context.errors += 1
-    disp_score = 'inf' if score_value == permuter.scorer.PENALTY_INF else score_value
-    timings = ''
+    disp_score = "inf" if score_value == permuter.scorer.PENALTY_INF else score_value
+    timings = ""
     if context.options.show_timings:
         for stattype in profiler.time_stats:
             context.overall_profiler.add_stat(stattype, profiler.time_stats[stattype])
-        timings = '\t' + context.overall_profiler.get_str_stats()
+        timings = "\t" + context.overall_profiler.get_str_stats()
     status_line = f"iteration {context.iteration}, {context.errors} errors, score = {disp_score}{timings}"
 
-    if (score_value is not None and score_hash is not None and
-            score_value <= permuter.base_score and score_hash not in permuter.hashes):
+    if (
+        score_value is not None
+        and score_hash is not None
+        and score_value <= permuter.base_score
+        and score_hash not in permuter.hashes
+    ):
         permuter.hashes.add(score_hash)
         permuter.best_score = min(permuter.best_score, score_value)
-        print("\r" + " " * (len(status_line) + 10) + "\r", end='')
+        print("\r" + " " * (len(status_line) + 10) + "\r", end="")
         if score_value < permuter.base_score:
-            print(f"[{permuter.unique_name}] found a better score! ({score_value} vs {permuter.base_score})")
+            print(
+                f"[{permuter.unique_name}] found a better score! ({score_value} vs {permuter.base_score})"
+            )
         else:
             print(f"[{permuter.unique_name}] found different asm with same score")
 
         source = cand.get_source()
         write_candidate(permuter, cand)
-    print("\b"*10 + " "*10 + "\r" + status_line, end='', flush=True)
+    print("\b" * 10 + " " * 10 + "\r" + status_line, end="", flush=True)
 
-def cycle_seeds(permuters: List[Permuter], force_seed: Optional[int]) -> Iterable[Tuple[int, int]]:
-    '''
+
+def cycle_seeds(
+    permuters: List[Permuter], force_seed: Optional[int]
+) -> Iterable[Tuple[int, int]]:
+    """
     Return all possible (permuter index, seed) pairs, cycling over permuters.
     If a permuter is randomized, it will keep repeating seeds infinitely.
-    '''
+    """
     iterators: List[Iterator[Tuple[int, int]]] = []
     for perm_ind, permuter in enumerate(permuters):
         it: Iterable[int]
@@ -259,7 +308,12 @@ def cycle_seeds(permuters: List[Permuter], force_seed: Optional[int]) -> Iterabl
             yield item
             i += 1
 
-def multiprocess_worker(permuters: List[Permuter], input_queue: "multiprocessing.Queue[Optional[Tuple[int, int]]]", output_queue: "multiprocessing.Queue[Tuple[int, EvalResult]]") -> None:
+
+def multiprocess_worker(
+    permuters: List[Permuter],
+    input_queue: "multiprocessing.Queue[Optional[Tuple[int, int]]]",
+    output_queue: "multiprocessing.Queue[Tuple[int, EvalResult]]",
+) -> None:
     input_queue.cancel_join_thread()
     output_queue.cancel_join_thread()
 
@@ -282,12 +336,15 @@ def multiprocess_worker(permuters: List[Permuter], input_queue: "multiprocessing
         # A heartbeat thing here would be good but is too complex.
         pass
 
+
 def run(options: Options) -> List[int]:
     last_time = time.time()
     try:
+
         def heartbeat() -> None:
             nonlocal last_time
             last_time = time.time()
+
         return run_inner(options, heartbeat)
     except KeyboardInterrupt:
         if time.time() - last_time > 5:
@@ -306,6 +363,7 @@ def run(options: Options) -> List[int]:
             # With threads we do need proper cleanup.
             sys.exit(0)
 
+
 def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
     print("Loading...")
 
@@ -314,16 +372,16 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
     force_rng_seed: Optional[int] = None
     force_seed: Optional[int] = None
     if options.force_seed:
-        seed_parts = list(map(int, options.force_seed.split(',')))
+        seed_parts = list(map(int, options.force_seed.split(",")))
         force_rng_seed = seed_parts[-1]
         force_seed = 0 if len(seed_parts) == 1 else seed_parts[0]
 
     name_counts: Dict[str, int] = {}
     for i, d in enumerate(options.directories):
         heartbeat()
-        compile_cmd = os.path.join(d, 'compile.sh')
-        target_o = os.path.join(d, 'target.o')
-        base_c = os.path.join(d, 'base.c')
+        compile_cmd = os.path.join(d, "compile.sh")
+        target_o = os.path.join(d, "target.o")
+        base_c = os.path.join(d, "base.c")
         for fname in [compile_cmd, target_o, base_c]:
             if not os.path.isfile(fname):
                 print(f"Missing file {fname}", file=sys.stderr)
@@ -334,7 +392,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
 
         fn_name: Optional[str] = None
         try:
-            with open(os.path.join(d, 'function.txt')) as f:
+            with open(os.path.join(d, "function.txt")) as f:
                 fn_name = f.read().strip()
         except FileNotFoundError:
             pass
@@ -349,7 +407,15 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         c_source = preprocess(base_c)
 
         try:
-            permuter = Permuter(d, fn_name, compiler, scorer, base_c, c_source, force_rng_seed=force_rng_seed)
+            permuter = Permuter(
+                d,
+                fn_name,
+                compiler,
+                scorer,
+                base_c,
+                c_source,
+                force_rng_seed=force_rng_seed,
+            )
         except CandidateConstructionFailure as e:
             print(e.message, file=sys.stderr)
             sys.exit(1)
@@ -386,7 +452,10 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         # Begin workers
         processes: List[multiprocessing.Process] = []
         for i in range(options.threads):
-            p = multiprocessing.Process(target=multiprocess_worker, args=(context.permuters, task_queue, results_queue))
+            p = multiprocessing.Process(
+                target=multiprocess_worker,
+                args=(context.permuters, task_queue, results_queue),
+            )
             p.start()
             processes.append(p)
 
@@ -411,6 +480,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
 
     return [permuter.best_score for permuter in context.permuters]
 
+
 def main() -> None:
     multiprocessing.freeze_support()
     sys.setrecursionlimit(10000)
@@ -425,32 +495,59 @@ def main() -> None:
     # where it uses fork and don't pickle arguments, and break on Windows. Sigh.
 
     parser = argparse.ArgumentParser(
-            description="Randomly permute C files to better match a target binary.")
-    parser.add_argument('directory', nargs='+',
-            help="Directory containing base.c, target.o and compile.sh. Multiple directories may be given.")
-    parser.add_argument('--show-errors', dest='show_errors', action='store_true',
-            help="Display compiler error/warning messages, and keep .c files for failed compiles.")
-    parser.add_argument('--show-timings', dest='show_timings', action='store_true',
-            help="Display the time taken by permuting vs. compiling vs. scoring.")
-    parser.add_argument('--print-diffs', dest='print_diffs', action='store_true',
-            help="Instead of compiling generated sources, display diffs against a base version.")
-    parser.add_argument('--abort-exceptions', dest='abort_exceptions', action='store_true',
-            help="Stop execution when an internal permuter exception occurs.")
-    parser.add_argument('--seed', dest='force_seed', type=str, help=argparse.SUPPRESS)
-    parser.add_argument('-j', dest='threads', type=int, default=1,
-            help="Number of threads (default: %(default)s).")
+        description="Randomly permute C files to better match a target binary."
+    )
+    parser.add_argument(
+        "directory",
+        nargs="+",
+        help="Directory containing base.c, target.o and compile.sh. Multiple directories may be given.",
+    )
+    parser.add_argument(
+        "--show-errors",
+        dest="show_errors",
+        action="store_true",
+        help="Display compiler error/warning messages, and keep .c files for failed compiles.",
+    )
+    parser.add_argument(
+        "--show-timings",
+        dest="show_timings",
+        action="store_true",
+        help="Display the time taken by permuting vs. compiling vs. scoring.",
+    )
+    parser.add_argument(
+        "--print-diffs",
+        dest="print_diffs",
+        action="store_true",
+        help="Instead of compiling generated sources, display diffs against a base version.",
+    )
+    parser.add_argument(
+        "--abort-exceptions",
+        dest="abort_exceptions",
+        action="store_true",
+        help="Stop execution when an internal permuter exception occurs.",
+    )
+    parser.add_argument("--seed", dest="force_seed", type=str, help=argparse.SUPPRESS)
+    parser.add_argument(
+        "-j",
+        dest="threads",
+        type=int,
+        default=1,
+        help="Number of threads (default: %(default)s).",
+    )
     args = parser.parse_args()
 
     options = Options(
-            directories=args.directory,
-            show_errors=args.show_errors,
-            show_timings=args.show_timings,
-            print_diffs=args.print_diffs,
-            abort_exceptions=args.abort_exceptions,
-            force_seed=args.force_seed,
-            threads=args.threads)
+        directories=args.directory,
+        show_errors=args.show_errors,
+        show_timings=args.show_timings,
+        print_diffs=args.print_diffs,
+        abort_exceptions=args.abort_exceptions,
+        force_seed=args.force_seed,
+        threads=args.threads,
+    )
 
     run(options)
+
 
 if __name__ == "__main__":
     main()
