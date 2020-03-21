@@ -258,7 +258,7 @@ def visit_replace(top_node: ca.Node, callback: Callable[[ca.Node, bool], Any]) -
                 node.expr = rec(node.expr)
         elif isinstance(node, ca.Decl):
             if node.init:
-                node.init = rec(node.init)
+                node.init = rec(node.init, isinstance(node.init, ca.InitList))
         elif isinstance(node, ca.For):
             if node.init:
                 node.init = rec(node.init)
