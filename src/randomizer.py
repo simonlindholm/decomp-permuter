@@ -258,7 +258,7 @@ def visit_replace(top_node: ca.Node, callback: Callable[[ca.Node, bool], Any]) -
                 node.expr = rec(node.expr)
         elif isinstance(node, ca.Decl):
             if node.init:
-                node.init = rec(node.init)
+                node.init = rec(node.init, isinstance(node.init, ca.InitList))
         elif isinstance(node, ca.For):
             if node.init:
                 node.init = rec(node.init)
@@ -651,7 +651,11 @@ def perm_expand_expr(
     after = MAX_INDEX if i == len(writes) else writes[i]
     rev_indices = reverse_indices(indices)
     write = rev_indices[before]
-    if isinstance(write, ca.Decl) and write.init:
+    if (
+        isinstance(write, ca.Decl)
+        and write.init
+        and not isinstance(write.init, ca.InitList)
+    ):
         repl_expr = write.init
     elif isinstance(write, ca.Assignment):
         repl_expr = write.rvalue

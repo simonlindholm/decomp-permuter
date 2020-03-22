@@ -143,7 +143,7 @@ class Decl(Node):
     storage: List[str] # e.g. register
     funcspec: List[str] # e.g. inline
     type: Type
-    init: Optional[Expression]
+    init: Optional[Union_[Expression, 'InitList']]
     bitsize: Optional[Expression]
 
     def __init__(self, name: Optional[str], quals: List[str], storage: List[str], funcspec: List[str], type: Type, init: Optional[Expression], bitsize: Optional[Expression], coord: Optional[Coord]=None): ...
