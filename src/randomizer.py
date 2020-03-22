@@ -1051,6 +1051,166 @@ def perm_cast_simple(
 
     return True
 
+# struct_ref          # type of a         # easiest conversion
+################################################################
+# (a + b).c;          # impossible        #
+# (a + b)->c;         # s*                # a[b].c
+# (*(a + b)).c;       # s*                # a[b].c
+# (*(a + b))->c;      # s**               # (*(a[b]).c
+# (&(a + b)).c;       # impossible        #
+# (&(a + b))->c;      # impossible        #
+# (*(&(a + b))).c;    # impossible        #
+# (*(&(a + b)))->c;   # imp: a+b=rvalue   #
+# (&(*(a + b))).c;    # impossible        #
+# (&(*(a + b)))->c;   # s*                # a[b].c (-&* req.)
+################################################################
+# (a[b]).c;           # s*                # (a + b)->c
+# (a[b])->c;          # s**               # (*(a + b))->c
+# (*(a[b])).c;        # s**               # (*(a + b))->c
+# (*(a[b]))->c;       # s***              # (*(*(a + b)))->c
+# (&(a[b])).c;        # impossible        #
+# (&(a[b]))->c;       # s*                # (&(*(a + b)))->c
+# (*(&(a[b]))).c;     # s*                # (*(&(a + b)))->c
+# (*(&(a[b])))->c;    # s**               # (*(&(*(a + b))))->c
+# (&(*(a[b]))).c;     # impossible        #
+# (&(*(a[b])))->c;    # s**               # (&(*(*(a + b))))->c
+################################################################
+# a.c                 # s                 # (&a)->c
+# a->c                # s*                # (*a).c
+# (*a).c              # s*                # a->c
+# (*a)->c             # s**               # (*(*a)).c
+# (&a).c              # impossible        #
+# (&a)->c             # s                 # (*(&a)).c
+def perm_struct_ref(
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
+) -> bool:
+    """Permute struct references: (a + b)->c, and (*(a + b)).c, a[b].c, (&a[b])->c"""
+    cands: List[ca.StructRef] = []
+    class Visitor(ca.NodeVisitor):
+        def visit_StructRef(self, node: ca.StructRef) -> None:
+            if region.contains_node(node):
+                cands.append(node)
+    Visitor().visit(fn.body)
+    if not cands:
+        return False
+
+    # TODO: Split into separate perm? Need a separate one for arrayrefs, (a + b)[1] to a[b + 1]
+    def randomize_associative_binop(left: ca.Node, right: ca.BinaryOp) -> ca.BinaryOp:
+        """Try moving parentheses to the left side sometimes (sadly, it seems to matter)"""
+        if random.choice([True, False]) and right.op in ['+', '-']:
+            # ((a + b) - c)
+            return ca.BinaryOp(right.op, ca.BinaryOp('+', left, right.left), right.right)
+        else:
+            # (a + (b - c))
+            return ca.BinaryOp('+', left, right)
+
+    # Conversions
+    def to_array(node: ca.BinaryOp) -> ca.ArrayRef:
+        """Change a BinaryOp, a + b, to an ArrayRef, a[b]
+        The operator is expected to be + or -"""
+        # TODO: Permute binops like to_binop() does
+        if (node.op == '-'):
+            # Convert to a[-b]
+            node.right = ca.UnaryOp('-', node.right)
+        return ca.ArrayRef(node.left, node.right)
+
+    def to_binop(node: ca.ArrayRef) -> ca.BinaryOp:
+        """Change an ArrayRef, a[b], to a BinaryOp, a + b
+        If b is also BinaryOp, such as a[b - 1], sometimes change the order of operations,
+        ie: a + (b - 1) vs (a + b) - 1"""
+        if isinstance(node.subscript, ca.BinaryOp):
+            return randomize_associative_binop(node.name, node.subscript)
+        return ca.BinaryOp('+', node.name, node.subscript)
+
+    def deref(node: Expression) -> Expression:
+        """Surround the given node with a dereference operator"""
+        if isinstance(node, ca.UnaryOp) and node.op == '&':
+            assert not isinstance(node.expr, ca.Typename)
+            return node.expr
+        return ca.UnaryOp('*', node)
+
+    def addr(node: Expression) -> Expression:
+        """Surround the given node with an address-of operator"""
+        if isinstance(node, ca.UnaryOp) and node.op == '*':
+            assert not isinstance(node.expr, ca.Typename)
+            return node.expr
+        return ca.UnaryOp('&', node)
+
+    def rec(node: ca.Node) -> Any:
+        """ Recurse down the StructRef tree, finding the parent of the leaf BinaryOp/ArrayRef
+        Throws ValueError when a UnaryOp other than * or & was encountered."""
+        if isinstance(node, ca.UnaryOp):
+            if node.op not in ['&', '*']:
+                raise ValueError
+            else:
+                return rec(node.expr) or node
+        if isinstance(node, ca.StructRef):
+            return rec(node.name) or node
+        return None
+
+    # TODO
+    def apply_child(parent: Union[ca.StructRef, ca.UnaryOp], func) -> None: #type: ignore
+        if isinstance(parent, ca.StructRef):
+            parent.name = func(parent.name)
+        elif isinstance(parent, ca.UnaryOp):
+            parent.expr = func(parent.expr)
+
+    def get_child(parent: Union[ca.StructRef, ca.UnaryOp]) -> ca.Node:
+        if isinstance(parent, ca.StructRef):
+            return parent.name
+        elif isinstance(parent, ca.UnaryOp):
+            return parent.expr
+
+    struct_ref = random.choice(cands)
+    parent: Union[ca.StructRef, ca.UnaryOp]
+
+    # Step 1: Find the parent of the leaf node
+    try:
+        parent = rec(struct_ref)
+    except ValueError:
+        return False
+
+    changed = False
+
+    # Step 2: Simplify (...)->c to (*(...)).c
+    if struct_ref.type == '->':
+        struct_ref.type = '.'
+        # check if deref would remove the parent node
+        if parent is struct_ref.name and isinstance(parent, ca.UnaryOp) and parent.op == '&':
+            struct_ref.name = deref(struct_ref.name)
+            parent = struct_ref
+        else:
+            struct_ref.name = deref(struct_ref.name)
+            if parent is struct_ref and isinstance(struct_ref.name, ca.UnaryOp): # Check to make mypy happy
+                parent = struct_ref.name
+        changed = True
+
+    # Simple StructRefs only need their type permuted
+    if isinstance(get_child(parent), (ca.ArrayRef, ca.BinaryOp)):
+        # For binops, a lhs like  &(a+b)->c is impossible, because a + b is an rvalue
+
+        # Step 3: Simplify further by converting ArrayRef to BinaryOp
+        if isinstance(get_child(parent), ca.ArrayRef):
+            apply_child(parent, to_binop)
+            apply_child(parent, deref)
+            parent = typing.cast('Union[ca.StructRef, ca.UnaryOp]', get_child(parent))
+            changed = True
+
+        # Step 4: Convert back to ArrayRef
+        if random.choice([True, False]):
+            # Sanity check that there's at least one dereference
+            if isinstance(parent, ca.UnaryOp) and parent.op == '*':
+                apply_child(parent, to_array)
+                apply_child(parent, addr)
+                changed = True
+
+    # Step 5: Convert the StructRef type back
+    if random.choice([True, False]):
+        struct_ref.name = addr(struct_ref.name)
+        struct_ref.type = '->'
+        changed = True
+
+    return changed
 
 class Randomizer:
     def __init__(self, rng_seed: int) -> None:
@@ -1070,6 +1230,7 @@ class Randomizer:
             (perm_randomize_type, 10),
             (perm_sameline, 10),
             (perm_ins_block, 10),
+            (perm_struct_ref, 10),
             (perm_add_self_assignment, 5),
             (perm_reorder_stmts, 5),
             (perm_associative, 5),
