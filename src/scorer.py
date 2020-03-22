@@ -13,7 +13,7 @@ from .objdump import objdump
 class DiffAsmLine:
     line: str = attr.ib(cmp=False)
     mnemonic: str = attr.ib()
-    macro_arg: str = attr.ib()
+    macro_arg: str = attr.ib(cmp=False)
 
     def __init__(self, line: str) -> None:
         self.line = line
@@ -58,10 +58,33 @@ class Scorer:
         deletions = []
         insertions = []
 
+        def lo_hi_match(old: str, new:str):
+            old_lo = old.find("%lo")
+            old_hi = old.find("%hi")
+            new_lo = new.find("%lo")
+            new_hi = new.find("%hi")
+
+            if (old_lo != -1 and new_lo != -1):
+                old_idx = old_lo
+                new_idx = new_lo
+            elif (old_hi != -1 and new_hi != -1):
+                old_idx = old_hi
+                new_idx = new_hi
+            else:
+                return False
+
+            old_inner = old[old_idx + 4 : -1]
+            new_inner = new[new_idx + 4 : -1]
+            return old_inner == ".rodata" or new_inner == ".rodata"
+
         def diff_sameline(old: str, new: str) -> None:
             nonlocal score
             if old == new:
                 return
+
+            if lo_hi_match(old, new):
+                return
+
             # Probably regalloc difference, or signed vs unsigned
             score += self.PENALTY_REGALLOC
 
