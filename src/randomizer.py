@@ -1125,14 +1125,14 @@ def perm_struct_ref(
     # TODO, the type that mypy wants is absurdly long
     def deref(node) -> ca.UnaryOp: # type: ignore
         """Surround the given node with a dereference operator"""
-        if isinstance(node, ca.UnaryOp) and node.op == '&'
+        if isinstance(node, ca.UnaryOp) and node.op == '&':
             return node.expr
         return ca.UnaryOp('*', node)
 
     # TODO
     def addr(node) -> ca.UnaryOp: # type: ignore
         """Surround the given node with an address-of operator"""
-        if isinstance(node, ca.UnaryOp) and node.op == '*'
+        if isinstance(node, ca.UnaryOp) and node.op == '*':
             return node.expr
         return ca.UnaryOp('&', node)
 
