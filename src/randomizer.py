@@ -1122,17 +1122,17 @@ def perm_struct_ref(
             return randomize_associative_binop(node.name, node.subscript)
         return ca.BinaryOp('+', node.name, node.subscript)
 
-    # TODO, the type that mypy wants is absurdly long
-    def deref(node) -> ca.UnaryOp: # type: ignore
+    def deref(node: Expression) -> Expression:
         """Surround the given node with a dereference operator"""
         if isinstance(node, ca.UnaryOp) and node.op == '&':
+            assert not isinstance(node.expr, ca.Typename)
             return node.expr
         return ca.UnaryOp('*', node)
 
-    # TODO
-    def addr(node) -> ca.UnaryOp: # type: ignore
+    def addr(node: Expression) -> Expression:
         """Surround the given node with an address-of operator"""
         if isinstance(node, ca.UnaryOp) and node.op == '*':
+            assert not isinstance(node.expr, ca.Typename)
             return node.expr
         return ca.UnaryOp('&', node)
 
@@ -1175,9 +1175,14 @@ def perm_struct_ref(
     # Step 2: Simplify (...)->c to (*(...)).c
     if struct_ref.type == '->':
         struct_ref.type = '.'
-        struct_ref.name = deref(struct_ref.name)
-        if parent is struct_ref:
-            parent = struct_ref.name
+        # check if deref would remove the parent node
+        if parent is struct_ref.name and isinstance(parent, ca.UnaryOp) and parent.op == '&':
+            struct_ref.name = deref(struct_ref.name)
+            parent = struct_ref
+        else:
+            struct_ref.name = deref(struct_ref.name)
+            if parent is struct_ref and isinstance(struct_ref.name, ca.UnaryOp): # Check to make mypy happy
+                parent = struct_ref.name
         changed = True
 
     # Simple StructRefs only need their type permuted
