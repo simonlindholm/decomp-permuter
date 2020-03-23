@@ -107,11 +107,11 @@ def get_randomization_region(
     class Visitor(ca.NodeVisitor):
         def visit_Pragma(self, node: ca.Pragma) -> None:
             nonlocal cur_start
-            if node.string == "randomizer start":
+            if node.string == "_permuter randomizer start":
                 if cur_start is not None:
                     raise Exception("nested PERM_RANDOMIZE not supported")
                 cur_start = indices[node]
-            if node.string == "randomizer end":
+            if node.string == "_permuter randomizer end":
                 assert cur_start is not None, "randomizer end without start"
                 ret.append(Region(cur_start, indices[node], indices))
                 cur_start = None
@@ -807,9 +807,9 @@ def perm_ins_block(
     ):
         cond = ca.Constant(type="int", value="0")
         stmts[lo:hi] = [
-            ca.Pragma("sameline start"),
+            ca.Pragma("_permuter sameline start"),
             ca.DoWhile(cond=cond, stmt=new_block),
-            ca.Pragma("sameline end"),
+            ca.Pragma("_permuter sameline end"),
         ]
     else:
         cond = ca.Constant(type="int", value="1")
@@ -834,8 +834,8 @@ def perm_sameline(
     j = i + le
     # Insert the second statement first, since inserting a statement may cause
     # later indices to move.
-    ast_util.insert_statement(cands[j][0], cands[j][1], ca.Pragma("sameline end"))
-    ast_util.insert_statement(cands[i][0], cands[i][1], ca.Pragma("sameline start"))
+    ast_util.insert_statement(cands[j][0], cands[j][1], ca.Pragma("_permuter sameline end"))
+    ast_util.insert_statement(cands[i][0], cands[i][1], ca.Pragma("_permuter sameline start"))
     return True
 
 
