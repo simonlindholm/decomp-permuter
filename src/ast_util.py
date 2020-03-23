@@ -41,14 +41,16 @@ def to_c(node: ca.Node) -> str:
     for line in lines:
         stripped = line.strip()
         if stripped.startswith("#pragma"):
-            if stripped == "#pragma sameline start":
+            if stripped == "#pragma _permuter sameline start":
                 same_line += 1
-            elif stripped == "#pragma sameline end":
+            elif stripped == "#pragma _permuter sameline end":
                 same_line -= 1
                 if same_line == 0:
                     out.append("\n")
-            # Never output pragmas
-            continue
+
+            # Ignore permuter pragmas, but leave actual pragmas in (like intrinsics)
+            if stripped.startswith("#pragma _permuter"):
+                continue
         if not same_line:
             line += "\n"
         elif out and not out[-1].endswith("\n"):
