@@ -13,16 +13,10 @@ from .objdump import objdump
 class DiffAsmLine:
     line: str = attr.ib(cmp=False)
     mnemonic: str = attr.ib()
-    macro_arg: str = attr.ib(cmp=False)
 
     def __init__(self, line: str) -> None:
         self.line = line
         self.mnemonic = line.split("\t")[0]
-        if "%" in line and "data" not in line and "jtbl" not in line:
-            self.macro_arg = "%" + line.split("%")[1].split(")")[0] + ")"
-        else:
-            self.macro_arg = ""
-
 
 class Scorer:
     PENALTY_INF = 10 ** 9
@@ -75,7 +69,7 @@ class Scorer:
 
             old_inner = old[old_idx + 4 : -1]
             new_inner = new[new_idx + 4 : -1]
-            return old_inner == ".rodata" or new_inner == ".rodata"
+            return old_inner.startswith(".") or new_inner.startswith(".")
 
         def diff_sameline(old: str, new: str) -> None:
             nonlocal score
