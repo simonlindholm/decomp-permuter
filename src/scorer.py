@@ -18,6 +18,7 @@ class DiffAsmLine:
         self.line = line
         self.mnemonic = line.split("\t")[0]
 
+
 class Scorer:
     PENALTY_INF = 10 ** 9
 
@@ -65,6 +66,9 @@ class Scorer:
                 old_idx = old_hi
                 new_idx = new_hi
             else:
+                return False
+
+            if old[:old_idx] != new[:new_idx]:
                 return False
 
             old_inner = old[old_idx + 4 : -1]
