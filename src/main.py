@@ -51,6 +51,7 @@ class Options:
     show_timings: bool = attr.ib(default=False)
     print_diffs: bool = attr.ib(default=False)
     abort_exceptions: bool = attr.ib(default=False)
+    better_only: bool = attr.ib(default=False)
     force_seed: Optional[str] = attr.ib(default=None)
     threads: int = attr.ib(default=1)
 
@@ -192,8 +193,10 @@ class Permuter:
         class Line(str):
             def __eq__(self, other: Any) -> bool:
                 return isinstance(other, str) and self.strip() == other.strip()
+
             def __hash__(self) -> int:
                 return hash(self.strip())
+
         a = list(map(Line, self.base_source().split("\n")))
         b = list(map(Line, cand.get_source().split("\n")))
         return "\n".join(
@@ -268,7 +271,10 @@ def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> 
     if (
         score_value is not None
         and score_hash is not None
-        and score_value <= permuter.base_score
+        and (
+            score_value < permuter.base_score
+            or (score_value == permuter.base_score and not context.options.better_only)
+        )
         and score_hash not in permuter.hashes
     ):
         permuter.hashes.add(score_hash)
@@ -278,7 +284,7 @@ def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> 
             print(
                 f"[{permuter.unique_name}] found a better score! ({score_value} vs {permuter.base_score})"
             )
-        else:
+        elif not context.options.better_only:
             print(f"[{permuter.unique_name}] found different asm with same score")
 
         source = cand.get_source()
@@ -533,6 +539,12 @@ def main() -> None:
         action="store_true",
         help="Stop execution when an internal permuter exception occurs.",
     )
+    parser.add_argument(
+        "--better-only",
+        dest="better_only",
+        action="store_true",
+        help="Only report scores better than the base.",
+    )
     parser.add_argument("--seed", dest="force_seed", type=str, help=argparse.SUPPRESS)
     parser.add_argument(
         "-j",
@@ -549,6 +561,7 @@ def main() -> None:
         show_timings=args.show_timings,
         print_diffs=args.print_diffs,
         abort_exceptions=args.abort_exceptions,
+        better_only=args.better_only,
         force_seed=args.force_seed,
         threads=args.threads,
     )
