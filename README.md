@@ -55,8 +55,8 @@ is a valid pattern for emitting a statement either at one point or later.
 ## FAQ
 
 **What do the scores mean?** The scores are computed by taking diffs of objdump'd .o files, and giving different penalties for lines
-that are the same/use the same instruction/are reordered/don't match at all. See scorer.py. It's far from a perfect system, and
-should probably be tweaked to look at e.g. the register diff graph.
+that are the same/use the same instruction/are reordered/don't match at all. Stack positions are ignored. For more details, see scorer.py.
+It's far from a perfect system, and should probably be tweaked to look at e.g. the register diff graph.
 
 **What sort of non-matchings are the permuter good at?** It's generally best towards the end, when mostly regalloc changes remain.
 If there are reorderings or functional changes, it's often easy to resolve those by hand, and neither the scorer nor the
@@ -73,4 +73,5 @@ There's tons of room for helping out with the permuter!
 Many more randomization passes could be added, the scoring function is far from optimal,
 the permuter could be made easier to use, etc. etc. The GitHub Issues list has some ideas.
 
-Ideally, `mypy permuter.py` and `./run-tests.sh` should succeed with no errors.
+Ideally, `mypy permuter.py` and `./run-tests.sh` should succeed with no errors, and files
+formatted with `black`.
