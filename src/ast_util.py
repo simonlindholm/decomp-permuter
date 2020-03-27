@@ -16,7 +16,6 @@ from .ast_types import (
     build_typemap,
     decayed_expr_type,
     resolve_typedefs,
-    same_type,
     set_decl_name,
 )
 
