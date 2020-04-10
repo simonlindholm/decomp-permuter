@@ -28,8 +28,9 @@ class TypeMap:
     struct_defs: Dict[str, StructUnion] = attr.ib(factory=dict)
 
 
-def basic_type(name: str) -> TypeDecl:
-    idtype = IdentifierType(names=[name])
+def basic_type(name: Union[str, List[str]]) -> TypeDecl:
+    names = [name] if isinstance(name, str) else name
+    idtype = IdentifierType(names=names)
     return TypeDecl(declname=None, quals=[], type=idtype)
 
 
@@ -111,15 +112,7 @@ def expr_type(node: c_ast.Node, typemap: TypeMap) -> Type:
             return pointer(basic_type("char"))
         if node.type == "char":
             return basic_type("int")
-        if node.type == "int":
-            return basic_type("int")
-        if node.type == "unsigned int":
-            return basic_type("unsigned int")
-        if node.type == "float":
-            return basic_type("float")
-        if node.type == "double":
-            return basic_type("double")
-        assert False, f"unknown constant type {node.type}"
+        return basic_type(node.type.split(" "))
     if isinstance(node, c_ast.ID):
         return typemap.var_types[node.name]
     if isinstance(node, c_ast.UnaryOp):
