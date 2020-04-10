@@ -53,7 +53,7 @@ class Scorer:
         deletions = []
         insertions = []
 
-        def lo_hi_match(old: str, new: str):
+        def lo_hi_match(old: str, new: str) -> bool:
             old_lo = old.find("%lo")
             old_hi = old.find("%hi")
             new_lo = new.find("%lo")

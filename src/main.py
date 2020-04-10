@@ -192,8 +192,10 @@ class Permuter:
         class Line(str):
             def __eq__(self, other: Any) -> bool:
                 return isinstance(other, str) and self.strip() == other.strip()
+
             def __hash__(self) -> int:
                 return hash(self.strip())
+
         a = list(map(Line, self.base_source().split("\n")))
         b = list(map(Line, cand.get_source().split("\n")))
         return "\n".join(
