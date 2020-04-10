@@ -50,6 +50,7 @@ class Options:
     show_errors: bool = attr.ib(default=False)
     show_timings: bool = attr.ib(default=False)
     print_diffs: bool = attr.ib(default=False)
+    stack_differences: bool = attr.ib(default=False)
     abort_exceptions: bool = attr.ib(default=False)
     force_seed: Optional[str] = attr.ib(default=None)
     threads: int = attr.ib(default=1)
@@ -410,7 +411,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             print(base_c)
 
         compiler = Compiler(compile_cmd, options.show_errors)
-        scorer = Scorer(target_o)
+        scorer = Scorer(target_o, context.options.stack_differences)
         c_source = preprocess(base_c)
 
         try:
@@ -533,6 +534,12 @@ def main() -> None:
         action="store_true",
         help="Stop execution when an internal permuter exception occurs.",
     )
+    parser.add_argument(
+        "--stack-diffs",
+        dest="stack_differences",
+        action="store_true",
+        help="Take stack differences into account when computing the score.",
+    )
     parser.add_argument("--seed", dest="force_seed", type=str, help=argparse.SUPPRESS)
     parser.add_argument(
         "-j",
@@ -549,6 +556,7 @@ def main() -> None:
         show_timings=args.show_timings,
         print_diffs=args.print_diffs,
         abort_exceptions=args.abort_exceptions,
+        stack_differences=args.stack_differences,
         force_seed=args.force_seed,
         threads=args.threads,
     )

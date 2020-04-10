@@ -72,7 +72,7 @@ def parse_relocated_line(line: str) -> Tuple[str, str, str]:
     return before, imm, after
 
 
-def simplify_objdump(input_lines: List[str]) -> List[str]:
+def simplify_objdump(input_lines: List[str], stack_differences: bool) -> List[str]:
     output_lines: List[str] = []
     nops = 0
     skip_next = False
@@ -145,7 +145,8 @@ def simplify_objdump(input_lines: List[str]) -> List[str]:
             row = re.sub(num_re, fn, row)
         if mnemonic in branch_likely_instructions and skip_bl_delay_slots:
             skip_next = True
-        row = re.sub(sprel, ",addr(sp)", row)
+        if not stack_differences:
+            row = re.sub(sprel, ",addr(sp)", row)
         # row = row.replace(',', ', ')
         if row == "nop":
             # strip trailing nops; padding is irrelevant to us
@@ -158,10 +159,10 @@ def simplify_objdump(input_lines: List[str]) -> List[str]:
     return output_lines
 
 
-def objdump(o_filename: str) -> List[str]:
+def objdump(o_filename: str, stack_differences: bool = False) -> List[str]:
     output = subprocess.check_output(OBJDUMP + [o_filename])
     lines = output.decode("utf-8").splitlines()
-    return simplify_objdump(lines)
+    return simplify_objdump(lines, stack_differences)
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@ import difflib
 
 import attr
 
-from .objdump import objdump
+from .objdump import objdump, sprel
 
 
 @attr.s(init=False, hash=True)
@@ -28,8 +28,9 @@ class Scorer:
     PENALTY_INSERTION = 100
     PENALTY_DELETION = 100
 
-    def __init__(self, target_o: str):
+    def __init__(self, target_o: str, stack_differences: bool = False):
         self.target_o = target_o
+        self.stack_differences = stack_differences
         _, self.target_seq = self._objdump(target_o)
         self.differ: difflib.SequenceMatcher[DiffAsmLine] = difflib.SequenceMatcher(
             autojunk=False
@@ -38,7 +39,7 @@ class Scorer:
 
     def _objdump(self, o_file: str) -> Tuple[str, List[DiffAsmLine]]:
         ret = []
-        lines = objdump(o_file)
+        lines = objdump(o_file, self.stack_differences)
         for line in lines:
             ret.append(DiffAsmLine(line))
         return "\n".join(lines), ret
@@ -82,6 +83,15 @@ class Scorer:
 
             if lo_hi_match(old, new):
                 return
+
+            if self.stack_differences:
+                oldsp = re.search(sprel, old)
+                newsp = re.search(sprel, new)
+                if oldsp and newsp:
+                    oldrel = int(oldsp.group(1), 0)
+                    newrel = int(newsp.group(1), 0)
+                    score += abs(oldrel - newrel)
+                    return
 
             # Probably regalloc difference, or signed vs unsigned
             score += self.PENALTY_REGALLOC
