@@ -114,7 +114,7 @@ def expr_type(node: c_ast.Node, typemap: TypeMap) -> Type:
         if node.type == "int":
             return basic_type("int")
         if node.type == "unsigned int":
-            return basic_type("unsgined int")
+            return basic_type("unsigned int")
         if node.type == "float":
             return basic_type("float")
         if node.type == "double":
