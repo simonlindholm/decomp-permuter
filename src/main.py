@@ -411,7 +411,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             print(base_c)
 
         compiler = Compiler(compile_cmd, options.show_errors)
-        scorer = Scorer(target_o, context.options.stack_differences)
+        scorer = Scorer(target_o, options.stack_differences)
         c_source = preprocess(base_c)
 
         try:

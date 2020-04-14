@@ -6,7 +6,7 @@ import difflib
 
 import attr
 
-from .objdump import objdump, sprel
+from .objdump import objdump, sp_offset
 
 
 @attr.s(init=False, hash=True)
@@ -22,6 +22,7 @@ class DiffAsmLine:
 class Scorer:
     PENALTY_INF = 10 ** 9
 
+    PENALTY_STACKDIFF = 1
     PENALTY_REGALLOC = 10
     PENALTY_SPLIT_DIFF = 20
     PENALTY_REORDERING = 60
@@ -39,7 +40,7 @@ class Scorer:
 
     def _objdump(self, o_file: str) -> Tuple[str, List[DiffAsmLine]]:
         ret = []
-        lines = objdump(o_file, self.stack_differences)
+        lines = objdump(o_file, stack_differences=self.stack_differences)
         for line in lines:
             ret.append(DiffAsmLine(line))
         return "\n".join(lines), ret
@@ -54,7 +55,7 @@ class Scorer:
         deletions = []
         insertions = []
 
-        def lo_hi_match(old: str, new: str):
+        def lo_hi_match(old: str, new: str) -> bool:
             old_lo = old.find("%lo")
             old_hi = old.find("%hi")
             new_lo = new.find("%lo")
@@ -85,12 +86,12 @@ class Scorer:
                 return
 
             if self.stack_differences:
-                oldsp = re.search(sprel, old)
-                newsp = re.search(sprel, new)
+                oldsp = re.search(sp_offset, old)
+                newsp = re.search(sp_offset, new)
                 if oldsp and newsp:
                     oldrel = int(oldsp.group(1), 0)
                     newrel = int(newsp.group(1), 0)
-                    score += abs(oldrel - newrel)
+                    score += abs(oldrel - newrel) * self.PENALTY_STACKDIFF
                     return
 
             # Probably regalloc difference, or signed vs unsigned
