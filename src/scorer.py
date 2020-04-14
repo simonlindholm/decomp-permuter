@@ -29,7 +29,7 @@ class Scorer:
     PENALTY_INSERTION = 100
     PENALTY_DELETION = 100
 
-    def __init__(self, target_o: str, stack_differences: bool = False):
+    def __init__(self, target_o: str, *, stack_differences: bool = False):
         self.target_o = target_o
         self.stack_differences = stack_differences
         _, self.target_seq = self._objdump(target_o)
