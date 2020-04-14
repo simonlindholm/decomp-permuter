@@ -23,7 +23,7 @@ class Scorer:
     PENALTY_INF = 10 ** 9
 
     PENALTY_STACKDIFF = 1
-    PENALTY_REGALLOC = 10
+    PENALTY_REGALLOC = 5
     PENALTY_SPLIT_DIFF = 20
     PENALTY_REORDERING = 60
     PENALTY_INSERTION = 100
@@ -95,7 +95,14 @@ class Scorer:
                     return
 
             # Probably regalloc difference, or signed vs unsigned
-            score += self.PENALTY_REGALLOC
+
+            # Compare each field in order
+            newfields, oldfields = new.split(','), old.split(',')
+            for nf,of in zip(newfields, oldfields):
+                if nf != of:
+                    score += self.PENALTY_REGALLOC
+            # Penalize any extra fields
+            score += abs(len(newfields) - len(oldfields)) * self.PENALTY_REGALLOC
 
         def diff_insert(line: str) -> None:
             # Reordering or totally different codegen.
