@@ -120,8 +120,9 @@ def simplify_objdump(input_lines: List[str], *, stack_differences: bool) -> List
         if len(row_parts) == 1:
             row_parts.append("")
         mnemonic, instr_args = row_parts
-        if mnemonic == "addiu" and includes_sp.search(instr_args):
-            row = re.sub(full_num_re, "imm", row)
+        if not stack_differences:
+            if mnemonic == "addiu" and includes_sp.search(instr_args):
+                row = re.sub(full_num_re, "imm", row)
         if mnemonic in branch_instructions:
             if ign_branch_targets:
                 instr_parts = instr_args.split(",")
