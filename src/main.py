@@ -219,7 +219,7 @@ def write_candidate(perm: Permuter, cand: Candidate) -> None:
     while True:
         ctr += 1
         try:
-            output_dir = os.path.join(perm.dir, f"output-{ctr}")
+            output_dir = os.path.join(perm.dir, f"output-{cand.score_value}-{ctr}")
             os.mkdir(output_dir)
             break
         except FileExistsError:
