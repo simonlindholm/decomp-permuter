@@ -19,6 +19,7 @@ c_files_list = [
     ['test_type.c', 'test_type1'],
     ['test_type.c', 'test_type2'],
     ['test_type.c', 'test_type3'],
+    ['test_randomizer.c', 'test_randomizer'],
 ]
 
 class TestStringMethods(unittest.TestCase):
@@ -40,7 +41,8 @@ class TestStringMethods(unittest.TestCase):
             strip_other_fns_and_write(base_preprocessed, test_fn, file_base)
 
             actual_source = Path(file_actual).read_text()
-            target_o = compiler.compile(actual_source)
+            target_o = compiler.compile(actual_source, show_errors=True)
+            assert target_o is not None
             shutil.copy2(target_o, file_target)
             os.remove(target_o)
 
@@ -88,6 +90,11 @@ class TestStringMethods(unittest.TestCase):
     def test_type3(self):
         score = self.go('test_type.c', 'test_type3')
         self.assertEqual(score, 0)
+
+    def test_randomizer(self):
+        score = self.go('test_randomizer.c', 'test_randomizer')
+        self.assertEqual(score, 0)
+
 
 if __name__ == '__main__':
     unittest.main()
