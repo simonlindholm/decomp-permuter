@@ -1158,9 +1158,9 @@ def perm_struct_ref(
         return None
 
     # TODO
-    def apply_child(
+    def apply_child(  # type: ignore
         parent: Union[ca.StructRef, ca.UnaryOp], func
-    ) -> None:  # type: ignore
+    ) -> None:
         if isinstance(parent, ca.StructRef):
             parent.name = func(parent.name)
         elif isinstance(parent, ca.UnaryOp):

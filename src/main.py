@@ -235,7 +235,7 @@ def write_candidate(perm: Permuter, cand: Candidate) -> None:
     print(f"wrote to {output_dir}")
 
 
-def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> None:
+def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> bool:
     if isinstance(result, EvalError):
         print(f"\n[{permuter.unique_name}] internal permuter failure.")
         print(result.exc_str)
@@ -247,7 +247,7 @@ def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> 
         if context.options.abort_exceptions:
             sys.exit(1)
         else:
-            return
+            return False
 
     cand, profiler = result
     score_value = cand.score_value
@@ -287,6 +287,7 @@ def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> 
         source = cand.get_source()
         write_candidate(permuter, cand)
     print("\b" * 10 + " " * 10 + "\r" + status_line, end="", flush=True)
+    return score_value == 0
 
 
 def cycle_seeds(
@@ -439,13 +440,16 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             permuter.unique_name += f" ({permuter.dir})"
         print(f"[{permuter.unique_name}] base score = {permuter.best_score}")
 
+    found_zero = False
     perm_seed_iter = cycle_seeds(context.permuters, force_seed)
     if options.threads == 1:
         for permuter_index, seed in perm_seed_iter:
             heartbeat()
             permuter = context.permuters[permuter_index]
             result = permuter.try_eval_candidate(seed)
-            post_score(context, permuter, result)
+            if post_score(context, permuter, result):
+                found_zero = True
+                break
     else:
         # Create queues
         task_queue: "multiprocessing.Queue[Optional[Tuple[int, int]]]" = multiprocessing.Queue()
@@ -453,11 +457,11 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         task_queue.cancel_join_thread()
         results_queue.cancel_join_thread()
 
-        def wait_for_result() -> None:
+        def wait_for_result() -> bool:
             heartbeat()
             permuter_index, result = results_queue.get()
             permuter = context.permuters[permuter_index]
-            post_score(context, permuter, result)
+            return post_score(context, permuter, result)
 
         # Begin workers
         processes: List[multiprocessing.Process] = []
@@ -473,8 +477,11 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         active_tasks = 0
         for perm_seed in perm_seed_iter:
             if active_tasks >= options.threads + 2:
-                wait_for_result()
                 active_tasks -= 1
+                if wait_for_result():
+                    # Found score 0!
+                    found_zero = True
+                    break
             task_queue.put(perm_seed)
             active_tasks += 1
 
@@ -488,6 +495,8 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         for p in processes:
             p.join()
 
+    if found_zero:
+        print("\nFound zero score! Exiting.")
     return [permuter.best_score for permuter in context.permuters]
 
 
