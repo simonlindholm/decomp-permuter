@@ -161,6 +161,8 @@ def expr_type(node: c_ast.Node, typemap: TypeMap) -> Type:
     if isinstance(node, c_ast.FuncCall):
         expr = node.name
         if isinstance(expr, c_ast.ID):
+            if expr.name not in typemap.fn_ret_types:
+                raise Exception(f"Called function {expr.name} is missing a prototype")
             return typemap.fn_ret_types[expr.name]
         else:
             fptr_type = resolve_typedefs(rec(expr), typemap)
