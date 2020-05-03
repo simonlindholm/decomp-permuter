@@ -218,6 +218,7 @@ def import_c_file(compiler, cwd, in_file):
             "-DNON_MATCHING",
             "-D_Static_assert(x, y)=",
             "-D__attribute__(x)=",
+            "-DGLOBAL_ASM(...)=",
         ]
     )
     cpp_command.append(in_file)
