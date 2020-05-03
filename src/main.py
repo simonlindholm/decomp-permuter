@@ -275,21 +275,24 @@ def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> 
         and score_hash not in permuter.hashes
     ):
         permuter.hashes.add(score_hash)
-        permuter.best_score = min(permuter.best_score, score_value)
         print("\r" + " " * (len(status_line) + 10) + "\r", end="")
-        if score_value == permuter.best_score:
+        if score_value < permuter.best_score:
             print(
-                f"[\033[1;32;40m{permuter.unique_name}] found the best score! ({score_value} vs {permuter.base_score})\033[0;37;40m"
+                f"\u001b[32;1m[{permuter.unique_name}] found new best score! ({score_value} vs {permuter.base_score})\u001b[0m"
             )
+        elif score_value == permuter.best_score:
+            print(
+                f"\u001b[32;1m[{permuter.unique_name}] tied best score! ({score_value} vs {permuter.base_score})\u001b[0m"
+                )
         elif score_value < permuter.base_score:
             print(
-                f"[\033[1;33;40m{permuter.unique_name}] found a better score! ({score_value} vs {permuter.base_score})\033[0;37;40m"
+                f"\u001b[33m[{permuter.unique_name}] found a better score! ({score_value} vs {permuter.base_score})\u001b[0m"
             )
         else:
             print(
-                f"[\033[1;33;40m{permuter.unique_name}] found different asm with same score\033[0;37;40m"
+                f"\u001b[33m[{permuter.unique_name}] found different asm with same score ({score_value})\u001b[0m"
             )
-
+        permuter.best_score = min(permuter.best_score, score_value)
         source = cand.get_source()
         write_candidate(permuter, cand)
     print("\b" * 10 + " " * 10 + "\r" + status_line, end="", flush=True)
