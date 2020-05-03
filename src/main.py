@@ -277,12 +277,18 @@ def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> 
         permuter.hashes.add(score_hash)
         permuter.best_score = min(permuter.best_score, score_value)
         print("\r" + " " * (len(status_line) + 10) + "\r", end="")
-        if score_value < permuter.base_score:
+        if score_value == permuter.best_score:
             print(
-                f"[{permuter.unique_name}] found a better score! ({score_value} vs {permuter.base_score})"
+                f"[\033[1;32;40m{permuter.unique_name}] found the best score! ({score_value} vs {permuter.base_score})\033[0;37;40m"
+            )
+        elif score_value < permuter.base_score:
+            print(
+                f"[\033[1;33;40m{permuter.unique_name}] found a better score! ({score_value} vs {permuter.base_score})\033[0;37;40m"
             )
         else:
-            print(f"[{permuter.unique_name}] found different asm with same score")
+            print(
+                f"[\033[1;33;40m{permuter.unique_name}] found different asm with same score\033[0;37;40m"
+            )
 
         source = cand.get_source()
         write_candidate(permuter, cand)
