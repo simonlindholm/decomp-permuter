@@ -283,7 +283,7 @@ def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> 
         elif score_value == permuter.best_score:
             print(
                 f"\u001b[32;1m[{permuter.unique_name}] tied best score! ({score_value} vs {permuter.base_score})\u001b[0m"
-                )
+            )
         elif score_value < permuter.base_score:
             print(
                 f"\u001b[33m[{permuter.unique_name}] found a better score! ({score_value} vs {permuter.base_score})\u001b[0m"

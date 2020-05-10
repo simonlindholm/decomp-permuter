@@ -97,8 +97,8 @@ class Scorer:
             # Probably regalloc difference, or signed vs unsigned
 
             # Compare each field in order
-            newfields, oldfields = new.split(','), old.split(',')
-            for nf,of in zip(newfields, oldfields):
+            newfields, oldfields = new.split(","), old.split(",")
+            for nf, of in zip(newfields, oldfields):
                 if nf != of:
                     score += self.PENALTY_REGALLOC
             # Penalize any extra fields
