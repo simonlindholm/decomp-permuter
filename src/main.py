@@ -224,13 +224,13 @@ def write_candidate(perm: Permuter, cand: Candidate) -> None:
             break
         except FileExistsError:
             pass
-    with open(os.path.join(output_dir, "source.c"), "x") as f:
+    with open(os.path.join(output_dir, "source.c"), "x", encoding="utf-8") as f:
         f.write(cand.get_source())
-    with open(os.path.join(output_dir, "base.c"), "x") as f:
+    with open(os.path.join(output_dir, "base.c"), "x", encoding="utf-8") as f:
         f.write(perm.base_source())
-    with open(os.path.join(output_dir, "score.txt"), "x") as f:
+    with open(os.path.join(output_dir, "score.txt"), "x", encoding="utf-8") as f:
         f.write(f"{cand.score_value}\n")
-    with open(os.path.join(output_dir, "diff.txt"), "x") as f:
+    with open(os.path.join(output_dir, "diff.txt"), "x", encoding="utf-8") as f:
         f.write(perm.diff(cand) + "\n")
     print(f"wrote to {output_dir}")
 
@@ -412,7 +412,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
 
         fn_name: Optional[str] = None
         try:
-            with open(os.path.join(d, "function.txt")) as f:
+            with open(os.path.join(d, "function.txt"), encoding="utf-8") as f:
                 fn_name = f.read().strip()
         except FileNotFoundError:
             pass

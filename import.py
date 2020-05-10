@@ -32,7 +32,7 @@ def parse_asm(asm_file):
     func_name = None
     asm_lines = []
     try:
-        with open(asm_file) as f:
+        with open(asm_file, encoding="utf-8") as f:
             cur_section = ".text"
             for line in f:
                 if line.strip().startswith(".section"):
@@ -235,7 +235,7 @@ def import_c_file(compiler, cwd, in_file):
 
 
 def write_compile_command(compiler, cwd, out_file):
-    with open(out_file, "w") as f:
+    with open(out_file, "w", encoding="utf-8") as f:
         f.write("#!/usr/bin/env bash\n")
         f.write('INPUT="$(readlink -f "$1")"\n')
         f.write('OUTPUT="$(readlink -f "$3")"\n')
@@ -245,7 +245,7 @@ def write_compile_command(compiler, cwd, out_file):
 
 
 def write_asm(asm_cont, out_file):
-    with open(out_file, "w") as f:
+    with open(out_file, "w", encoding="utf-8") as f:
         f.write(ASM_PRELUDE)
         f.write(asm_cont)
 
@@ -278,7 +278,7 @@ def compile_base(compile_script, in_file, out_file):
 
 
 def write_to_file(cont, filename):
-    with open(filename, "w") as f:
+    with open(filename, "w", encoding="utf-8") as f:
         f.write(cont)
 
 
@@ -290,7 +290,7 @@ def try_strip_other_fns_and_write(source, func_name, base_c_file):
         print(
             "Warning: failed to remove other functions. Edit {base_c_file} and remove them manually."
         )
-        with open(base_c_file, "w") as f:
+        with open(base_c_file, "w", encoding="utf-8") as f:
             f.write(source)
 
 
