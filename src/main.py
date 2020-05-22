@@ -36,7 +36,7 @@ from .preprocess import preprocess
 from .compiler import Compiler
 from .scorer import Scorer
 from .perm.perm import EvalState
-from .candidate import Candidate
+from .candidate import Candidate, CandidateResult
 from .profiler import Profiler
 
 # The probability that the randomizer continues transforming the output it
@@ -71,7 +71,7 @@ class EvalError:
     seed: Optional[Tuple[int, int]] = attr.ib()
 
 
-EvalResult = Union[Tuple[Candidate, Profiler], EvalError]
+EvalResult = Union[CandidateResult, EvalError]
 
 
 class Permuter:
@@ -133,10 +133,10 @@ class Permuter:
         o_file = base_cand.compile(self.compiler, show_errors=True)
         if not o_file:
             raise Exception(f"Unable to compile {self.source_file}")
-        base_score, base_hash = base_cand.score(self.scorer, o_file)
-        return base_cand, base_score, base_hash
+        base_result = base_cand.score(self.scorer, o_file)
+        return base_cand, base_result.score, base_result.hash
 
-    def eval_candidate(self, seed: int) -> Tuple[Candidate, Profiler]:
+    def eval_candidate(self, seed: int) -> CandidateResult:
         t0 = time.time()
 
         # Determine if we should keep the last candidate
@@ -167,28 +167,27 @@ class Permuter:
 
         t2 = time.time()
 
-        self.cand.score(self.scorer, o_file)
+        result = self.cand.score(self.scorer, o_file)
 
         t3 = time.time()
 
-        profiler: Profiler = Profiler()
+        profiler: Profiler = result.profiler
         profiler.add_stat(Profiler.StatType.perm, t1 - t0)
         profiler.add_stat(Profiler.StatType.compile, t2 - t1)
         profiler.add_stat(Profiler.StatType.score, t3 - t2)
 
-        return self.cand, profiler
+        return result
 
     def try_eval_candidate(self, seed: int) -> EvalResult:
         try:
-            cand, profiler = self.eval_candidate(seed)
-            return cand, profiler
+            return self.eval_candidate(seed)
         except Exception:
             return EvalError(exc_str=traceback.format_exc(), seed=self.cur_seed)
 
     def base_source(self) -> str:
         return self.base.get_source()
 
-    def diff(self, cand: Candidate) -> str:
+    def diff(self, other_source: str) -> str:
         # Return a unified white-space-ignoring diff
         class Line(str):
             def __eq__(self, other: Any) -> bool:
@@ -198,7 +197,7 @@ class Permuter:
                 return hash(self.strip())
 
         a = list(map(Line, self.base_source().split("\n")))
-        b = list(map(Line, cand.get_source().split("\n")))
+        b = list(map(Line, other_source.split("\n")))
         return "\n".join(
             difflib.unified_diff(a, b, fromfile="before", tofile="after", lineterm="")
         )
@@ -213,25 +212,25 @@ class EvalContext:
     permuters: List[Permuter] = attr.ib(factory=list)
 
 
-def write_candidate(perm: Permuter, cand: Candidate) -> None:
+def write_candidate(perm: Permuter, result: CandidateResult) -> None:
     """Write the candidate's C source and score to the next output directory"""
     ctr = 0
     while True:
         ctr += 1
         try:
-            output_dir = os.path.join(perm.dir, f"output-{cand.score_value}-{ctr}")
+            output_dir = os.path.join(perm.dir, f"output-{result.score}-{ctr}")
             os.mkdir(output_dir)
             break
         except FileExistsError:
             pass
     with open(os.path.join(output_dir, "source.c"), "x", encoding="utf-8") as f:
-        f.write(cand.get_source())
+        f.write(result.source)
     with open(os.path.join(output_dir, "base.c"), "x", encoding="utf-8") as f:
         f.write(perm.base_source())
     with open(os.path.join(output_dir, "score.txt"), "x", encoding="utf-8") as f:
-        f.write(f"{cand.score_value}\n")
+        f.write(f"{result.score}\n")
     with open(os.path.join(output_dir, "diff.txt"), "x", encoding="utf-8") as f:
-        f.write(perm.diff(cand) + "\n")
+        f.write(perm.diff(result.source) + "\n")
     print(f"wrote to {output_dir}")
 
 
@@ -249,12 +248,12 @@ def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> 
         else:
             return False
 
-    cand, profiler = result
-    score_value = cand.score_value
-    score_hash = cand.score_hash
+    profiler = result.profiler
+    score_value = result.score
+    score_hash = result.hash
 
     if context.options.print_diffs:
-        print(permuter.diff(cand))
+        print(permuter.diff(result.source))
         input("Press any key to continue...")
 
     context.iteration += 1
@@ -293,8 +292,7 @@ def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> 
                 f"\u001b[33m[{permuter.unique_name}] found different asm with same score ({score_value})\u001b[0m"
             )
         permuter.best_score = min(permuter.best_score, score_value)
-        source = cand.get_source()
-        write_candidate(permuter, cand)
+        write_candidate(permuter, result)
     print("\b" * 10 + " " * 10 + "\r" + status_line, end="", flush=True)
     return score_value == 0
 
