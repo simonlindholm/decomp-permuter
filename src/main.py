@@ -163,18 +163,23 @@ class Permuter:
 
         t1 = time.time()
 
-        o_file = self.cand.compile(self.compiler)
+        self.cand.get_source()
 
         t2 = time.time()
 
-        result = self.cand.score(self.scorer, o_file)
+        o_file = self.cand.compile(self.compiler)
 
         t3 = time.time()
 
+        result = self.cand.score(self.scorer, o_file)
+
+        t4 = time.time()
+
         profiler: Profiler = result.profiler
         profiler.add_stat(Profiler.StatType.perm, t1 - t0)
-        profiler.add_stat(Profiler.StatType.compile, t2 - t1)
-        profiler.add_stat(Profiler.StatType.score, t3 - t2)
+        profiler.add_stat(Profiler.StatType.stringify, t2 - t1)
+        profiler.add_stat(Profiler.StatType.compile, t3 - t2)
+        profiler.add_stat(Profiler.StatType.score, t4 - t3)
 
         return result
 
