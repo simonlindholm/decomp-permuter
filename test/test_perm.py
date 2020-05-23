@@ -54,9 +54,9 @@ class TestStringMethods(unittest.TestCase):
         for d in cls.tmp_dirs.values():
             d.cleanup()
 
-    def go(self, filename, fn_name) -> int:
+    def go(self, filename, fn_name, **kwargs) -> int:
         d = self.tmp_dirs[(filename, fn_name)].name
-        score, = main.run(main.Options(directories=[d], stop_on_zero=True))
+        score, = main.run(main.Options(directories=[d], stop_on_zero=True, **kwargs))
         return score
 
     def test_general(self):
@@ -91,8 +91,16 @@ class TestStringMethods(unittest.TestCase):
         score = self.go('test_type.c', 'test_type3')
         self.assertEqual(score, 0)
 
+    def test_type3_threaded(self):
+        score = self.go('test_type.c', 'test_type3', threads=2)
+        self.assertEqual(score, 0)
+
     def test_randomizer(self):
         score = self.go('test_randomizer.c', 'test_randomizer')
+        self.assertEqual(score, 0)
+
+    def test_randomizer_threaded(self):
+        score = self.go('test_randomizer.c', 'test_randomizer', threads=2)
         self.assertEqual(score, 0)
 
 
