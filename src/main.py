@@ -52,6 +52,7 @@ class Options:
     print_diffs: bool = attr.ib(default=False)
     stack_differences: bool = attr.ib(default=False)
     abort_exceptions: bool = attr.ib(default=False)
+    stop_on_zero: bool = attr.ib(default=False)
     force_seed: Optional[str] = attr.ib(default=None)
     threads: int = attr.ib(default=1)
 
@@ -121,6 +122,7 @@ class Permuter:
         self.cand: Optional[Candidate] = None
         self.base_score: int = base_score
         self.best_score: int = base_score
+        self._last_score: Optional[int] = None
 
     def reseed_random(self) -> None:
         self.random = Random()
@@ -139,11 +141,15 @@ class Permuter:
     def eval_candidate(self, seed: int) -> CandidateResult:
         t0 = time.time()
 
-        # Determine if we should keep the last candidate
+        # Determine if we should keep the last candidate.
+        # Don't keep 0-score candidates; we'll only create new, worse, zeroes.
         keep = (
             self.permutations.is_random()
             and self.random.uniform(0, 1) < RANDOMIZER_KEEP_PROB
+            and self._last_score != 0
         ) or self.force_rng_seed
+
+        self._last_score = None
 
         # Create a new candidate if we didn't keep the last one (or if the last one didn't exist)
         # N.B. if we decide to keep the previous candidate, we will skip over the provided seed.
@@ -180,6 +186,8 @@ class Permuter:
         profiler.add_stat(Profiler.StatType.stringify, t2 - t1)
         profiler.add_stat(Profiler.StatType.compile, t3 - t2)
         profiler.add_stat(Profiler.StatType.score, t4 - t3)
+
+        self._last_score = result.score
 
         return result
 
@@ -278,7 +286,8 @@ def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> 
         and score_value <= permuter.base_score
         and score_hash not in permuter.hashes
     ):
-        permuter.hashes.add(score_hash)
+        if score_value != 0:
+            permuter.hashes.add(score_hash)
         print("\r" + " " * (len(status_line) + 10) + "\r", end="")
         if score_value < permuter.best_score:
             print(
@@ -461,7 +470,8 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             result = permuter.try_eval_candidate(seed)
             if post_score(context, permuter, result):
                 found_zero = True
-                break
+                if options.stop_on_zero:
+                    break
     else:
         # Create queues
         task_queue: "multiprocessing.Queue[Optional[Tuple[int, int]]]" = multiprocessing.Queue()
@@ -493,7 +503,8 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
                 if wait_for_result():
                     # Found score 0!
                     found_zero = True
-                    break
+                    if options.stop_on_zero:
+                        break
             task_queue.put(perm_seed)
             active_tasks += 1
 
@@ -558,6 +569,12 @@ def main() -> None:
         help="Stop execution when an internal permuter exception occurs.",
     )
     parser.add_argument(
+        "--stop-on-zero",
+        dest="stop_on_zero",
+        action="store_true",
+        help="Stop after producing an output with score 0.",
+    )
+    parser.add_argument(
         "--stack-diffs",
         dest="stack_differences",
         action="store_true",
@@ -580,6 +597,7 @@ def main() -> None:
         print_diffs=args.print_diffs,
         abort_exceptions=args.abort_exceptions,
         stack_differences=args.stack_differences,
+        stop_on_zero=args.stop_on_zero,
         force_seed=args.force_seed,
         threads=args.threads,
     )

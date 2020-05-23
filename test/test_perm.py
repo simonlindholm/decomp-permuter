@@ -56,7 +56,7 @@ class TestStringMethods(unittest.TestCase):
 
     def go(self, filename, fn_name) -> int:
         d = self.tmp_dirs[(filename, fn_name)].name
-        score, = main.run(main.Options(directories=[d]))
+        score, = main.run(main.Options(directories=[d], stop_on_zero=True))
         return score
 
     def test_general(self):
