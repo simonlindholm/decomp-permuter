@@ -25,7 +25,7 @@ class CandidateResult:
 
     score: int = attr.ib()
     hash: str = attr.ib()
-    source: str = attr.ib()
+    source: Optional[str] = attr.ib()
     profiler: Profiler = attr.ib(factory=Profiler)
 
 

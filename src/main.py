@@ -89,7 +89,9 @@ class Permuter:
         scorer: Scorer,
         source_file: str,
         source: str,
+        *,
         force_rng_seed: Optional[int],
+        need_all_sources: bool,
     ) -> None:
         self.dir = dir
         self.random = Random()
@@ -117,8 +119,10 @@ class Permuter:
         self.force_rng_seed = force_rng_seed
         self.cur_seed: Optional[Tuple[int, int]] = None
 
-        self.base, base_score, base_hash = self.create_and_score_base()
-        self.hashes = {base_hash}
+        self.need_all_sources = need_all_sources
+
+        self.base, base_score, self.base_hash = self.create_and_score_base()
+        self.hashes = {self.base_hash}
         self.cand: Optional[Candidate] = None
         self.base_score: int = base_score
         self.best_score: int = base_score
@@ -137,6 +141,15 @@ class Permuter:
             raise Exception(f"Unable to compile {self.source_file}")
         base_result = base_cand.score(self.scorer, o_file)
         return base_cand, base_result.score, base_result.hash
+
+    def need_to_send_source(self, result: CandidateResult) -> bool:
+        if self.need_all_sources:
+            return True
+        if result.score < self.base_score:
+            return True
+        if result.score == self.base_score:
+            return result.hash != self.base_hash
+        return False
 
     def eval_candidate(self, seed: int) -> CandidateResult:
         t0 = time.time()
@@ -189,6 +202,9 @@ class Permuter:
 
         self._last_score = result.score
 
+        if not self.need_to_send_source(result):
+            result.source = None
+
         return result
 
     def try_eval_candidate(self, seed: int) -> EvalResult:
@@ -236,14 +252,16 @@ def write_candidate(perm: Permuter, result: CandidateResult) -> None:
             break
         except FileExistsError:
             pass
+    source = result.source
+    assert source is not None, "need_to_send_source is wrong!"
     with open(os.path.join(output_dir, "source.c"), "x", encoding="utf-8") as f:
-        f.write(result.source)
+        f.write(source)
     with open(os.path.join(output_dir, "base.c"), "x", encoding="utf-8") as f:
         f.write(perm.base_source())
     with open(os.path.join(output_dir, "score.txt"), "x", encoding="utf-8") as f:
         f.write(f"{result.score}\n")
     with open(os.path.join(output_dir, "diff.txt"), "x", encoding="utf-8") as f:
-        f.write(perm.diff(result.source) + "\n")
+        f.write(perm.diff(source) + "\n")
     print(f"wrote to {output_dir}")
 
 
@@ -266,6 +284,7 @@ def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> 
     score_hash = result.hash
 
     if context.options.print_diffs:
+        assert result.source is not None, "need_to_send_source is wrong"
         print(permuter.diff(result.source))
         input("Press any key to continue...")
 
@@ -277,9 +296,11 @@ def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> 
     if context.options.show_timings:
         for stattype in profiler.time_stats:
             context.overall_profiler.add_stat(stattype, profiler.time_stats[stattype])
-        timings = "\t" + context.overall_profiler.get_str_stats()
+        timings = "  \t" + context.overall_profiler.get_str_stats()
     status_line = f"iteration {context.iteration}, {context.errors} errors, score = {disp_score}{timings}"
 
+    # Note: when updating this if condition, need_to_send_source may also need
+    # to be updated, or else assertion failures will result.
     if (
         score_value is not None
         and score_hash is not None
@@ -447,6 +468,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
                 base_c,
                 c_source,
                 force_rng_seed=force_rng_seed,
+                need_all_sources=options.print_diffs,
             )
         except CandidateConstructionFailure as e:
             print(e.message, file=sys.stderr)
