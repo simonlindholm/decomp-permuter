@@ -187,11 +187,15 @@ class LineSwapPerm(Perm):
     def __init__(self, lines: List[Perm]) -> None:
         super().__init__()
         self.children = lines
-        self.line_permutations = [i for i in itertools.permutations(range(len(lines)))]
-        self.perm_count = len(self.line_permutations) * _count_all(self.children)
+        self.perm_count = math.factorial(len(lines)) * _count_all(self.children)
 
     def evaluate(self, seed: int, state: EvalState) -> str:
         sub_seed, variation = divmod(seed, self.perm_count)
         texts = _eval_all(sub_seed, self.children, state)
-        result = "\n".join([texts[i] for i in self.line_permutations[variation]])
-        return result
+        output = []
+        while texts:
+            ind = variation % len(texts)
+            variation //= len(texts)
+            output.append(texts[ind])
+            del texts[ind]
+        return "\n".join(output)
