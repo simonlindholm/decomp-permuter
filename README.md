@@ -40,6 +40,7 @@ The .c file may be modified with any of the following macros which affect manual
 - `PERM_RANDOMIZE(code)` expands to `code`, but allows randomization within that region.
 - `PERM_LINESWAP(lines)` expands to a permutation of the ordered set of non-whitespace lines (split by `\n`).
 - `PERM_CONDNEZ(cond)` expands to either `cond` or `(cond) != 0`.
+- `PERM_INT(lo, hi)` expands to an integer between `lo` and `hi` (which must be constants).
 
 Arguments are split by a commas, exluding commas inside parenthesis. `(,)` is a special escape sequence that resolves to `,`. 
 

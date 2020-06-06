@@ -12,6 +12,7 @@ from .perm import (
     VarPerm,
     CondNezPerm,
     LineSwapPerm,
+    IntPerm,
 )
 
 
@@ -27,6 +28,15 @@ def split_args_newline(args: List[str]) -> List[Perm]:
     return perm_args
 
 
+def split_args_text(args: List[str]) -> List[str]:
+    perm_list = split_args(args)
+    res: List[str] = []
+    for perm in perm_list:
+        assert isinstance(perm, TextPerm)
+        res.append(perm.text)
+    return res
+
+
 perm_create: Dict[str, Callable[[List[str]], Perm]] = {
     "PERM_GENERAL": lambda args: GeneralPerm(split_args(args)),
     "PERM_RANDOMIZE": lambda args: RandomizerPerm(split_args(args)[0]),
@@ -35,6 +45,7 @@ perm_create: Dict[str, Callable[[List[str]], Perm]] = {
     "PERM_VAR": lambda args: VarPerm(split_args(args)),
     "PERM_CONDNEZ": lambda args: CondNezPerm(*split_args(args)),
     "PERM_LINESWAP": lambda args: LineSwapPerm(split_args_newline(args)),
+    "PERM_INT": lambda args: IntPerm(*map(int, split_args_text(args))),
 }
 
 
