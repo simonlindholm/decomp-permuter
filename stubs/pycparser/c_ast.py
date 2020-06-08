@@ -23,7 +23,7 @@ class Node(object):
 Expression = Union_['ArrayRef', 'Assignment', 'BinaryOp', 'Cast',
         'CompoundLiteral', 'Constant', 'ExprList', 'FuncCall', 'ID',
         'TernaryOp', 'UnaryOp']
-Statement = Union_[Expression, 'Decl', 'Break', 'Case', 'Compound', 'Continue',
+Statement = Union_[Expression, 'Break', 'Case', 'Compound', 'Continue',
         'Decl', 'Default', 'DoWhile', 'EmptyStatement', 'For', 'Goto', 'If',
         'Label', 'Return', 'Switch', 'Typedef', 'While', 'Pragma']
 Type = Union_['PtrDecl', 'ArrayDecl', 'FuncDecl', 'TypeDecl']

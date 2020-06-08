@@ -817,6 +817,56 @@ def perm_ins_block(
     return True
 
 
+def perm_empty_stmt(
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
+) -> bool:
+    """Inserts a no-op statement, one of:
+    - if (1) {} (sometimes multiple of them)
+    - if (0) {}
+    - label:
+    - goto label; label:;
+    - ;
+    Control flow can have remote effects, so this
+    ignores the region restriction."""
+
+    # Insert the statement wherever, except before a declaration.
+    cands = get_insertion_points(fn, Region.unbounded())
+    cands = [c for c in cands if not isinstance(c[2], ca.Decl)]
+    if not cands:
+        return False
+
+    label_name = f"dummy_label_{random.randint(1, 10**6)}"
+
+    stmts: List[ca.Statement] = []
+
+    kind = random.randrange(5)
+    if kind == 0:  # if (1) or multiple if (1)
+        count = random.choice([1, random.randint(2, 6)])
+        for _ in range(count):
+            cond = ca.Constant(type="int", value="1")
+            stmts.append(ca.If(cond=cond, iftrue=ca.Compound([]), iffalse=None))
+    elif kind == 1:  # if (0)
+        cond = ca.Constant(type="int", value="0")
+        stmts = [ca.If(cond=cond, iftrue=ca.Compound([]), iffalse=None)]
+    elif kind == 2:  # label:
+        stmts = [ca.Label(label_name, ca.EmptyStatement())]
+        pass
+    elif kind == 3:  # goto label; label:
+        stmts = [
+            ca.Goto(label_name),
+            ca.Label(label_name, ca.EmptyStatement()),
+        ]
+    elif kind == 4:  # ;
+        stmts = [ca.EmptyStatement()]
+
+    tob, toi, _ = random.choice(cands)
+    stmts.insert(0, ca.Pragma("_permuter sameline start"))
+    stmts.append(ca.Pragma("_permuter sameline end"))
+    for stmt in stmts[::-1]:
+        ast_util.insert_statement(tob, toi, stmt)
+    return True
+
+
 def perm_sameline(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> bool:
@@ -1249,6 +1299,7 @@ class Randomizer:
             (perm_sameline, 10),
             (perm_ins_block, 10),
             (perm_struct_ref, 10),
+            (perm_empty_stmt, 10),
             (perm_add_self_assignment, 5),
             (perm_reorder_stmts, 5),
             (perm_associative, 5),
