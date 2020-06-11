@@ -220,9 +220,11 @@ def same_type(
         return False
 
 
-def allowed_simple_type(
+def allowed_basic_type(
     type: SimpleType, typemap: TypeMap, allowed_types: List[str]
 ) -> bool:
+    """Check if a type resolves to a basic type with one of the allowed_types
+    keywords in it."""
     base_type = resolve_typedefs(type, typemap)
     if not isinstance(base_type, c_ast.TypeDecl):
         return False

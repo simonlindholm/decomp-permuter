@@ -14,12 +14,14 @@ from .ast_util import Block, Indices, Statement, Expression
 from .ast_types import (
     SimpleType,
     TypeMap,
+    allowed_basic_type,
+    basic_type,
     build_typemap,
     decayed_expr_type,
     resolve_typedefs,
     same_type,
-    allowed_simple_type,
     set_decl_name,
+    pointer_decay,
 )
 
 # Set to true to perform expression type detection eagerly. This can help when
@@ -53,6 +55,10 @@ PROB_KEEP_REPLACED_VAR = 0.2
 # Number larger than any node index. (If you're trying to compile a 1 GB large
 # C file to matching asm, you have bigger problems than this limit.)
 MAX_INDEX = 10 ** 9
+
+
+class RandomizationFailure(Exception):
+    pass
 
 
 @attr.s
@@ -336,17 +342,25 @@ def replace_subexprs(top_node: ca.Node, callback: Callable[[Expression], Any]) -
     visit_replace(top_node, expr_filter)
 
 
-def randomize_type(type: SimpleType, typemap: TypeMap, random: Random) -> SimpleType:
-    if not allowed_simple_type(
-        type, typemap, ["int", "char", "long", "short", "signed", "unsigned"]
-    ):
-        return type
+def random_type(random: Random) -> SimpleType:
     new_names: List[str] = []
     if random.choice([True, False]):
         new_names.append("unsigned")
     new_names.append(random.choice(["char", "short", "int", "int"]))
     idtype = ca.IdentifierType(names=new_names)
     return ca.TypeDecl(declname=None, quals=[], type=idtype)
+
+
+def randomize_type(
+    type: SimpleType, typemap: TypeMap, random: Random, *, ensure_changed: bool = False
+) -> SimpleType:
+    if allowed_basic_type(
+        type, typemap, ["int", "char", "long", "short", "signed", "unsigned"]
+    ):
+        return random_type(random)
+    if ensure_changed:
+        raise RandomizationFailure
+    return type
 
 
 def get_insertion_points(
@@ -701,13 +715,12 @@ def perm_expand_expr(
     return True
 
 
-def perm_randomize_type(
+def perm_randomize_internal_type(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> bool:
-    """Randomize types of pre-existing local variables. Function parameter
-    types are not permuted (that would require removing forward declarations,
-    and most likely parameters types are already correct). Only variables
-    mentioned within the given region are affected."""
+    """Randomize types of pre-existing local variables. Function parameters
+    are not included -- those are handled by perm_randomize_external_type.
+    Only variables mentioned within the given region are affected."""
     ids: Set[Optional[str]] = set()
 
     class IdVisitor(ca.NodeVisitor):
@@ -727,13 +740,105 @@ def perm_randomize_type(
 
     Visitor().visit(fn)
 
-    if len(decls) == 0:
+    if not decls:
         return False
 
     decl = random.choice(decls)
     assert isinstance(decl.type, ca.TypeDecl), "checked above"
-    decl.type = randomize_type(decl.type, typemap, random)
+    decl.type = randomize_type(decl.type, typemap, random, ensure_changed=True)
     set_decl_name(decl)
+
+    return True
+
+def perm_randomize_external_type(
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
+) -> bool:
+    """Randomize types of function parameters and returns. Only functions
+    called within the given region are affected, plus the current function."""
+    assert fn.decl.name is not None, "function definitions have names"
+    names: Set[str] = {fn.decl.name}
+
+    class IdVisitor(ca.NodeVisitor):
+        def visit_FuncCall(self, node: ca.FuncCall) -> None:
+            if region.contains_node(node) and isinstance(node.name, ca.ID):
+                names.add(node.name.name)
+
+    IdVisitor().visit(fn)
+
+    name = random.choice(list(names))
+
+    # Find the declarations of function with the given name. For performance
+    # reasons, the part of the AST they live in are shared between all
+    # randomization runs, so if we mutated them in place bad things would
+    # happen. Thus, we replace the AST parts we plan to change with mutable
+    # copies.
+    all_decls: List[ca.Decl] = []
+    main_decl: Optional[ca.Decl] = None
+    for i in range(len(ast.ext)):
+        item = ast.ext[i]
+        if (
+            isinstance(item, ca.Decl)
+            and isinstance(item.type, ca.FuncDecl)
+            and item.name == name
+        ):
+            new_decl = copy.copy(item)
+            ast.ext[i] = new_decl
+            all_decls.append(new_decl)
+        if isinstance(item, ca.FuncDef) and item.decl.name == name:
+            assert isinstance(
+                item.decl.type, ca.FuncDecl
+            ), "function definitions have function types"
+            new_fndef = copy.copy(item)
+            new_decl = copy.copy(item.decl)
+            new_fndef.decl = new_decl
+            ast.ext[i] = new_fndef
+            all_decls.append(new_decl)
+            main_decl = new_decl
+
+    # Change the type within the function definition if there is one (since we
+    # need to keep names there), or else within an arbitrary of the (typically
+    # just one) declarations. We later mirror the change to all declarations.
+    if not all_decls:
+        return False
+    if not main_decl:
+        main_decl = random.choice(all_decls)
+
+    typemap = build_typemap(ast)
+
+    main_fndecl = copy.deepcopy(main_decl.type)
+    assert isinstance(main_fndecl, ca.FuncDecl), "checked above"
+    main_decl.type = main_fndecl
+
+    if random.choice([True, False]):
+        # Replace the return type, changing integer signedness/size as well as
+        # switching to/from void (which we should perhaps avoid if the function
+        # call result is used, but eh, it's annoying to tell).
+        type = pointer_decay(main_fndecl.type, typemap)
+        if allowed_basic_type(type, typemap, ["void"]):
+            main_fndecl.type = random_type(random)
+        elif random.uniform(0, 1) < 0.2:
+            idtype = ca.IdentifierType(names=["void"])
+            main_fndecl.type = ca.TypeDecl(declname=None, quals=[], type=idtype)
+        else:
+            main_fndecl.type = randomize_type(type, typemap, random, ensure_changed=True)
+        set_decl_name(main_decl)
+    else:
+        # Replace a parameter, changing integer signedness/size.
+        if not main_fndecl.args or not main_fndecl.args.params:
+            return False
+        ind = random.randrange(len(main_fndecl.args.params))
+        arg = main_fndecl.args.params[ind]
+        if isinstance(arg, (ca.ID, ca.EllipsisParam)):
+            return False
+        type = pointer_decay(arg.type, typemap)
+        arg.type = randomize_type(type, typemap, random, ensure_changed=True)
+        if isinstance(arg, ca.Decl):
+            set_decl_name(arg)
+
+    # Mirror the change to all declarations.
+    for i in range(len(all_decls)):
+        if all_decls[i] is not main_decl:
+            all_decls[i].type = copy.deepcopy(main_decl.type)
 
     return True
 
@@ -1044,7 +1149,7 @@ def perm_add_mask(
 
     expr = random.choice(cands)
     type: SimpleType = decayed_expr_type(expr, typemap)
-    if not allowed_simple_type(
+    if not allowed_basic_type(
         type, typemap, ["int", "char", "long", "short", "signed", "unsigned"]
     ):
         return False
@@ -1076,7 +1181,7 @@ def perm_cast_simple(
 
     expr = random.choice(cands)
     type: SimpleType = decayed_expr_type(expr, typemap)
-    if not allowed_simple_type(
+    if not allowed_basic_type(
         type,
         typemap,
         ["int", "char", "long", "short", "signed", "unsigned", "float", "double"],
@@ -1295,7 +1400,8 @@ class Randomizer:
             (perm_add_mask, 10),
             (perm_cast_simple, 10),
             (perm_refer_to_var, 10),
-            (perm_randomize_type, 10),
+            (perm_randomize_internal_type, 10),
+            (perm_randomize_external_type, 10),
             (perm_sameline, 10),
             (perm_ins_block, 10),
             (perm_struct_ref, 10),
@@ -1309,6 +1415,9 @@ class Randomizer:
             method = self.random.choice(
                 [x for (elem, prob) in methods for x in [elem] * prob]
             )
-            ret = method(fn, ast, indices, region, self.random)
-            if ret:
-                break
+            try:
+                ret = method(fn, ast, indices, region, self.random)
+                if ret:
+                    break
+            except RandomizationFailure:
+                pass
