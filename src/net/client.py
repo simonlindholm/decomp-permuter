@@ -122,10 +122,9 @@ def get_servers() -> Tuple[List[Tuple[str, int, VerifyKey]], bytes]:
     raw_resp = b""
     raw_resp = server_verify_key.verify(raw_resp)
     resp = json.loads(raw_resp)
-    granted_request = (
-        decode_hex_signature(resp["grant"]) + signing_key.verify_key + request
-    )
-    server_verify_key.verify(granted_request)
+    grant = base64.b64decode(resp["grant"])
+    granted_request = server_verify_key.verify(grant)
+    assert granted_request[:32] == signing_key.verify_key.encode()
 
     server_list = resp["server_list"]
 
@@ -136,12 +135,10 @@ def get_servers() -> Tuple[List[Tuple[str, int, VerifyKey]], bytes]:
         ver_key = VerifyKey(decode_hex_signature(server["verification_key"]))
         ret.append((ip, port, ver_key))
 
-    return ret, granted_request
+    return ret, grant
 
 
-def talk_to_server(
-    ip_port: Tuple[str, int], ver_key: VerifyKey, granted_request: bytes
-) -> None:
+def talk_to_server(ip_port: Tuple[str, int], ver_key: VerifyKey, grant: bytes) -> None:
     # TODO: read from config or bail
     signing_key = SigningKey.generate()
 
@@ -156,6 +153,6 @@ def talk_to_server(
     # To help guard the server against replay attacks, send a server-chosen
     # string as part of our first message.
     rand = port.receive()
-    port.send(rand + granted_request)
+    port.send(rand + grant)
     resp = json.loads(port.receive())
     assert resp["status"] == "ok"
