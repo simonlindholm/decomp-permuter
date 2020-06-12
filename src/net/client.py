@@ -12,6 +12,8 @@ from nacl.exceptions import BadSignatureError
 from nacl.public import Box, PrivateKey, PublicKey, SealedBox
 from nacl.signing import SigningKey, VerifyKey
 
+from .common import Port
+
 
 def random_string() -> str:
     return "".join(random.choice(string.ascii_lowercase) for _ in range(5))
@@ -111,14 +113,17 @@ def get_servers() -> Tuple[List[Tuple[str, int, VerifyKey]], bytes]:
     signing_key = SigningKey.generate()
     server_verify_key = SigningKey.generate().verify_key
 
-    request = json.dumps({"time": int(time.time()),}).encode("utf-8")
+    request_obj = {
+        "time": int(time.time()),
+    }
+    request = json.dumps(request_obj).encode("utf-8")
     data = signing_key.sign(request)
     # TODO: send 'data' to server, receive 'resp'
     raw_resp = b""
     raw_resp = server_verify_key.verify(raw_resp)
     resp = json.loads(raw_resp)
     granted_request = (
-        signing_key.verify_key + request + decode_hex_signature(resp["grant"])
+        decode_hex_signature(resp["grant"]) + signing_key.verify_key + request
     )
     server_verify_key.verify(granted_request)
 
@@ -135,18 +140,22 @@ def get_servers() -> Tuple[List[Tuple[str, int, VerifyKey]], bytes]:
 
 
 def talk_to_server(
-    ip: str, port: int, ver_key: VerifyKey, granted_request: bytes
+    ip_port: Tuple[str, int], ver_key: VerifyKey, granted_request: bytes
 ) -> None:
     # TODO: read from config or bail
     signing_key = SigningKey.generate()
 
     ephemeral_key = PrivateKey.generate()
-    msg = signing_key.sign(ephemeral_key.public_key.encode() + granted_request)
-    # TODO: pass 'msg' to the server, get 'resp' back
-    # server does:
-    # box = Box(signing_key.to_curve25519_private_key(), ephemeral_key)
-    # resp = box.encrypt(b"")
-    # and then from there on they use consecutive nonces, with a bit different
-    resp = b""
+    msg = signing_key.verify_key.encode() + signing_key.sign(
+        ephemeral_key.public_key.encode()
+    )
+    # TODO: send 'msg'
+
     box = Box(ephemeral_key, ver_key.to_curve25519_public_key())
-    box.decrypt(resp)
+    port = Port(box, is_client=True)
+    # To help guard the server against replay attacks, send a server-chosen
+    # string as part of our first message.
+    rand = port.receive()
+    port.send(rand + granted_request)
+    resp = json.loads(port.receive())
+    assert resp["status"] == "ok"
