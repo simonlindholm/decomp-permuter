@@ -1,4 +1,4 @@
-from typing import Dict, Union, List, Tuple, Callable, Optional, Any, Set
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 import attr
 import bisect
 import copy
@@ -59,6 +59,14 @@ MAX_INDEX = 10 ** 9
 
 class RandomizationFailure(Exception):
     pass
+
+
+def ensure(condition: Any) -> None:
+    """Abort the randomization pass if 'condition' fails to hold, and try
+    another pass instead. Don't call this after making any modifications to
+    the AST."""
+    if not condition:
+        raise RandomizationFailure
 
 
 @attr.s
@@ -424,7 +432,7 @@ def maybe_reuse_var(
 
 def perm_temp_for_expr(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
-) -> bool:
+) -> None:
     """Create a temporary variable for a random expression. The variable will
     be assigned at another random point (nearer the expression being more
     likely), possibly reuse an existing variable, possibly be of a different
@@ -528,8 +536,7 @@ def perm_temp_for_expr(
 
     rec(fn.body, [])
 
-    if not candidates:
-        return False
+    ensure(candidates)
 
     # Step 2: decide on a place/expression
     sumprob = 0.0
@@ -548,10 +555,9 @@ def perm_temp_for_expr(
     place, expr, reuse_cand = chosen_cand
     type: SimpleType = decayed_expr_type(expr, typemap)
 
-    if ast_util.is_effectful(expr):
-        # Don't replace effectful expressions. This is a bit expensive to
-        # check, so do it here instead of within the visitor.
-        return False
+    # Don't replace effectful expressions. This is a bit expensive to
+    # check, so do it here instead of within the visitor.
+    ensure(not ast_util.is_effectful(expr))
 
     # Always use pointers when replacing structs
     if (
@@ -632,12 +638,10 @@ def perm_temp_for_expr(
             type = randomize_type(type, typemap, random)
         ast_util.insert_decl(fn, var, type)
 
-    return True
-
 
 def perm_expand_expr(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
-) -> bool:
+) -> None:
     """Replace a random variable by its contents."""
     all_writes: Dict[str, List[int]] = compute_write_locations(fn, indices)
     all_reads: Dict[str, List[int]] = compute_read_locations(fn, indices)
@@ -648,8 +652,7 @@ def perm_expand_expr(
         for index in locs:
             if region.contains_pre_index(index):
                 rev[index] = var
-    if not rev:
-        return False
+    ensure(rev)
     index = random.choice(list(rev.keys()))
     var = rev[index]
 
@@ -658,9 +661,8 @@ def perm_expand_expr(
     writes = all_writes.get(var, [])
     read = random.choice(reads)
     i = bisect.bisect_left(writes, index)
-    if i == 0:
-        # No write to replace the read by.
-        return False
+    # if i == 0, there is no write to replace the read by.
+    ensure(i > 0)
     before = writes[i - 1]
     after = MAX_INDEX if i == len(writes) else writes[i]
     rev_indices = reverse_indices(indices)
@@ -674,9 +676,8 @@ def perm_expand_expr(
     elif isinstance(write, ca.Assignment):
         repl_expr = write.rvalue
     else:
-        return False
-    if ast_util.is_effectful(repl_expr):
-        return False
+        raise RandomizationFailure
+    ensure(not ast_util.is_effectful(repl_expr))
 
     # Step 3: pick of the range of variables to replace
     repl_cands = [
@@ -712,12 +713,11 @@ def perm_expand_expr(
     visit_replace(fn.body, callback)
     if not keep_var and isinstance(write, ca.Decl):
         write.init = None
-    return True
 
 
 def perm_randomize_internal_type(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
-) -> bool:
+) -> None:
     """Randomize types of pre-existing local variables. Function parameters
     are not included -- those are handled by perm_randomize_external_type.
     Only variables mentioned within the given region are affected."""
@@ -740,19 +740,15 @@ def perm_randomize_internal_type(
 
     Visitor().visit(fn)
 
-    if not decls:
-        return False
-
+    ensure(decls)
     decl = random.choice(decls)
     assert isinstance(decl.type, ca.TypeDecl), "checked above"
     decl.type = randomize_type(decl.type, typemap, random, ensure_changed=True)
     set_decl_name(decl)
 
-    return True
-
 def perm_randomize_external_type(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
-) -> bool:
+) -> None:
     """Randomize types of function parameters and returns. Only functions
     called within the given region are affected, plus the current function."""
     assert fn.decl.name is not None, "function definitions have names"
@@ -798,8 +794,7 @@ def perm_randomize_external_type(
     # Change the type within the function definition if there is one (since we
     # need to keep names there), or else within an arbitrary of the (typically
     # just one) declarations. We later mirror the change to all declarations.
-    if not all_decls:
-        return False
+    ensure(all_decls)
     if not main_decl:
         main_decl = random.choice(all_decls)[0]
 
@@ -824,12 +819,13 @@ def perm_randomize_external_type(
         set_decl_name(main_decl)
     else:
         # Replace a parameter, changing integer signedness/size.
-        if not main_fndecl.args or not main_fndecl.args.params:
-            return False
+        if not main_fndecl.args:
+            raise RandomizationFailure
+        ensure(main_fndecl.args.params)
         ind = random.randrange(len(main_fndecl.args.params))
         arg = main_fndecl.args.params[ind]
         if isinstance(arg, (ca.ID, ca.EllipsisParam)):
-            return False
+            raise RandomizationFailure
         type = pointer_decay(arg.type, typemap)
         arg.type = randomize_type(type, typemap, random, ensure_changed=True)
         if isinstance(arg, ca.Decl):
@@ -842,12 +838,10 @@ def perm_randomize_external_type(
         if decl is not main_decl:
             decl.type = copy.deepcopy(main_decl.type)
 
-    return True
-
 
 def perm_refer_to_var(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
-) -> bool:
+) -> None:
     """Add `if (variable) {}` or `if (struct.member) {}` in a random place.
     This will get optimized away but may affect regalloc."""
     # Find expression to insert, searching within the randomization region.
@@ -856,11 +850,9 @@ def perm_refer_to_var(
         for expr in get_block_expressions(fn.body, region)
         if isinstance(expr, (ca.StructRef, ca.ID))
     ]
-    if not cands:
-        return False
+    ensure(cands)
     expr = random.choice(cands)
-    if ast_util.is_effectful(expr):
-        return False
+    ensure(not ast_util.is_effectful(expr))
     type: SimpleType = decayed_expr_type(expr, build_typemap(ast))
     if isinstance(type, ca.TypeDecl) and isinstance(type.type, (ca.Struct, ca.Union)):
         expr = ca.UnaryOp("&", expr)
@@ -872,19 +864,17 @@ def perm_refer_to_var(
     # can act at a distance. (Except before a declaration.)
     ins_cands = get_insertion_points(fn, Region.unbounded())
     ins_cands = [c for c in ins_cands if not isinstance(c[2], ca.Decl)]
-    if not ins_cands:
-        return False
+    ensure(ins_cands)
 
     cond = copy.deepcopy(expr)
     stmt = ca.If(cond=cond, iftrue=ca.Compound(block_items=[]), iffalse=None)
     tob, toi, _ = random.choice(ins_cands)
     ast_util.insert_statement(tob, toi, stmt)
-    return True
 
 
 def perm_ins_block(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
-) -> bool:
+) -> None:
     """Wrap a random range of statements within `if (1) { ... }` or
     `do { ... } while(0)`. Control flow can have remote effects, so this
     mostly ignores the region restriction."""
@@ -921,12 +911,11 @@ def perm_ins_block(
     else:
         cond = ca.Constant(type="int", value="1")
         stmts[lo:hi] = [ca.If(cond=cond, iftrue=new_block, iffalse=None)]
-    return True
 
 
 def perm_empty_stmt(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
-) -> bool:
+) -> None:
     """Inserts a no-op statement, one of:
     - if (1) {} (sometimes multiple of them)
     - if (0) {}
@@ -939,8 +928,7 @@ def perm_empty_stmt(
     # Insert the statement wherever, except before a declaration.
     cands = get_insertion_points(fn, Region.unbounded())
     cands = [c for c in cands if not isinstance(c[2], ca.Decl)]
-    if not cands:
-        return False
+    ensure(cands)
 
     label_name = f"dummy_label_{random.randint(1, 10**6)}"
 
@@ -971,17 +959,15 @@ def perm_empty_stmt(
     stmts.append(ca.Pragma("_permuter sameline end"))
     for stmt in stmts[::-1]:
         ast_util.insert_statement(tob, toi, stmt)
-    return True
 
 
 def perm_sameline(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
-) -> bool:
+) -> None:
     """Put all statements within a random interval on the same line."""
     cands = get_insertion_points(fn, region)
     n = len(cands)
-    if n < 3:
-        return False
+    ensure(n >= 3)
     # Generate a small random interval
     lef: float = n - 2
     for i in range(4):
@@ -997,12 +983,11 @@ def perm_sameline(
     ast_util.insert_statement(
         cands[i][0], cands[i][1], ca.Pragma("_permuter sameline start")
     )
-    return True
 
 
 def perm_associative(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
-) -> bool:
+) -> None:
     """Change a+b into b+a, or similar for other commutative operations."""
     cands: List[ca.BinaryOp] = []
     commutative_ops = list("+*|&^<>") + ["<=", ">=", "==", "!="]
@@ -1013,20 +998,18 @@ def perm_associative(
                 cands.append(node)
 
     Visitor().visit(fn.body)
-    if not cands:
-        return False
+    ensure(cands)
     node = random.choice(cands)
     node.left, node.right = node.right, node.left
     if node.op[0] == "<":
         node.op = ">" + node.op[1:]
     elif node.op[0] == ">":
         node.op = "<" + node.op[1:]
-    return True
 
 
 def perm_add_self_assignment(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
-) -> bool:
+) -> None:
     """Introduce a "x = x;" somewhere."""
     cands = get_insertion_points(fn, region)
     vars: List[str] = []
@@ -1037,18 +1020,17 @@ def perm_add_self_assignment(
                 vars.append(decl.name)
 
     Visitor().visit(fn.body)
-    if not vars or not cands:
-        return False
+    ensure(vars)
+    ensure(cands)
     var = random.choice(vars)
     where = random.choice(cands)
     assignment = ca.Assignment("=", ca.ID(var), ca.ID(var))
     ast_util.insert_statement(where[0], where[1], assignment)
-    return True
 
 
 def perm_reorder_stmts(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
-) -> bool:
+) -> None:
     """Move a statement to another random place."""
     cands = get_insertion_points(fn, region)
 
@@ -1069,8 +1051,7 @@ def perm_reorder_stmts(
         ):
             source_inds.append(i)
 
-    if not source_inds:
-        return False
+    ensure(source_inds)
     fromi = random.choice(source_inds)
     toi = round(random.triangular(0, len(cands) - 1, fromi))
 
@@ -1078,17 +1059,15 @@ def perm_reorder_stmts(
     tob, toi, _ = cands[toi]
     if fromb == tob and fromi < toi:
         toi -= 1
-    if fromb == tob and fromi == toi:
-        return False
+    ensure(not (fromb == tob and fromi == toi))
 
     stmt = ast_util.get_block_stmts(fromb, True).pop(fromi)
     ast_util.insert_statement(tob, toi, stmt)
-    return True
 
 
 def perm_inequalities(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
-) -> bool:
+) -> None:
     """Adjusts inequalities to equivalent versions that sometimes produce different code.
     For example, a > b and a >= b + 1, a < b to a <= b - 1 (and vice versa)"""
     cands: List[ca.BinaryOp] = []
@@ -1100,8 +1079,7 @@ def perm_inequalities(
                 cands.append(node)
 
     Visitor().visit(fn.body)
-    if not cands:
-        return False
+    ensure(cands)
 
     node = random.choice(cands)
 
@@ -1134,27 +1112,23 @@ def perm_inequalities(
             else:
                 node.right = plus1(node.right)
 
-    return True
-
 
 def perm_add_mask(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
-) -> bool:
+) -> None:
     """Add a mask of 0xFF[FFFFFFFFFFFFFF] to a random expression of integer type.
     In some cases this mask is optimized out but affects regalloc."""
     typemap = build_typemap(ast)
 
     # Find expression to add the mask to
     cands: List[Expression] = get_block_expressions(fn.body, region)
-    if not cands:
-        return False
+    ensure(cands)
 
     expr = random.choice(cands)
     type: SimpleType = decayed_expr_type(expr, typemap)
-    if not allowed_basic_type(
+    ensure(allowed_basic_type(
         type, typemap, ["int", "char", "long", "short", "signed", "unsigned"]
-    ):
-        return False
+    ))
 
     # Mask as if restricting the value to 8, 16, 32, or 64-bit width.
     # Sometimes use an unsigned mask like '0xFFu'
@@ -1167,28 +1141,25 @@ def perm_add_mask(
         if n is expr
         else None,
     )
-    return True
 
 
 def perm_cast_simple(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
-) -> bool:
+) -> None:
     """Cast a random expression to a simple type (integral or floating point only)."""
     typemap = build_typemap(ast)
 
     # Find a random expression
     cands: List[Expression] = get_block_expressions(fn.body, region)
-    if not cands:
-        return False
+    ensure(cands)
 
     expr = random.choice(cands)
     type: SimpleType = decayed_expr_type(expr, typemap)
-    if not allowed_basic_type(
+    ensure(allowed_basic_type(
         type,
         typemap,
         ["int", "char", "long", "short", "signed", "unsigned", "float", "double"],
-    ):
-        return False
+    ))
 
     integral_type = [["int"], ["char"], ["long"], ["short"], ["long", "long"]]
     floating_type = [["float"], ["double"]]
@@ -1209,8 +1180,6 @@ def perm_cast_simple(
         return None
 
     visit_replace(fn.body, callback)
-
-    return True
 
 
 # struct_ref          # type of a         # easiest conversion
@@ -1245,7 +1214,7 @@ def perm_cast_simple(
 # (&a)->c             # s                 # (*(&a)).c
 def perm_struct_ref(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
-) -> bool:
+) -> None:
     """Permute struct references: (a + b)->c, and (*(a + b)).c, a[b].c, (&a[b])->c"""
     cands: List[ca.StructRef] = []
 
@@ -1255,8 +1224,7 @@ def perm_struct_ref(
                 cands.append(node)
 
     Visitor().visit(fn.body)
-    if not cands:
-        return False
+    ensure(cands)
 
     # TODO: Split into separate perm? Need a separate one for arrayrefs, (a + b)[1] to a[b + 1]
     def randomize_associative_binop(left: ca.Node, right: ca.BinaryOp) -> ca.BinaryOp:
@@ -1303,13 +1271,11 @@ def perm_struct_ref(
         return ca.UnaryOp("&", node)
 
     def rec(node: ca.Node) -> Any:
-        """ Recurse down the StructRef tree, finding the parent of the leaf BinaryOp/ArrayRef
-        Throws ValueError when a UnaryOp other than * or & was encountered."""
+        """ Recurse down the StructRef tree, finding the parent of the leaf BinaryOp/ArrayRef.
+        Throws RandomizationFailure when a UnaryOp other than * or & was encountered."""
         if isinstance(node, ca.UnaryOp):
-            if node.op not in ["&", "*"]:
-                raise ValueError
-            else:
-                return rec(node.expr) or node
+            ensure(node.op in ["&", "*"])
+            return rec(node.expr) or node
         if isinstance(node, ca.StructRef):
             return rec(node.name) or node
         return None
@@ -1333,10 +1299,7 @@ def perm_struct_ref(
     parent: Union[ca.StructRef, ca.UnaryOp]
 
     # Step 1: Find the parent of the leaf node
-    try:
-        parent = rec(struct_ref)
-    except ValueError:
-        return False
+    parent = rec(struct_ref)
 
     changed = False
 
@@ -1384,7 +1347,7 @@ def perm_struct_ref(
         struct_ref.type = "->"
         changed = True
 
-    return changed
+    ensure(changed)
 
 
 class Randomizer:
@@ -1418,8 +1381,7 @@ class Randomizer:
                 [x for (elem, prob) in methods for x in [elem] * prob]
             )
             try:
-                ret = method(fn, ast, indices, region, self.random)
-                if ret:
-                    break
+                method(fn, ast, indices, region, self.random)
+                break
             except RandomizationFailure:
                 pass
