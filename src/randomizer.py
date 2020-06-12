@@ -719,7 +719,7 @@ def perm_randomize_internal_type(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> None:
     """Randomize types of pre-existing local variables. Function parameters
-    are not included -- those are handled by perm_randomize_external_type.
+    are not included -- those are handled by perm_randomize_function_type.
     Only variables mentioned within the given region are affected."""
     ids: Set[Optional[str]] = set()
 
@@ -746,7 +746,7 @@ def perm_randomize_internal_type(
     decl.type = randomize_type(decl.type, typemap, random, ensure_changed=True)
     set_decl_name(decl)
 
-def perm_randomize_external_type(
+def perm_randomize_function_type(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> None:
     """Randomize types of function parameters and returns. Only functions
@@ -1366,7 +1366,7 @@ class Randomizer:
             (perm_cast_simple, 10),
             (perm_refer_to_var, 10),
             (perm_randomize_internal_type, 10),
-            (perm_randomize_external_type, 10),
+            (perm_randomize_function_type, 5),
             (perm_sameline, 10),
             (perm_ins_block, 10),
             (perm_struct_ref, 10),
