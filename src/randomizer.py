@@ -13,6 +13,7 @@ from . import ast_util
 from .ast_util import Block, Indices, Statement, Expression
 from .ast_types import (
     SimpleType,
+    Type,
     TypeMap,
     allowed_basic_type,
     basic_type,
@@ -371,6 +372,18 @@ def randomize_type(
     return type
 
 
+def randomize_innermost_type(
+    type: Type, typemap: TypeMap, random: Random, *, ensure_changed: bool = False
+) -> Type:
+    if isinstance(type, ca.TypeDecl):
+        return randomize_type(type, typemap, random, ensure_changed=ensure_changed)
+    new_type = copy.copy(type)
+    new_type.type = randomize_innermost_type(
+        type.type, typemap, random, ensure_changed=ensure_changed
+    )
+    return new_type
+
+
 def get_insertion_points(
     fn: ca.FuncDef, region: Region
 ) -> List[Tuple[Block, int, Optional[ca.Node]]]:
@@ -721,12 +734,15 @@ def perm_randomize_internal_type(
     """Randomize types of pre-existing local variables. Function parameters
     are not included -- those are handled by perm_randomize_function_type.
     Only variables mentioned within the given region are affected."""
-    ids: Set[Optional[str]] = set()
+    names: Set[str] = set()
 
     class IdVisitor(ca.NodeVisitor):
         def visit_ID(self, node: ca.ID) -> None:
             if region.contains_node(node):
-                ids.add(node.name)
+                names.add(node.name)
+
+        def visit_StructRef(self, node: ca.StructRef) -> None:
+            self.visit(node.name)
 
     IdVisitor().visit(fn)
 
@@ -735,7 +751,7 @@ def perm_randomize_internal_type(
 
     class Visitor(ca.NodeVisitor):
         def visit_Decl(self, decl: ca.Decl) -> None:
-            if isinstance(decl.type, ca.TypeDecl) and decl.name in ids:
+            if isinstance(decl.type, ca.TypeDecl) and decl.name and decl.name in names:
                 decls.append(decl)
 
     Visitor().visit(fn)
@@ -745,6 +761,46 @@ def perm_randomize_internal_type(
     assert isinstance(decl.type, ca.TypeDecl), "checked above"
     decl.type = randomize_type(decl.type, typemap, random, ensure_changed=True)
     set_decl_name(decl)
+
+
+def perm_randomize_external_type(
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
+) -> None:
+    """Randomize types of global variables. Only variables mentioned within the
+    given region are affected."""
+    names: Set[str] = set()
+
+    class IdVisitor(ca.NodeVisitor):
+        def visit_ID(self, node: ca.ID) -> None:
+            if region.contains_node(node):
+                names.add(node.name)
+
+        def visit_StructRef(self, node: ca.StructRef) -> None:
+            self.visit(node.name)
+
+    IdVisitor().visit(fn)
+
+    ensure(names)
+    name = random.choice(list(names))
+    decls: List[Tuple[ca.Decl, int]] = []
+
+    for i in range(len(ast.ext)):
+        item = ast.ext[i]
+        if isinstance(item, ca.Decl) and item.name == name:
+            new_decl = copy.copy(item)
+            decls.append((new_decl, i))
+
+    ensure(decls)
+    decl = random.choice(decls)[0]
+
+    typemap = build_typemap(ast)
+    new_type = randomize_innermost_type(decl.type, typemap, random, ensure_changed=True)
+
+    for decl, i in decls:
+        decl.type = copy.deepcopy(new_type)
+        ast.ext[i] = decl
+        set_decl_name(decl)
+
 
 def perm_randomize_function_type(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
@@ -815,7 +871,9 @@ def perm_randomize_function_type(
             idtype = ca.IdentifierType(names=["void"])
             main_fndecl.type = ca.TypeDecl(declname=None, quals=[], type=idtype)
         else:
-            main_fndecl.type = randomize_type(type, typemap, random, ensure_changed=True)
+            main_fndecl.type = randomize_type(
+                type, typemap, random, ensure_changed=True
+            )
         set_decl_name(main_decl)
     else:
         # Replace a parameter, changing integer signedness/size.
@@ -1126,9 +1184,11 @@ def perm_add_mask(
 
     expr = random.choice(cands)
     type: SimpleType = decayed_expr_type(expr, typemap)
-    ensure(allowed_basic_type(
-        type, typemap, ["int", "char", "long", "short", "signed", "unsigned"]
-    ))
+    ensure(
+        allowed_basic_type(
+            type, typemap, ["int", "char", "long", "short", "signed", "unsigned"]
+        )
+    )
 
     # Mask as if restricting the value to 8, 16, 32, or 64-bit width.
     # Sometimes use an unsigned mask like '0xFFu'
@@ -1155,11 +1215,13 @@ def perm_cast_simple(
 
     expr = random.choice(cands)
     type: SimpleType = decayed_expr_type(expr, typemap)
-    ensure(allowed_basic_type(
-        type,
-        typemap,
-        ["int", "char", "long", "short", "signed", "unsigned", "float", "double"],
-    ))
+    ensure(
+        allowed_basic_type(
+            type,
+            typemap,
+            ["int", "char", "long", "short", "signed", "unsigned", "float", "double"],
+        )
+    )
 
     integral_type = [["int"], ["char"], ["long"], ["short"], ["long", "long"]]
     floating_type = [["float"], ["double"]]
@@ -1366,6 +1428,7 @@ class Randomizer:
             (perm_cast_simple, 10),
             (perm_refer_to_var, 10),
             (perm_randomize_internal_type, 10),
+            (perm_randomize_external_type, 5),
             (perm_randomize_function_type, 5),
             (perm_sameline, 10),
             (perm_ins_block, 10),
