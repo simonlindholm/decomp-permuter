@@ -122,6 +122,7 @@ def get_servers() -> Tuple[List[Tuple[str, int, VerifyKey]], bytes]:
     raw_resp = b""
     raw_resp = server_verify_key.verify(raw_resp)
     resp = json.loads(raw_resp)
+    assert resp["version"] == 1
     grant = base64.b64decode(resp["grant"])
     granted_request = server_verify_key.verify(grant)
     assert granted_request[:32] == signing_key.verify_key.encode()
