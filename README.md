@@ -75,4 +75,9 @@ Many more randomization passes could be added, the scoring function is far from 
 the permuter could be made easier to use, etc. etc. The GitHub Issues list has some ideas.
 
 Ideally, `mypy permuter.py` and `./run-tests.sh` should succeed with no errors, and files
-formatted with `black`.
+formatted with `black`. To setup a pre-commit hook for black, run:
+```
+pip install pre-commit black
+pre-commit install
+```
+PRs that skip this are still welcome, however.
