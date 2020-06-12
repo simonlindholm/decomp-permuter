@@ -1,12 +1,16 @@
 import base64
+import json
 import os
 import random
 import string
 import sys
-from typing import Optional
+import time
+from typing import List, Optional, Tuple
 
+from nacl.encoding import HexEncoder
+from nacl.exceptions import BadSignatureError
+from nacl.public import Box, PrivateKey, PublicKey, SealedBox
 from nacl.signing import SigningKey, VerifyKey
-from nacl.public import SealedBox, PrivateKey, PublicKey
 
 
 def random_string() -> str:
@@ -27,6 +31,13 @@ def ask(msg: str, *, default: bool) -> bool:
     sys.exit(1)
 
 
+def decode_hex_signature(sign: str) -> bytes:
+    ret: bytes = HexEncoder.decode(sign)
+    if len(ret) != 32:
+        raise BadSignatureError("Signature has wrong length.")
+    return ret
+
+
 def initial_setup() -> None:
     signing_key: Optional[SigningKey] = None
     # TODO: read from config
@@ -45,11 +56,9 @@ def initial_setup() -> None:
         )
         # TODO: write to config
 
-    enc_secret_key = signing_key.to_curve25519_private_key()
-    enc_public_key = enc_secret_key.public_key
     signed_nickname = signing_key.sign(nickname.encode("utf-8"))
 
-    vouch_data = verify_key.encode() + enc_public_key.encode() + signed_nickname
+    vouch_data = verify_key.encode() + signed_nickname
     vouch_text = base64.b64encode(vouch_data).decode("utf-8")
     print("Ask someone to run the following command:")
     print(f"./permuter.py -J --vouch {vouch_text}")
@@ -59,9 +68,11 @@ def initial_setup() -> None:
 
     try:
         token = base64.b64decode(inp.encode("utf-8"))
-        url = SealedBox(enc_secret_key).decrypt(token).decode("utf-8")
+        data = SealedBox(signing_key.to_curve25519_private_key()).decrypt(token)
+        server_verify_key = data[:32]
+        url = data[32:].decode("utf-8")
         print("Server URL:", url)
-        # TODO: verify that contacting server works
+        # TODO: verify that contacting server works and signs its messages
         # TODO: write to config
     except Exception:
         print("Invalid token!")
@@ -71,12 +82,12 @@ def vouch(vouch_text: str) -> None:
     # TODO: read from config or bail
     server_url = ""
     signing_key = SigningKey.generate()
+    server_verify_key = SigningKey.generate().verify_key
 
     try:
         vouch_data = base64.b64decode(vouch_text.encode("utf-8"))
         verify_key = VerifyKey(vouch_data[:32])
-        enc_public_key = PublicKey(vouch_data[32:64])
-        signed_nickname = vouch_data[64:]
+        signed_nickname = vouch_data[32:]
         nickname = verify_key.verify(signed_nickname)
     except Exception:
         print("Could not parse data!")
@@ -87,8 +98,55 @@ def vouch(vouch_text: str) -> None:
 
     # TODO: send signature and signed nickname to central server
 
-    token = SealedBox(enc_public_key).encrypt(server_url)
+    token = SealedBox(verify_key.to_curve25519_public_key()).encrypt(server_url)
     print("Granted!")
     print()
     print("Send them the following token:")
     print(base64.b64encode(token).decode("utf-8"))
+
+
+def get_servers() -> Tuple[List[Tuple[str, int, VerifyKey]], bytes]:
+    # TODO: read from config or bail
+    server_url = ""
+    signing_key = SigningKey.generate()
+    server_verify_key = SigningKey.generate().verify_key
+
+    request = json.dumps({"time": int(time.time()),}).encode("utf-8")
+    data = signing_key.sign(request)
+    # TODO: send 'data' to server, receive 'resp'
+    raw_resp = b""
+    raw_resp = server_verify_key.verify(raw_resp)
+    resp = json.loads(raw_resp)
+    granted_request = (
+        signing_key.verify_key + request + decode_hex_signature(resp["grant"])
+    )
+    server_verify_key.verify(granted_request)
+
+    server_list = resp["server_list"]
+
+    ret = []
+    for server in server_list:
+        ip = server["ip"]
+        port = server["port"]
+        ver_key = VerifyKey(decode_hex_signature(server["verification_key"]))
+        ret.append((ip, port, ver_key))
+
+    return ret, granted_request
+
+
+def talk_to_server(
+    ip: str, port: int, ver_key: VerifyKey, granted_request: bytes
+) -> None:
+    # TODO: read from config or bail
+    signing_key = SigningKey.generate()
+
+    ephemeral_key = PrivateKey.generate()
+    msg = signing_key.sign(ephemeral_key.public_key.encode() + granted_request)
+    # TODO: pass 'msg' to the server, get 'resp' back
+    # server does:
+    # box = Box(signing_key.to_curve25519_private_key(), ephemeral_key)
+    # resp = box.encrypt(b"")
+    # and then from there on they use consecutive nonces, with a bit different
+    resp = b""
+    box = Box(ephemeral_key, ver_key.to_curve25519_public_key())
+    box.decrypt(resp)
