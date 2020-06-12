@@ -772,7 +772,7 @@ def perm_randomize_external_type(
     # randomization runs, so if we mutated them in place bad things would
     # happen. Thus, we replace the AST parts we plan to change with mutable
     # copies.
-    all_decls: List[ca.Decl] = []
+    all_decls: List[Tuple[ca.Decl, int, "ca.ExternalDeclaration"]] = []
     main_decl: Optional[ca.Decl] = None
     for i in range(len(ast.ext)):
         item = ast.ext[i]
@@ -783,7 +783,7 @@ def perm_randomize_external_type(
         ):
             new_decl = copy.copy(item)
             ast.ext[i] = new_decl
-            all_decls.append(new_decl)
+            all_decls.append((new_decl, i, new_decl))
         if isinstance(item, ca.FuncDef) and item.decl.name == name:
             assert isinstance(
                 item.decl.type, ca.FuncDecl
@@ -792,7 +792,7 @@ def perm_randomize_external_type(
             new_decl = copy.copy(item.decl)
             new_fndef.decl = new_decl
             ast.ext[i] = new_fndef
-            all_decls.append(new_decl)
+            all_decls.append((new_decl, i, new_fndef))
             main_decl = new_decl
 
     # Change the type within the function definition if there is one (since we
@@ -801,7 +801,7 @@ def perm_randomize_external_type(
     if not all_decls:
         return False
     if not main_decl:
-        main_decl = random.choice(all_decls)
+        main_decl = random.choice(all_decls)[0]
 
     typemap = build_typemap(ast)
 
@@ -835,10 +835,12 @@ def perm_randomize_external_type(
         if isinstance(arg, ca.Decl):
             set_decl_name(arg)
 
-    # Mirror the change to all declarations.
+    # Commit the changes by writing them back to the AST, for all declarations.
     for i in range(len(all_decls)):
-        if all_decls[i] is not main_decl:
-            all_decls[i].type = copy.deepcopy(main_decl.type)
+        decl, ind, new_node = all_decls[i]
+        ast.ext[ind] = new_node
+        if decl is not main_decl:
+            decl.type = copy.deepcopy(main_decl.type)
 
     return True
 
