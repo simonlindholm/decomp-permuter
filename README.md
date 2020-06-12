@@ -6,7 +6,7 @@ Automatically permutes C files to better match a target binary. The permuter has
 
 The modes can also be combined, by using the `PERM_RANDOMIZE` macro.
 
-[<img src="https://asciinema.org/a/232846.svg" height="300" />](https://asciinema.org/a/232846)
+[<img src="https://asciinema.org/a/232846.svg" height="300">](https://asciinema.org/a/232846)
 
 The main target for the tool is MIPS code compiled by old compilers (IDO, possibly GCC).
 Getting it to work on other architectures shouldn't be too hard, however.
@@ -17,7 +17,7 @@ https://github.com/laqieer/decomp-permuter-arm has an ARM port.
 `./permuter.py directory/` runs the permuter; see below for the meaning of the directory.
 Pass `-h` to see possible flags.
 
-You'll first need to install a couple of prerequisites: `python3 -m pip install attrs pycparser`
+You'll first need to install a couple of prerequisites: `python3 -m pip install attrs pycparser pynacl`
 
 The permuter expects as input one or more directory containing:
   - a .c file with a single function,
