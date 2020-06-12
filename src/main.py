@@ -41,7 +41,7 @@ from .profiler import Profiler
 
 # The probability that the randomizer continues transforming the output it
 # generated last time.
-RANDOMIZER_KEEP_PROB = 0.6
+DEFAULT_RAND_KEEP_PROB = 0.6
 
 
 @attr.s
@@ -53,6 +53,7 @@ class Options:
     stack_differences: bool = attr.ib(default=False)
     abort_exceptions: bool = attr.ib(default=False)
     stop_on_zero: bool = attr.ib(default=False)
+    keep_prob: float = attr.ib(default=DEFAULT_RAND_KEEP_PROB)
     force_seed: Optional[str] = attr.ib(default=None)
     threads: int = attr.ib(default=1)
 
@@ -91,6 +92,7 @@ class Permuter:
         source: str,
         *,
         force_rng_seed: Optional[int],
+        keep_prob: float,
         need_all_sources: bool,
     ) -> None:
         self.dir = dir
@@ -119,6 +121,7 @@ class Permuter:
         self.force_rng_seed = force_rng_seed
         self.cur_seed: Optional[Tuple[int, int]] = None
 
+        self.keep_prob = keep_prob
         self.need_all_sources = need_all_sources
 
         self.base, base_score, self.base_hash = self.create_and_score_base()
@@ -158,7 +161,7 @@ class Permuter:
         # Don't keep 0-score candidates; we'll only create new, worse, zeroes.
         keep = (
             self.permutations.is_random()
-            and self.random.uniform(0, 1) < RANDOMIZER_KEEP_PROB
+            and self.random.uniform(0, 1) < self.keep_prob
             and self._last_score != 0
         ) or self.force_rng_seed
 
@@ -285,6 +288,7 @@ def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> 
 
     if context.options.print_diffs:
         assert result.source is not None, "need_to_send_source is wrong"
+        print()
         print(permuter.diff(result.source))
         input("Press any key to continue...")
 
@@ -468,6 +472,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
                 base_c,
                 c_source,
                 force_rng_seed=force_rng_seed,
+                keep_prob=options.keep_prob,
                 need_all_sources=options.print_diffs,
             )
         except CandidateConstructionFailure as e:
@@ -602,6 +607,15 @@ def main() -> None:
         action="store_true",
         help="Take stack differences into account when computing the score.",
     )
+    parser.add_argument(
+        "--keep-prob",
+        dest="keep_prob",
+        metavar="PROB",
+        type=float,
+        default=DEFAULT_RAND_KEEP_PROB,
+        help="Continue randomizing the previous output with the given probability "
+        f"(float in 0..1, default {DEFAULT_RAND_KEEP_PROB}).",
+    )
     parser.add_argument("--seed", dest="force_seed", type=str, help=argparse.SUPPRESS)
     parser.add_argument(
         "-j",
@@ -620,6 +634,7 @@ def main() -> None:
         abort_exceptions=args.abort_exceptions,
         stack_differences=args.stack_differences,
         stop_on_zero=args.stop_on_zero,
+        keep_prob=args.keep_prob,
         force_seed=args.force_seed,
         threads=args.threads,
     )
