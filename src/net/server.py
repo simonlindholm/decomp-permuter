@@ -62,13 +62,13 @@ class ServerHandler(socketserver.BaseRequestHandler):
         return client_ver_key, port
 
     def _confirm_grant(
-        self, port: Port, client_ver_key: VerifyKey, server_ver_key: VerifyKey
+        self, port: Port, client_ver_key: VerifyKey, auth_ver_key: VerifyKey
     ) -> str:
         """Check that the client can present proof from the central server that
         its request is valid. (We could also ask the central server itself, but
         this saves some complexity and network traffic.)"""
         msg = port.receive()
-        granted_request = server_ver_key.verify(msg)
+        granted_request = auth_ver_key.verify(msg)
         assert granted_request[:32] == client_ver_key
         request = json.loads(granted_request[32:])
 
@@ -96,9 +96,9 @@ class ServerHandler(socketserver.BaseRequestHandler):
         assert signing_key is not None, "checked on startup"
         client_ver_key, port = self._setup(signing_key)
 
-        server_ver_key = config.server_verify_key
-        assert server_ver_key is not None, "checked on startup"
-        nickname = self._confirm_grant(port, client_ver_key, server_ver_key)
+        auth_ver_key = config.auth_verify_key
+        assert auth_ver_key is not None, "checked on startup"
+        nickname = self._confirm_grant(port, client_ver_key, auth_ver_key)
         print(f"[nickname] connected")
 
         self._send_init(port, shared.options)
@@ -121,12 +121,7 @@ class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     daemon_threads = True
 
 
-def start_server(options: ServerOptions) -> ThreadedTCPServer:
-    # TODO read config
-    config = Config(
-        signing_key=SigningKey.generate(),
-        server_verify_key=SigningKey.generate().verify_key,
-    )
+def start_server(config: Config, options: ServerOptions) -> ThreadedTCPServer:
     shared = SharedServerData(config=config, options=options)
 
     server = ThreadedTCPServer((options.host, options.port), ServerHandler)

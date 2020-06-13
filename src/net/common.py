@@ -1,17 +1,58 @@
 from dataclasses import dataclass
 from socket import socket
 import struct
+import sys
+import toml
 from typing import Optional
 
+from nacl.encoding import HexEncoder
 from nacl.signing import SigningKey
 from nacl.public import Box, PrivateKey, PublicKey, SealedBox, VerifyKey
 
 
+CONFIG_FILENAME = "pah.conf"
+
+
 @dataclass
 class Config:
-    server_verify_key: Optional[VerifyKey] = None
+    auth_server: Optional[str] = None
+    auth_verify_key: Optional[VerifyKey] = None
     signing_key: Optional[SigningKey] = None
-    nickname: Optional[str] = None
+    initial_setup_nickname: Optional[str] = None
+
+
+def read_config() -> Config:
+    config = Config()
+    try:
+        with open(CONFIG_FILENAME) as f:
+            obj = toml.load(f)
+        temp = obj.get("auth_public_key")
+        if temp:
+            config.auth_verify_key = VerifyKey(HexEncoder.decode(temp))
+        temp = obj.get("secret_key")
+        if temp:
+            config.signing_key = SigningKey(HexEncoder.decode(temp))
+        temp = obj.get("initial_setup_nickname")
+        if isinstance(temp, str):
+            config.initial_setup_nickname = temp
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        print(f"Malformed configuration file {CONFIG_FILENAME}: {e}")
+        sys.exit(1)
+    return config
+
+
+def write_config(config: Config) -> None:
+    obj = {}
+    if config.initial_setup_nickname:
+        obj["initial_setup_nickname"] = config.initial_setup_nickname
+    if config.auth_verify_key:
+        obj["auth_public_key"] = config.auth_verify_key.encode(HexEncoder)
+    if config.signing_key:
+        obj["secret_key"] = config.signing_key.encode(HexEncoder)
+    with open(CONFIG_FILENAME, "w") as f:
+        toml.dump(obj, f)
 
 
 def socket_read_fixed(sock: socket, n: int) -> bytes:

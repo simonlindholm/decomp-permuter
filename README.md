@@ -17,7 +17,7 @@ https://github.com/laqieer/decomp-permuter-arm has an ARM port.
 `./permuter.py directory/` runs the permuter; see below for the meaning of the directory.
 Pass `-h` to see possible flags.
 
-You'll first need to install a couple of prerequisites: `python3 -m pip install attrs pycparser pynacl`
+You'll first need to install a couple of prerequisites: `python3 -m pip install attrs pycparser pynacl toml`
 
 The permuter expects as input one or more directory containing:
   - a .c file with a single function,
