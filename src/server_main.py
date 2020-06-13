@@ -1,7 +1,10 @@
 import argparse
+import threading
 
 import attr
 import pystray
+
+from .net.server import start_server
 
 
 @attr.s
@@ -14,8 +17,11 @@ class Options:
 
 
 def run(options: Options) -> None:
-    print(options.systray)
-    pass
+    server = start_server(options.host, options.port)
+
+    # TODO: print statistics, run systray, etc.
+    input("Press enter to stop the server.")
+    server.shutdown()
 
 
 def main() -> None:
