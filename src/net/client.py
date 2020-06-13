@@ -4,7 +4,6 @@ import os
 import random
 import string
 import sys
-import time
 from typing import List, Optional, Tuple
 
 from nacl.encoding import HexEncoder
@@ -114,7 +113,7 @@ def get_servers() -> Tuple[List[Tuple[str, int, VerifyKey]], bytes]:
     server_verify_key = SigningKey.generate().verify_key
 
     request_obj = {
-        "time": int(time.time()),
+        "version": 1,
     }
     request = json.dumps(request_obj).encode("utf-8")
     data = signing_key.sign(request)

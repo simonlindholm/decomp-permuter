@@ -27,7 +27,7 @@ def talk_to_client() -> None:
     granted_request = server_verify_key.verify(msg[32:])
     assert granted_request[:32] == ver_key
     request = granted_request[32:]
-    assert abs(time.time() - int(request["time"])) < 5 * 60
+    assert int(request["valid_from"]) <= time.time() <= int(request["valid_until"])
     resp = {
         "status": "ok",
     }
