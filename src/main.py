@@ -56,6 +56,24 @@ class Options:
     keep_prob: float = attr.ib(default=DEFAULT_RAND_KEEP_PROB)
     force_seed: Optional[str] = attr.ib(default=None)
     threads: int = attr.ib(default=1)
+    use_network: bool = attr.ib(default=False)
+    network_priority: float = attr.ib(default=1.0)
+
+
+def restricted_float(lo: float, hi: float) -> Callable[[str], float]:
+    def convert(x: str) -> float:
+        try:
+            ret = float(x)
+        except ValueError:
+            raise argparse.ArgumentTypeError(f"invalid float value: '{x}'")
+
+        if ret < lo or ret > hi:
+            raise argparse.ArgumentTypeError(
+                f"value {x} is out of range (must be between {lo} and {hi})"
+            )
+        return ret
+
+    return convert
 
 
 def find_fns(source: str) -> List[str]:
@@ -611,21 +629,43 @@ def main() -> None:
         "--keep-prob",
         dest="keep_prob",
         metavar="PROB",
-        type=float,
+        type=restricted_float(0.0, 1.0),
         default=DEFAULT_RAND_KEEP_PROB,
         help="Continue randomizing the previous output with the given probability "
-        f"(float in 0..1, default {DEFAULT_RAND_KEEP_PROB}).",
+        f"(float in 0..1, default %(default)s).",
     )
     parser.add_argument("--seed", dest="force_seed", type=str, help=argparse.SUPPRESS)
     parser.add_argument(
         "-j",
         dest="threads",
         type=int,
-        default=1,
-        help="Number of threads (default: %(default)s).",
+        default=0,
+        help="Number of own threads to use (default: 1 without -J, 0 with -J).",
+    )
+    parser.add_argument(
+        "-J",
+        dest="use_network",
+        action="store_true",
+        help="Harness extra compute power through cyberspace (permuter@home).",
+    )
+    parser.add_argument(
+        "--priority",
+        dest="network_priority",
+        metavar="PRIORITY",
+        type=restricted_float(0.01, 2.0),
+        default=1.0,
+        help="Proportion of server resources to use when multiple people "
+        "are using -J at the same time. "
+        "Defaults to 1.0, meaning resources are split equally, but can be "
+        "set to any value within [0.01, 2.0]. "
+        "Each server runs with a priority threshold, which defaults to 0.1, "
+        "below which they will not run permuter jobs at all.",
     )
     args = parser.parse_args()
 
+    threads = args.threads
+    if not threads and not args.use_network:
+        threads = 1
     options = Options(
         directories=args.directory,
         show_errors=args.show_errors,
@@ -636,7 +676,9 @@ def main() -> None:
         stop_on_zero=args.stop_on_zero,
         keep_prob=args.keep_prob,
         force_seed=args.force_seed,
-        threads=args.threads,
+        threads=threads,
+        use_network=args.use_network,
+        network_priority=args.network_priority,
     )
 
     run(options)
