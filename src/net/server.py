@@ -6,7 +6,7 @@ import time
 
 from nacl.signing import SigningKey, VerifyKey
 from nacl.public import Box, PrivateKey
-import nacl.util
+import nacl.utils
 
 from .common import Port
 
@@ -23,7 +23,7 @@ def talk_to_client() -> None:
     client_enc_key = client_ver_key.verify(msg[32:])
     box = Box(signing_key.to_curve25519_private_key(), client_enc_key)
     port = Port(box, is_client=False)
-    rand = nacl.util.random(32)
+    rand = nacl.utils.random(32)
     port.send(rand)
     msg = port.receive()
     assert msg[:32] == rand

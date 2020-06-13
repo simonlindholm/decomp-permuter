@@ -26,29 +26,33 @@ def run(options: Options) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Run a permuter server, allowing anyone with access to a central "
-        "server to run permuter jobs on your machine (sandboxed)."
+        description="Run a permuter server, allowing anyone with access to the central -J "
+        "server to run sandboxed permuter jobs on your machine (permuter@home)."
     )
     parser.add_argument(
-        "--host", dest="host", help="Hostname to listen on. (default: %(default)s)"
+        "--host",
+        dest="host",
+        default="0.0.0.0",
+        help="Hostname to listen on. (default: %(default)s)",
     )
     parser.add_argument(
-        "--port", dest="port", type=int, required=True, help="Port to use.",
+        "--port", dest="port", type=int, required=True, help="Port to listen on.",
     )
     parser.add_argument(
         "--cpus",
         dest="cpus",
         type=float,
         required=True,
-        help="Number of CPUs to use. (float)",
+        help="Number of CPUs to use (float).",
     )
     parser.add_argument(
         "--memory",
         dest="max_memory_gb",
+        metavar="MEMORY_GB",
         type=float,
         required=True,
-        help="Restrict the sandboxed process to the given amount of memory in gigabytes. "
-        "If this limit is hit, the permuter will crash horribly, but your system won't lock up. (float)",
+        help="Restrict the sandboxed process to the given amount of memory in gigabytes (float). "
+        "If this limit is hit, the permuter will crash horribly, but at least your system won't lock up.",
     )
     parser.add_argument(
         "--systray",
