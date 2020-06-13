@@ -1,4 +1,5 @@
 import base64
+from dataclasses import dataclass
 import json
 from socket import socket
 import socketserver
@@ -14,20 +15,37 @@ import nacl.utils
 from .common import Config, Port, socket_read_fixed
 
 
+@dataclass
+class ServerOptions:
+    host: str
+    port: int
+    num_cpus: float
+    max_memory_gb: float
+    min_priority: float
+    systray: bool
+
+
+@dataclass
+class SharedServerData:
+    config: Config
+    options: ServerOptions
+
+
 class ServerHandler(socketserver.BaseRequestHandler):
     def _setup(self, signing_key: SigningKey) -> Tuple[VerifyKey, Port]:
         """Set up a secure (but untrusted) connection with the client."""
         sock: socket = self.request
 
-        # TODO: Add a version number here
-
-        # Read signing and (ephemeral) encryption keys from the client. We
-        # don't know who the client is yet, so we don't fully trust these keys;
-        # we'll start doing so when it presents proof signed by the central
-        # server that its signature is legit.
-        msg = socket_read_fixed(sock, 128)
-        client_ver_key = VerifyKey(msg[:32])
-        client_enc_key = PublicKey(client_ver_key.verify(msg[32:]))
+        # Read protocol version number as well as signing and (ephemeral)
+        # encryption keys from the client. We don't know who the client is yet,
+        # so we don't fully trust these keys; we'll start doing so when it
+        # presents proof signed by the central server that its signature is
+        # legit.
+        msg = socket_read_fixed(sock, 4 + 32 + 96)
+        version = struct.unpack(">I", msg[:4])[0]
+        assert version == 1
+        client_ver_key = VerifyKey(msg[4 : 4 + 32])
+        client_enc_key = PublicKey(client_ver_key.verify(msg[4 + 32 :]))
 
         # Set up encrypted communication channel.
         box = Box(signing_key.to_curve25519_private_key(), client_enc_key)
@@ -63,16 +81,17 @@ class ServerHandler(socketserver.BaseRequestHandler):
         enc_nickname: bytes = client_ver_key.verify(signed_nickname)
         return enc_nickname.decode("utf-8")
 
-    def _send_init(self, port: Port) -> None:
-        # TODO
+    def _send_init(self, port: Port, options: ServerOptions) -> None:
+        # TODO include current load
         props = {
-            "priority_cap": 1.0,
-            "num_cpus": 1.0,
+            "min_priority": options.min_priority,
+            "num_cpus": options.num_cpus,
         }
         port.send(json.dumps(props).encode("utf-8"))
 
     def handle(self) -> None:
-        config = getattr(self.server, "config")
+        shared: SharedServerData = getattr(self.server, "shared")
+        config = shared.config
         signing_key = config.signing_key
         assert signing_key is not None, "checked on startup"
         client_ver_key, port = self._setup(signing_key)
@@ -82,7 +101,7 @@ class ServerHandler(socketserver.BaseRequestHandler):
         nickname = self._confirm_grant(port, client_ver_key, server_ver_key)
         print(f"[nickname] connected")
 
-        self._send_init(port)
+        self._send_init(port, shared.options)
         # TODO: do stuff!
         time.sleep(2)
         print("done")
@@ -102,15 +121,16 @@ class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     daemon_threads = True
 
 
-def start_server(host: str, port: int) -> ThreadedTCPServer:
+def start_server(options: ServerOptions) -> ThreadedTCPServer:
     # TODO read config
     config = Config(
         signing_key=SigningKey.generate(),
         server_verify_key=SigningKey.generate().verify_key,
     )
+    shared = SharedServerData(config=config, options=options)
 
-    server = ThreadedTCPServer((host, port), ServerHandler)
-    setattr(server, "config", config)
+    server = ThreadedTCPServer((options.host, options.port), ServerHandler)
+    setattr(server, "shared", shared)
 
     # Start a thread with the server -- that thread will then start one
     # more thread for each request.
