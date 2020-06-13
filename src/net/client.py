@@ -148,8 +148,9 @@ def talk_to_server(ip_port: Tuple[str, int], ver_key: VerifyKey, grant: bytes) -
     )
     # TODO: send 'msg'
 
+    sock = ...
     box = Box(ephemeral_key, ver_key.to_curve25519_public_key())
-    port = Port(box, is_client=True)
+    port = Port(sock, box, is_client=True)
     # To help guard the server against replay attacks, send a server-chosen
     # string as part of our first message.
     rand = port.receive()
