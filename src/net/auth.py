@@ -62,7 +62,7 @@ def initial_setup() -> None:
     vouch_data = verify_key.encode() + signed_nickname
     vouch_text = base64.b64encode(vouch_data).decode("utf-8")
     print("Ask someone to run the following command:")
-    print(f"./permuter.py -J --vouch {vouch_text}")
+    print(f"./permuter.py --vouch {vouch_text}")
     print()
     print("They should give you a token back in return. Paste that here:")
     inp = input().strip()
@@ -79,7 +79,7 @@ def initial_setup() -> None:
         print("Invalid token!")
 
 
-def vouch(vouch_text: str) -> None:
+def run_vouch(vouch_text: str) -> None:
     # TODO: read from config or bail
     auth_server = ""
     signing_key = SigningKey.generate()

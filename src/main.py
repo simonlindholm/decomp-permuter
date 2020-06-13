@@ -31,13 +31,13 @@ from pycparser import CParser, c_ast as ca
 
 from .error import CandidateConstructionFailure
 from .perm import perm_gen, perm_eval
-from . import ast_util
 from .preprocess import preprocess
 from .compiler import Compiler
 from .scorer import Scorer
 from .perm.perm import EvalState
 from .candidate import Candidate, CandidateResult
 from .profiler import Profiler
+from .net.auth import run_vouch
 
 # The probability that the randomizer continues transforming the output it
 # generated last time.
@@ -585,8 +585,9 @@ def main() -> None:
         description="Randomly permute C files to better match a target binary."
     )
     parser.add_argument(
-        "directory",
+        "directories",
         nargs="+",
+        metavar="directory",
         help="Directory containing base.c, target.o and compile.sh. Multiple directories may be given.",
     )
     parser.add_argument(
@@ -661,13 +662,25 @@ def main() -> None:
         "Each server runs with a priority threshold, which defaults to 0.1, "
         "below which they will not run permuter jobs at all.",
     )
+    parser.add_argument(
+        "--vouch",
+        dest="vouch",
+        action="store_true",
+        help="Give someone access to the permuter@home server.",
+    )
+
     args = parser.parse_args()
 
     threads = args.threads
     if not threads and not args.use_network:
         threads = 1
+
+    if args.vouch:
+        run_vouch(args.directories[0])
+        return
+
     options = Options(
-        directories=args.directory,
+        directories=args.directories,
         show_errors=args.show_errors,
         show_timings=args.show_timings,
         print_diffs=args.print_diffs,
