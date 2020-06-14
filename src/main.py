@@ -6,6 +6,7 @@ import functools
 import itertools
 import multiprocessing
 import os
+import threading
 import random
 from random import Random
 import re
@@ -536,23 +537,22 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
                 if options.stop_on_zero:
                     break
     else:
-        if options.use_network:
-            config = setup()
-            servers, grant = get_servers_and_grant(config)
-            multi_connection = connect_to_servers(config, servers, grant)
-
         # Create queues
         task_queue: "multiprocessing.Queue[Task]" = multiprocessing.Queue()
         feedback_queue: "multiprocessing.Queue[Feedback]" = multiprocessing.Queue()
         task_queue.cancel_join_thread()
         feedback_queue.cancel_join_thread()
 
-        def process_result(result: Tuple[int, EvalResult]) -> bool:
-            permuter_index, res = result
-            permuter = context.permuters[permuter_index]
-            return post_score(context, permuter, res)
+        # Connect to network and create client threads
+        net_threads: List[threading.Thread] = []
+        if options.use_network:
+            config = setup()
+            servers, grant = get_servers_and_grant(config)
+            net_threads = connect_to_servers(
+                config, servers, grant  # , task_queue, feedback_queue
+            )
 
-        # Begin local worker threads
+        # Start local worker threads
         processes: List[multiprocessing.Process] = []
         for i in range(options.threads):
             p = multiprocessing.Process(
@@ -561,6 +561,11 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             )
             p.start()
             processes.append(p)
+
+        def process_result(result: Tuple[int, EvalResult]) -> bool:
+            permuter_index, res = result
+            permuter = context.permuters[permuter_index]
+            return post_score(context, permuter, res)
 
         # Feed the task queue with work and read from results queue.
         # We generally match these up one-by-one to avoid overfilling queues,

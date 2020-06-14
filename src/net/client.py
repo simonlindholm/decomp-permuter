@@ -46,18 +46,16 @@ class Connection:
         pass
 
 
-@dataclass
-class MultiConnection:
-    connections: List[Connection]
-
-
 def connect_to_servers(
-    config: Config, servers: List[RemoteServer], grant: bytes
-) -> MultiConnection:
-    connections = []
+    config: Config,
+    servers: List[RemoteServer],
+    grant: bytes,
+    # task_queue: "multiprocessing.Queue[Task]",
+    # feedback_queue: "multiprocessing.Queue[Feedback]",
+) -> List[threading.Thread]:
+    threads = []
     for server in servers:
         conn = Connection(config, server, grant)
-        connections.append(conn)
 
         thread = threading.Thread(target=conn.run)
 
@@ -65,4 +63,6 @@ def connect_to_servers(
         thread.daemon = True
         thread.start()
 
-    return MultiConnection(connections=connections)
+        threads.append(thread)
+
+    return threads
