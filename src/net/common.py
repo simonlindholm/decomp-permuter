@@ -10,6 +10,8 @@ from nacl.signing import SigningKey, VerifyKey
 from nacl.public import Box, PrivateKey, PublicKey, SealedBox
 
 
+PROTOCOL_VERSION = 1
+
 CONFIG_FILENAME = "pah.conf"
 
 

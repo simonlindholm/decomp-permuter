@@ -376,7 +376,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
 
         if not active_workers:
             print("No remote servers available. Exiting.")
-            return False
+            sys.exit(1)
 
         def process_result(result: Tuple[int, EvalResult]) -> bool:
             permuter_index, res = result

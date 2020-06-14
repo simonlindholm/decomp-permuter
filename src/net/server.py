@@ -12,7 +12,7 @@ from nacl.signing import SigningKey, VerifyKey
 from nacl.public import Box, PrivateKey, PublicKey
 import nacl.utils
 
-from .common import Config, Port, socket_read_fixed
+from .common import Config, PROTOCOL_VERSION, Port, socket_read_fixed
 
 
 @dataclass
@@ -39,7 +39,7 @@ class ServerHandler(socketserver.BaseRequestHandler):
         # Read and verify protocol version.
         msg = socket_read_fixed(sock, 4)
         version = struct.unpack(">I", msg)[0]
-        assert version == 1
+        assert version == PROTOCOL_VERSION
 
         # Read signing and (ephemeral) encryption keys from the client. We
         # don't know who the client is yet, so we don't fully trust these keys;
