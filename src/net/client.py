@@ -1,11 +1,22 @@
+from dataclasses import dataclass
 import json
 import struct
-from typing import Tuple
+from typing import List, Tuple
 
 from nacl.public import Box, PrivateKey
 from nacl.signing import SigningKey, VerifyKey
 
-from .common import Config, Port
+from .common import Config, Port, RemoteServer
+
+
+@dataclass
+class State:
+    servers: List[RemoteServer]
+    grant: bytes
+
+
+def init_client(servers: List[RemoteServer], grant: bytes) -> State:
+    return State(servers=servers, grant=grant)
 
 
 def talk_to_server(

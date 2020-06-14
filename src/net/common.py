@@ -14,6 +14,13 @@ CONFIG_FILENAME = "pah.conf"
 
 
 @dataclass
+class RemoteServer:
+    ip: str
+    port: int
+    ver_key: VerifyKey
+
+
+@dataclass
 class RawConfig:
     auth_server: Optional[str] = None
     auth_verify_key: Optional[VerifyKey] = None

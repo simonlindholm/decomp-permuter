@@ -13,14 +13,7 @@ from nacl.exceptions import BadSignatureError
 from nacl.public import PublicKey, SealedBox
 from nacl.signing import SigningKey, VerifyKey
 
-from .common import Config, RawConfig, read_config, write_config
-
-
-@dataclass
-class RemoteServer:
-    ip: str
-    port: int
-    ver_key: VerifyKey
+from .common import Config, RawConfig, RemoteServer, read_config, write_config
 
 
 def _random_name() -> str:
@@ -141,9 +134,7 @@ def run_vouch(vouch_text: str) -> None:
     print(base64.b64encode(token).decode("utf-8"))
 
 
-def get_servers_and_grant() -> Tuple[List[RemoteServer], bytes]:
-    config = setup()
-
+def get_servers_and_grant(config: Config) -> Tuple[List[RemoteServer], bytes]:
     request_obj = {
         "version": 1,
     }

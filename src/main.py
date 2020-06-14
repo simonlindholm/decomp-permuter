@@ -1,3 +1,17 @@
+import argparse
+import copy
+import difflib
+from enum import Enum
+import functools
+import itertools
+import multiprocessing
+import os
+import random
+from random import Random
+import re
+import sys
+import time
+import traceback
 from typing import (
     Any,
     List,
@@ -10,34 +24,21 @@ from typing import (
     Iterator,
     Union,
 )
-import argparse
-import difflib
-import itertools
-import functools
-import os
-import random
-import re
-import sys
-import time
-import traceback
-import multiprocessing
-import copy
-from enum import Enum
-from random import Random
 
 import attr
 import pycparser
 from pycparser import CParser, c_ast as ca
 
-from .error import CandidateConstructionFailure
-from .perm import perm_gen, perm_eval
-from .preprocess import preprocess
-from .compiler import Compiler
-from .scorer import Scorer
-from .perm.perm import EvalState
 from .candidate import Candidate, CandidateResult
+from .compiler import Compiler
+from .error import CandidateConstructionFailure
+from .net.auth import get_servers_and_grant, run_vouch, setup
+from .net.client import init_client
+from .perm import perm_eval, perm_gen
+from .perm.perm import EvalState
+from .preprocess import preprocess
 from .profiler import Profiler
-from .net.auth import run_vouch
+from .scorer import Scorer
 
 # The probability that the randomizer continues transforming the output it
 # generated last time.
@@ -501,7 +502,9 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
 
     found_zero = False
     perm_seed_iter = cycle_seeds(context.permuters, force_seed)
-    if options.threads == 1:
+    if options.threads == 1 and not options.use_network:
+        # Simple single-threaded mode. This is not technically needed, but
+        # makes the permuter easier to debug.
         for permuter_index, seed in perm_seed_iter:
             heartbeat()
             permuter = context.permuters[permuter_index]
@@ -511,6 +514,11 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
                 if options.stop_on_zero:
                     break
     else:
+        if options.use_network:
+            config = setup()
+            servers, grant = get_servers_and_grant(config)
+            network_state = init_client(servers, grant)
+
         # Create queues
         task_queue: "multiprocessing.Queue[Optional[Tuple[int, int]]]" = multiprocessing.Queue()
         results_queue: "multiprocessing.Queue[Tuple[int, EvalResult]]" = multiprocessing.Queue()
