@@ -1,4 +1,5 @@
 import base64
+from dataclasses import dataclass
 import json
 import os
 import random
@@ -15,14 +16,21 @@ from nacl.signing import SigningKey, VerifyKey
 from .common import Config, RawConfig, read_config, write_config
 
 
+@dataclass
+class RemoteServer:
+    ip: str
+    port: int
+    ver_key: VerifyKey
+
+
 def _random_name() -> str:
     return "".join(random.choice(string.ascii_lowercase) for _ in range(5))
 
 
-def _decode_hex_signature(sign: str) -> bytes:
+def _decode_hex_key(sign: str) -> bytes:
     ret: bytes = HexEncoder.decode(sign)
     if len(ret) != 32:
-        raise BadSignatureError("Signature has wrong length.")
+        raise BadSignatureError("Key has wrong length.")
     return ret
 
 
@@ -131,7 +139,7 @@ def run_vouch(vouch_text: str) -> None:
     print(base64.b64encode(token).decode("utf-8"))
 
 
-def get_servers() -> Tuple[List[Tuple[str, int, VerifyKey]], bytes]:
+def get_servers_and_grant() -> Tuple[List[RemoteServer], bytes]:
     config = setup()
 
     request_obj = {
@@ -151,10 +159,12 @@ def get_servers() -> Tuple[List[Tuple[str, int, VerifyKey]], bytes]:
     server_list = resp["server_list"]
 
     ret = []
-    for server in server_list:
-        ip = server["ip"]
-        port = server["port"]
-        ver_key = VerifyKey(_decode_hex_signature(server["verification_key"]))
-        ret.append((ip, port, ver_key))
+    for obj in server_list:
+        server = RemoteServer(
+            ip=obj["ip"],
+            port=obj["port"],
+            ver_key=VerifyKey(_decode_hex_key(obj["verification_key"])),
+        )
+        ret.append(server)
 
     return ret, grant
