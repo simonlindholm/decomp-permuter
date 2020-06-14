@@ -3,15 +3,12 @@ import threading
 
 import pystray
 
-from .net.common import read_config
+from .net.auth import setup
 from .net.server import ServerOptions, start_server
 
 
 def run(options: ServerOptions) -> None:
-    config = read_config()
-    if not config.auth_verify_key or not config.signing_key:
-        print("Running permuter@home requires access to a central -J server.")
-        exit(1)
+    config = setup()
     server = start_server(config, options)
 
     # TODO: print statistics, run systray, etc.

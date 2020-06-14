@@ -4,6 +4,7 @@ import os
 import random
 import string
 import sys
+import time
 from typing import List, Optional, Tuple
 
 from nacl.encoding import HexEncoder
@@ -11,7 +12,7 @@ from nacl.exceptions import BadSignatureError
 from nacl.public import PublicKey, SealedBox
 from nacl.signing import SigningKey, VerifyKey
 
-from .common import Config
+from .common import Config, RawConfig, read_config, write_config
 
 
 def random_name() -> str:
@@ -39,23 +40,27 @@ def ask(msg: str, *, default: bool) -> bool:
     sys.exit(1)
 
 
-def initial_setup() -> None:
-    signing_key: Optional[SigningKey] = None
-    # TODO: read from config
+def _initial_setup(config: RawConfig) -> None:
+    print(
+        "Using permuter@home requires someone to give you access to a central -J server."
+    )
+    print()
+
+    signing_key: Optional[SigningKey] = config.signing_key
     if not signing_key or not ask("Keep previous secret key", default=True):
-        # TODO: signature key
         signing_key = SigningKey.generate()
-        # TODO: write to config
+        config.signing_key = signing_key
+        write_config(config)
     verify_key = signing_key.verify_key
 
-    nickname: Optional[str] = None
-    # TODO: read from config
-    if not nickname or not ask(f"Keep previous nickname {nickname}", default=True):
+    nickname: Optional[str] = config.initial_setup_nickname
+    if not nickname or not ask(f"Keep previous nickname [{nickname}]", default=True):
         default_nickname = os.environ.get("USER") or random_name()
         nickname = (
             input(f"Nickname [default: {default_nickname}]: ") or default_nickname
         )
-        # TODO: write to config
+        config.initial_setup_nickname = nickname
+        write_config(config)
 
     signed_nickname = signing_key.sign(nickname.encode("utf-8"))
 
@@ -72,11 +77,34 @@ def initial_setup() -> None:
         data = SealedBox(signing_key.to_curve25519_private_key()).decrypt(token)
         auth_verify_key = data[:32]
         auth_server = data[32:].decode("utf-8")
-        print("Server URL:", auth_server)
+        print(f"Server URL: {auth_server}")
+        print("Testing connection...")
+        time.sleep(1)
         # TODO: verify that contacting auth server works and signs its messages
-        # TODO: write to config
+        print("permuter@home successfully set up!")
+        config.auth_server = auth_server
+        write_config(config)
     except Exception:
         print("Invalid token!")
+        sys.exit(1)
+
+
+def setup() -> Config:
+    raw_config = read_config()
+    if (
+        not raw_config.auth_verify_key
+        or not raw_config.signing_key
+        or not raw_config.auth_server
+    ):
+        _initial_setup(raw_config)
+    assert (
+        raw_config.auth_verify_key and raw_config.signing_key and raw_config.auth_server
+    ), "set by _initial_setup"
+    return Config(
+        auth_server=raw_config.auth_server,
+        auth_verify_key=raw_config.auth_verify_key,
+        signing_key=raw_config.signing_key,
+    )
 
 
 def run_vouch(vouch_text: str) -> None:

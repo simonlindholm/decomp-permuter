@@ -6,23 +6,30 @@ import toml
 from typing import Optional
 
 from nacl.encoding import HexEncoder
-from nacl.signing import SigningKey
-from nacl.public import Box, PrivateKey, PublicKey, SealedBox, VerifyKey
+from nacl.signing import SigningKey, VerifyKey
+from nacl.public import Box, PrivateKey, PublicKey, SealedBox
 
 
 CONFIG_FILENAME = "pah.conf"
 
 
 @dataclass
-class Config:
+class RawConfig:
     auth_server: Optional[str] = None
     auth_verify_key: Optional[VerifyKey] = None
     signing_key: Optional[SigningKey] = None
     initial_setup_nickname: Optional[str] = None
 
 
-def read_config() -> Config:
-    config = Config()
+@dataclass
+class Config:
+    auth_server: str
+    auth_verify_key: VerifyKey
+    signing_key: SigningKey
+
+
+def read_config() -> RawConfig:
+    config = RawConfig()
     try:
         with open(CONFIG_FILENAME) as f:
             obj = toml.load(f)
@@ -35,6 +42,9 @@ def read_config() -> Config:
         temp = obj.get("initial_setup_nickname")
         if isinstance(temp, str):
             config.initial_setup_nickname = temp
+        temp = obj.get("initial_setup_nickname")
+        if isinstance(temp, str):
+            config.initial_setup_nickname = temp
     except FileNotFoundError:
         pass
     except Exception as e:
@@ -43,14 +53,18 @@ def read_config() -> Config:
     return config
 
 
-def write_config(config: Config) -> None:
+def write_config(config: RawConfig) -> None:
     obj = {}
+    if config.auth_verify_key:
+        key_hex: bytes = config.auth_verify_key.encode(HexEncoder)
+        obj["auth_public_key"] = key_hex.decode("utf-8")
+    if config.signing_key:
+        key_hex: bytes = config.signing_key.encode(HexEncoder)
+        obj["secret_key"] = key_hex.decode("utf-8")
     if config.initial_setup_nickname:
         obj["initial_setup_nickname"] = config.initial_setup_nickname
-    if config.auth_verify_key:
-        obj["auth_public_key"] = config.auth_verify_key.encode(HexEncoder)
-    if config.signing_key:
-        obj["secret_key"] = config.signing_key.encode(HexEncoder)
+    if config.auth_server:
+        obj["auth_server"] = config.auth_server
     with open(CONFIG_FILENAME, "w") as f:
         toml.dump(obj, f)
 

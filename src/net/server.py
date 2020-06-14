@@ -91,15 +91,12 @@ class ServerHandler(socketserver.BaseRequestHandler):
 
     def handle(self) -> None:
         shared: SharedServerData = getattr(self.server, "shared")
-        config = shared.config
-        signing_key = config.signing_key
-        assert signing_key is not None, "checked on startup"
+        signing_key = shared.config.signing_key
         client_ver_key, port = self._setup(signing_key)
 
-        auth_ver_key = config.auth_verify_key
-        assert auth_ver_key is not None, "checked on startup"
+        auth_ver_key = shared.config.auth_verify_key
         nickname = self._confirm_grant(port, client_ver_key, auth_ver_key)
-        print(f"[nickname] connected")
+        print(f"[{nickname}] connected")
 
         self._send_init(port, shared.options)
         # TODO: do stuff!
