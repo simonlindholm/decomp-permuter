@@ -36,16 +36,18 @@ class ServerHandler(socketserver.BaseRequestHandler):
         """Set up a secure (but untrusted) connection with the client."""
         sock: socket = self.request
 
-        # Read protocol version number as well as signing and (ephemeral)
-        # encryption keys from the client. We don't know who the client is yet,
-        # so we don't fully trust these keys; we'll start doing so when it
-        # presents proof signed by the central server that its signature is
-        # legit.
-        msg = socket_read_fixed(sock, 4 + 32 + 96)
-        version = struct.unpack(">I", msg[:4])[0]
+        # Read and verify protocol version.
+        msg = socket_read_fixed(sock, 4)
+        version = struct.unpack(">I", msg)[0]
         assert version == 1
-        client_ver_key = VerifyKey(msg[4 : 4 + 32])
-        client_enc_key = PublicKey(client_ver_key.verify(msg[4 + 32 :]))
+
+        # Read signing and (ephemeral) encryption keys from the client. We
+        # don't know who the client is yet, so we don't fully trust these keys;
+        # we'll start doing so when it presents proof signed by the central
+        # server that its signature is legit.
+        msg = socket_read_fixed(sock, 32 + 96)
+        client_ver_key = VerifyKey(msg[:32])
+        client_enc_key = PublicKey(client_ver_key.verify(msg[32:]))
 
         # Set up encrypted communication channel.
         box = Box(signing_key.to_curve25519_private_key(), client_enc_key)

@@ -1,4 +1,5 @@
 import json
+import struct
 from typing import Tuple
 
 from nacl.public import Box, PrivateKey
@@ -11,8 +12,10 @@ def talk_to_server(
     config: Config, ip_port: Tuple[str, int], ver_key: VerifyKey, grant: bytes
 ) -> None:
     ephemeral_key = PrivateKey.generate()
-    msg = config.signing_key.verify_key.encode() + config.signing_key.sign(
-        ephemeral_key.public_key.encode()
+    msg = (
+        struct.pack(">I", 1)
+        + config.signing_key.verify_key.encode()
+        + config.signing_key.sign(ephemeral_key.public_key.encode())
     )
     # TODO: send 'msg'
 
