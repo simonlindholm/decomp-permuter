@@ -417,14 +417,7 @@ def run(options: Options) -> List[int]:
             sys.exit(1)
         print()
         print("Exiting.")
-        if options.threads == 1:
-            # The lru_cache sometimes uses a lot of memory, making normal exit slow
-            # due to GC. But since we're sane people and don't use finalizers for
-            # cleanup, we can just skip GC and exit immediately.
-            os._exit(0)
-        else:
-            # With threads we do need proper cleanup.
-            sys.exit(0)
+        sys.exit(0)
 
 
 def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
