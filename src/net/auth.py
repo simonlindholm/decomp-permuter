@@ -15,18 +15,18 @@ from nacl.signing import SigningKey, VerifyKey
 from .common import Config, RawConfig, read_config, write_config
 
 
-def random_name() -> str:
+def _random_name() -> str:
     return "".join(random.choice(string.ascii_lowercase) for _ in range(5))
 
 
-def decode_hex_signature(sign: str) -> bytes:
+def _decode_hex_signature(sign: str) -> bytes:
     ret: bytes = HexEncoder.decode(sign)
     if len(ret) != 32:
         raise BadSignatureError("Signature has wrong length.")
     return ret
 
 
-def ask(msg: str, *, default: bool) -> bool:
+def _ask(msg: str, *, default: bool) -> bool:
     if default:
         msg += " (Y/n)? "
     else:
@@ -47,15 +47,15 @@ def _initial_setup(config: RawConfig) -> None:
     print()
 
     signing_key: Optional[SigningKey] = config.signing_key
-    if not signing_key or not ask("Keep previous secret key", default=True):
+    if not signing_key or not _ask("Keep previous secret key", default=True):
         signing_key = SigningKey.generate()
         config.signing_key = signing_key
         write_config(config)
     verify_key = signing_key.verify_key
 
     nickname: Optional[str] = config.initial_setup_nickname
-    if not nickname or not ask(f"Keep previous nickname [{nickname}]", default=True):
-        default_nickname = os.environ.get("USER") or random_name()
+    if not nickname or not _ask(f"Keep previous nickname [{nickname}]", default=True):
+        default_nickname = os.environ.get("USER") or _random_name()
         nickname = (
             input(f"Nickname [default: {default_nickname}]: ") or default_nickname
         )
@@ -108,10 +108,7 @@ def setup() -> Config:
 
 
 def run_vouch(vouch_text: str) -> None:
-    # TODO: read from config or bail
-    auth_server = ""
-    signing_key = SigningKey.generate()
-    auth_verify_key = SigningKey.generate().verify_key
+    config = setup()
 
     try:
         vouch_data = base64.b64decode(vouch_text.encode("utf-8"))
@@ -122,12 +119,12 @@ def run_vouch(vouch_text: str) -> None:
         print("Could not parse data!")
         return
 
-    if not ask(f"Grant permuter server access to {nickname}", default=True):
+    if not _ask(f"Grant permuter server access to {nickname}", default=True):
         return
 
     # TODO: send signature and signed nickname to central server
 
-    token = SealedBox(verify_key.to_curve25519_public_key()).encrypt(auth_server)
+    token = SealedBox(verify_key.to_curve25519_public_key()).encrypt(config.auth_server)
     print("Granted!")
     print()
     print("Send them the following token:")
@@ -135,24 +132,21 @@ def run_vouch(vouch_text: str) -> None:
 
 
 def get_servers() -> Tuple[List[Tuple[str, int, VerifyKey]], bytes]:
-    # TODO: read from config or bail
-    auth_server = ""
-    signing_key = SigningKey.generate()
-    auth_verify_key = SigningKey.generate().verify_key
+    config = setup()
 
     request_obj = {
         "version": 1,
     }
     request = json.dumps(request_obj).encode("utf-8")
-    data = signing_key.sign(request)
+    data = config.signing_key.sign(request)
     # TODO: send 'data' to auth server, receive 'resp'
     raw_resp = b""
-    raw_resp = auth_verify_key.verify(raw_resp)
+    raw_resp = config.auth_verify_key.verify(raw_resp)
     resp = json.loads(raw_resp)
     assert resp["version"] == 1
     grant = base64.b64decode(resp["grant"])
-    granted_request = auth_verify_key.verify(grant)
-    assert granted_request[:32] == signing_key.verify_key.encode()
+    granted_request = config.auth_verify_key.verify(grant)
+    assert granted_request[:32] == config.signing_key.verify_key.encode()
 
     server_list = resp["server_list"]
 
@@ -160,7 +154,7 @@ def get_servers() -> Tuple[List[Tuple[str, int, VerifyKey]], bytes]:
     for server in server_list:
         ip = server["ip"]
         port = server["port"]
-        ver_key = VerifyKey(decode_hex_signature(server["verification_key"]))
+        ver_key = VerifyKey(_decode_hex_signature(server["verification_key"]))
         ret.append((ip, port, ver_key))
 
     return ret, grant

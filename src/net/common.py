@@ -47,19 +47,20 @@ def read_config() -> RawConfig:
             config.initial_setup_nickname = temp
     except FileNotFoundError:
         pass
-    except Exception as e:
-        print(f"Malformed configuration file {CONFIG_FILENAME}: {e}")
-        sys.exit(1)
+    except Exception:
+        print(f"Malformed configuration file {CONFIG_FILENAME}.\n")
+        raise
     return config
 
 
 def write_config(config: RawConfig) -> None:
     obj = {}
+    key_hex: bytes
     if config.auth_verify_key:
-        key_hex: bytes = config.auth_verify_key.encode(HexEncoder)
+        key_hex = config.auth_verify_key.encode(HexEncoder)
         obj["auth_public_key"] = key_hex.decode("utf-8")
     if config.signing_key:
-        key_hex: bytes = config.signing_key.encode(HexEncoder)
+        key_hex = config.signing_key.encode(HexEncoder)
         obj["secret_key"] = key_hex.decode("utf-8")
     if config.initial_setup_nickname:
         obj["initial_setup_nickname"] = config.initial_setup_nickname

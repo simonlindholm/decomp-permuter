@@ -4,15 +4,14 @@ from typing import Tuple
 from nacl.public import Box, PrivateKey
 from nacl.signing import SigningKey, VerifyKey
 
-from .common import Port
+from .common import Config, Port
 
 
-def talk_to_server(ip_port: Tuple[str, int], ver_key: VerifyKey, grant: bytes) -> None:
-    # TODO: read from config or bail
-    signing_key = SigningKey.generate()
-
+def talk_to_server(
+    config: Config, ip_port: Tuple[str, int], ver_key: VerifyKey, grant: bytes
+) -> None:
     ephemeral_key = PrivateKey.generate()
-    msg = signing_key.verify_key.encode() + signing_key.sign(
+    msg = config.signing_key.verify_key.encode() + config.signing_key.sign(
         ephemeral_key.public_key.encode()
     )
     # TODO: send 'msg'
