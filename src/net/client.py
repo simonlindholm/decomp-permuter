@@ -71,9 +71,6 @@ def connect_to_servers(
         conn = Connection(config, server, grant, task_queue, feedback_queue)
 
         thread = threading.Thread(target=conn.run)
-
-        # Exit the thread when the main thread terminates.
-        thread.daemon = True
         thread.start()
 
         threads.append(thread)
