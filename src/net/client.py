@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 import json
+import multiprocessing
 import struct
 import threading
 from typing import List, Tuple
@@ -7,6 +8,7 @@ from typing import List, Tuple
 from nacl.public import Box, PrivateKey
 from nacl.signing import SigningKey, VerifyKey
 
+from ..permuter import Feedback, Task
 from .common import Config, Port, RemoteServer
 
 
@@ -50,8 +52,8 @@ def connect_to_servers(
     config: Config,
     servers: List[RemoteServer],
     grant: bytes,
-    # task_queue: "multiprocessing.Queue[Task]",
-    # feedback_queue: "multiprocessing.Queue[Feedback]",
+    task_queue: "multiprocessing.Queue[Task]",
+    feedback_queue: "multiprocessing.Queue[Feedback]",
 ) -> List[threading.Thread]:
     threads = []
     for server in servers:

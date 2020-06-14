@@ -359,7 +359,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             config = setup()
             servers, grant = get_servers_and_grant(config)
             net_threads = connect_to_servers(
-                config, servers, grant  # , task_queue, feedback_queue
+                config, servers, grant, task_queue, feedback_queue
             )
 
         # Start local worker threads
