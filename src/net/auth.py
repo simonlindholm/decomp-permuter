@@ -88,7 +88,9 @@ def _initial_setup(config: RawConfig) -> None:
         print(f"Server URL: {auth_server}")
         print("Testing connection...")
         time.sleep(1)
+
         # TODO: verify that contacting auth server works and signs its messages
+
         print("permuter@home successfully set up!")
         config.auth_server = auth_server
         write_config(config)
@@ -147,7 +149,9 @@ def get_servers_and_grant() -> Tuple[List[RemoteServer], bytes]:
     }
     request = json.dumps(request_obj).encode("utf-8")
     data = config.signing_key.sign(request)
+
     # TODO: send 'data' to auth server, receive 'resp'
+
     raw_resp = b""
     raw_resp = config.auth_verify_key.verify(raw_resp)
     resp = json.loads(raw_resp)
@@ -168,3 +172,13 @@ def get_servers_and_grant() -> Tuple[List[RemoteServer], bytes]:
         ret.append(server)
 
     return ret, grant
+
+
+def go_online(config: Config) -> None:
+    # TODO
+    pass
+
+
+def go_offline(config: Config) -> None:
+    # TODO
+    pass
