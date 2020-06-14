@@ -33,7 +33,7 @@ from .candidate import Candidate, CandidateResult
 from .compiler import Compiler
 from .error import CandidateConstructionFailure
 from .net.auth import get_servers_and_grant, run_vouch, setup
-from .net.client import init_client
+from .net.client import connect_to_servers
 from .perm import perm_eval, perm_gen
 from .perm.perm import EvalState
 from .preprocess import preprocess
@@ -517,7 +517,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         if options.use_network:
             config = setup()
             servers, grant = get_servers_and_grant(config)
-            network_state = init_client(servers, grant)
+            multi_connection = connect_to_servers(config, servers, grant)
 
         # Create queues
         task_queue: "multiprocessing.Queue[Optional[Tuple[int, int]]]" = multiprocessing.Queue()
