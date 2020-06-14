@@ -37,7 +37,7 @@ def _ask(msg: str, *, default: bool) -> bool:
         return default
     if res in ["y", "yes", "n", "no"]:
         return res[0] == "y"
-    print("Bad response!")
+    print("Bad response!", file=sys.stderr)
     sys.exit(1)
 
 
@@ -85,6 +85,7 @@ def _initial_setup(config: RawConfig) -> None:
         # TODO: verify that contacting auth server works and signs its messages
 
         print("permuter@home successfully set up!")
+        print()
         config.auth_server = auth_server
         write_config(config)
     except Exception:
@@ -135,6 +136,7 @@ def run_vouch(vouch_text: str) -> None:
 
 
 def get_servers_and_grant(config: Config) -> Tuple[List[RemoteServer], bytes]:
+    print("Connecting to permuter@home...")
     request_obj = {
         "version": 1,
     }

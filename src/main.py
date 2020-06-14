@@ -385,10 +385,22 @@ def cycle_seeds(
             i += 1
 
 
+class NeedMoreWork:
+    pass
+
+
+class Finished:
+    pass
+
+
+Task = Union[Finished, Tuple[int, int]]
+Feedback = Union[NeedMoreWork, Finished, Tuple[int, EvalResult]]
+
+
 def multiprocess_worker(
     permuters: List[Permuter],
-    input_queue: "multiprocessing.Queue[Optional[Tuple[int, int]]]",
-    output_queue: "multiprocessing.Queue[Tuple[int, EvalResult]]",
+    input_queue: "multiprocessing.Queue[Task]",
+    output_queue: "multiprocessing.Queue[Feedback]",
 ) -> None:
     input_queue.cancel_join_thread()
     output_queue.cancel_join_thread()
@@ -398,9 +410,19 @@ def multiprocess_worker(
         permuter.reseed_random()
 
     try:
+        should_block = False
         while True:
-            queue_item = input_queue.get()
+            # Read a work item from the queue. If none is immediately available,
+            # tell the main thread to fill the queues more, and then block on
+            # the queue.
+            queue_item = input_queue.get(block=should_block)
             if queue_item is None:
+                output_queue.put(NeedMoreWork())
+                should_block = True
+                continue
+            should_block = False
+            if isinstance(queue_item, Finished):
+                output_queue.put(queue_item)
                 break
             permuter_index, seed = queue_item
             permuter = permuters[permuter_index]
@@ -501,7 +523,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         print(f"[{permuter.unique_name}] base score = {permuter.best_score}")
 
     found_zero = False
-    perm_seed_iter = cycle_seeds(context.permuters, force_seed)
+    perm_seed_iter = iter(cycle_seeds(context.permuters, force_seed))
     if options.threads == 1 and not options.use_network:
         # Simple single-threaded mode. This is not technically needed, but
         # makes the permuter easier to debug.
@@ -520,47 +542,67 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             multi_connection = connect_to_servers(config, servers, grant)
 
         # Create queues
-        task_queue: "multiprocessing.Queue[Optional[Tuple[int, int]]]" = multiprocessing.Queue()
-        results_queue: "multiprocessing.Queue[Tuple[int, EvalResult]]" = multiprocessing.Queue()
+        task_queue: "multiprocessing.Queue[Task]" = multiprocessing.Queue()
+        feedback_queue: "multiprocessing.Queue[Feedback]" = multiprocessing.Queue()
         task_queue.cancel_join_thread()
-        results_queue.cancel_join_thread()
+        feedback_queue.cancel_join_thread()
 
-        def wait_for_result() -> bool:
-            heartbeat()
-            permuter_index, result = results_queue.get()
+        def process_result(result: Tuple[int, EvalResult]) -> bool:
+            permuter_index, res = result
             permuter = context.permuters[permuter_index]
-            return post_score(context, permuter, result)
+            return post_score(context, permuter, res)
 
-        # Begin workers
+        # Begin local worker threads
         processes: List[multiprocessing.Process] = []
         for i in range(options.threads):
             p = multiprocessing.Process(
                 target=multiprocess_worker,
-                args=(context.permuters, task_queue, results_queue),
+                args=(context.permuters, task_queue, feedback_queue),
             )
             p.start()
             processes.append(p)
 
-        # Feed the task queue with work, but not too much work at a time
-        active_tasks = 0
-        for perm_seed in perm_seed_iter:
-            if active_tasks >= options.threads + 2:
-                active_tasks -= 1
-                if wait_for_result():
-                    # Found score 0!
+        # Feed the task queue with work and read from results queue.
+        # We generally match these up one-by-one to avoid overfilling queues,
+        # but workers can ask us to add more tasks into the system if they run
+        # out of work. (This will happen e.g. at the very beginning, when the
+        # queues are empty.)
+        while True:
+            heartbeat()
+            feedback = feedback_queue.get()
+            assert not isinstance(feedback, Finished), "threads can't finish yet"
+            if isinstance(feedback, NeedMoreWork):
+                # No result to process, just put a task in the queue.
+                pass
+            elif process_result(feedback):
+                # Found score 0!
+                found_zero = True
+                if options.stop_on_zero:
+                    break
+            task = next(perm_seed_iter, None)
+            if task is None:
+                break
+            task_queue.put(task)
+
+        active_workers = options.threads
+
+        # Signal workers to stop.
+        for i in range(active_workers):
+            task_queue.put(Finished())
+
+        # Await final results.
+        while active_workers > 0:
+            heartbeat()
+            feedback = feedback_queue.get()
+            if isinstance(feedback, Finished):
+                active_workers -= 1
+            elif isinstance(feedback, NeedMoreWork):
+                pass
+            elif not (options.stop_on_zero and found_zero):
+                if process_result(feedback):
                     found_zero = True
-                    if options.stop_on_zero:
-                        break
-            task_queue.put(perm_seed)
-            active_tasks += 1
 
-        # Await final results
-        for i in range(active_tasks):
-            wait_for_result()
-
-        # Stop workers
-        for i in range(options.threads):
-            task_queue.put(None)
+        # Wait for workers to finish.
         for p in processes:
             p.join()
 
