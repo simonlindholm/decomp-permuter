@@ -13,10 +13,19 @@ from .common import Config, Port, RemoteServer
 
 
 class Connection:
-    def __init__(self, config: Config, server: RemoteServer, grant: bytes) -> None:
+    def __init__(
+        self,
+        config: Config,
+        server: RemoteServer,
+        grant: bytes,
+        task_queue: "multiprocessing.Queue[Task]",
+        feedback_queue: "multiprocessing.Queue[Feedback]",
+    ) -> None:
         self._config = config
         self._server = server
         self._grant = grant
+        self._task_queue = task_queue
+        self._feedback_queue = feedback_queue
 
     def _connect(self) -> None:
         pass
@@ -43,9 +52,11 @@ class Connection:
         return port
 
     def run(self) -> None:
-        self._connect()
-        self._port = self._setup()
-        pass
+        try:
+            self._connect()
+            self._port = self._setup()
+        finally:
+            self._feedback_queue.put(Finished())
 
 
 def connect_to_servers(
@@ -57,7 +68,7 @@ def connect_to_servers(
 ) -> List[threading.Thread]:
     threads = []
     for server in servers:
-        conn = Connection(config, server, grant)
+        conn = Connection(config, server, grant, task_queue, feedback_queue)
 
         thread = threading.Thread(target=conn.run)
 

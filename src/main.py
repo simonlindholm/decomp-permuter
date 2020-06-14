@@ -372,6 +372,12 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             p.start()
             processes.append(p)
 
+        active_workers = len(net_threads) + len(processes)
+
+        if not active_workers:
+            print("No remote servers available. Exiting.")
+            return False
+
         def process_result(result: Tuple[int, EvalResult]) -> bool:
             permuter_index, res = result
             permuter = context.permuters[permuter_index]
@@ -382,10 +388,12 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         # but workers can ask us to add more tasks into the system if they run
         # out of work. (This will happen e.g. at the very beginning, when the
         # queues are empty.)
-        while True:
+        while active_workers > 0:
             heartbeat()
             feedback = feedback_queue.get()
-            assert not isinstance(feedback, Finished), "threads can't finish yet"
+            if isinstance(feedback, Finished):
+                active_workers -= 1
+                continue
             if isinstance(feedback, NeedMoreWork):
                 # No result to process, just put a task in the queue.
                 pass
@@ -398,8 +406,6 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             if task is None:
                 break
             task_queue.put(task)
-
-        active_workers = options.threads
 
         # Signal workers to stop.
         for i in range(active_workers):
@@ -420,6 +426,9 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         # Wait for workers to finish.
         for p in processes:
             p.join()
+
+        for t in net_threads:
+            t.join()
 
     if found_zero:
         print("\nFound zero score! Exiting.")
