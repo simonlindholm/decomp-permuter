@@ -46,6 +46,13 @@ def _result_from_json(obj: dict, source: Optional[str]) -> EvalResult:
 
 
 class Connection:
+    _config: Config
+    _server: RemoteServer
+    _grant: bytes
+    _task_queue: "multiprocessing.Queue[Task]"
+    _feedback_queue: "multiprocessing.Queue[Feedback]"
+    _sock: Optional[socket.socket]
+
     def __init__(
         self,
         config: Config,
@@ -59,10 +66,12 @@ class Connection:
         self._grant = grant
         self._task_queue = task_queue
         self._feedback_queue = feedback_queue
+        self._sock = None
 
     def _setup(self) -> Port:
         """Set up a secure connection with the server."""
         sock = socket.create_connection((self._server.ip, self._server.port))
+        self._sock = sock
 
         # Send over the protocol version, a verification key for our signatures,
         # and an ephemeral encryption key which we are going to use for all
@@ -91,29 +100,38 @@ class Connection:
         port.send(self._grant)
         obj = json.loads(port.receive())
         return ServerProps(
-            min_priority=float(obj["min_priority"]), num_cpus=float(obj["num_cpus"]),
+            min_priority=json_prop(obj, "min_priority", float),
+            num_cpus=json_prop(obj, "num_cpus", float),
         )
 
     def run(self) -> None:
         try:
             port = self._setup()
             props = self._init(port)
+            # TODO: send initial source files/compile.sh
+            finished = False
             while True:
-                # Read a task and send it on.
-                task = self._task_queue.get()
-                if isinstance(task, Finished):
-                    break
-                work = {
-                    "type": "work",
-                    "permuter": task[0],
-                    "seed": task[1],
-                }
-                port.send_json(work)
+                # Read a task and send it on, unless we're just waiting for
+                # things to finish.
+                if not finished:
+                    task = self._task_queue.get()
+                    if isinstance(task, Finished):
+                        port.send_json({"type": "finish"})
+                        finished = True
+                    else:
+                        work = {
+                            "type": "work",
+                            "permuter": task[0],
+                            "seed": task[1],
+                        }
+                        port.send_json(work)
 
                 # Receive a result and send it on.
                 msg = port.receive_json()
                 msg_type = json_prop(msg, "type", str)
-                if msg_type == "need_work":
+                if msg_type == "finish":
+                    break
+                elif msg_type == "need_work":
                     self._feedback_queue.put(NeedMoreWork())
                 elif msg_type == "result":
                     permuter_index = json_prop(msg, "permuter", int)
@@ -129,6 +147,8 @@ class Connection:
                     raise ValueError(f"Invalid message type {msg_type}")
         finally:
             self._feedback_queue.put(Finished())
+            if self._sock is not None:
+                self._sock.close()
 
 
 def connect_to_servers(
