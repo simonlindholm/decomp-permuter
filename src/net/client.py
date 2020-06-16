@@ -53,11 +53,23 @@ def _result_from_json(obj: dict, source: Optional[str]) -> EvalResult:
     )
 
 
+class PortablePermuter:
+    def __init__(self, permuter: Permuter) -> None:
+        self.fn_name = permuter.fn_name
+        self.filename = permuter.source_file
+        self.keep_prob = permuter.keep_prob
+        self.stack_differences = permuter.scorer.stack_differences
+        self.compressed_source = zlib.compress(permuter.source.encode("utf-8"))
+
+        with open(permuter.scorer.target_o, "rb") as f:
+            self.target_o_bin = f.read()
+
+
 class Connection:
     _config: Config
     _server: RemoteServer
     _grant: bytes
-    _permuters: List[Permuter]
+    _permuters: List[PortablePermuter]
     _task_queue: "multiprocessing.Queue[Task]"
     _feedback_queue: "multiprocessing.Queue[Feedback]"
     _sock: Optional[socket.socket]
@@ -67,7 +79,7 @@ class Connection:
         config: Config,
         server: RemoteServer,
         grant: bytes,
-        permuters: List[Permuter],
+        permuters: List[PortablePermuter],
         task_queue: "multiprocessing.Queue[Task]",
         feedback_queue: "multiprocessing.Queue[Feedback]",
     ) -> None:
@@ -120,20 +132,20 @@ class Connection:
         for permuter in self._permuters:
             obj = {
                 "fn_name": permuter.fn_name,
-                "filename": permuter.source_file,
+                "filename": permuter.filename,
                 "keep_prob": permuter.keep_prob,
-                "stack_differences": permuter.scorer.stack_differences,
+                "stack_differences": permuter.stack_differences,
             }
-            # TODO: compile.sh, target.o
+            # TODO: compile.sh
             permuter_objs.append(obj)
         init_obj = {
             "permuters": permuter_objs,
         }
         port.send_json(init_obj)
 
-        # Send the sources separately, compressed, since they can be large.
         for permuter in self._permuters:
-            port.send(zlib.compress(permuter.source.encode("utf-8")))
+            port.send(permuter.compressed_source)
+            port.send(permuter.target_o_bin)
 
         res = port.receive_json()
         if "error" in res:
@@ -197,8 +209,11 @@ def connect_to_servers(
     feedback_queue: "multiprocessing.Queue[Feedback]",
 ) -> List[threading.Thread]:
     threads = []
+    portable_permuters = [PortablePermuter(p) for p in permuters]
     for server in servers:
-        conn = Connection(config, server, grant, permuters, task_queue, feedback_queue)
+        conn = Connection(
+            config, server, grant, portable_permuters, task_queue, feedback_queue
+        )
 
         thread = threading.Thread(target=conn.run)
         thread.start()
