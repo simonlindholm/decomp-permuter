@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 import json
 import multiprocessing
+import re
 import socket
 import struct
 import threading
@@ -53,6 +54,29 @@ def _result_from_json(obj: dict, source: Optional[str]) -> EvalResult:
     )
 
 
+def _make_script_portable(source: str) -> str:
+    """Parse a shell script and get rid of the machine-specific parts that
+    import.py introduces. The resulting script must be run in an environment
+    that has the right binaries in its $PATH, and with a current working
+    directory similar to where import.py found its target's make root."""
+    lines = []
+    for line in source.split("\n"):
+        if re.match("cd '?/", line):
+            # Skip cd's to absolute directory paths. Note that shlex quotes
+            # its argument with ' if it contains spaces/single quotes.
+            continue
+        if re.match("'?/", line):
+            quote = "'" if line[0] == "'" else ""
+            ind = line.find(quote + " ")
+            if ind == -1:
+                ind = len(line)
+            lastind = line.rfind("/", 0, ind)
+            assert lastind != -1
+            line = quote + line[lastind + 1 :]
+        lines.append(line)
+    return "\n".join(lines)
+
+
 class PortablePermuter:
     def __init__(self, permuter: Permuter) -> None:
         self.fn_name = permuter.fn_name
@@ -63,6 +87,9 @@ class PortablePermuter:
 
         with open(permuter.scorer.target_o, "rb") as f:
             self.target_o_bin = f.read()
+
+        with open(permuter.compiler.compile_cmd, "r") as f2:
+            self.compile_script = _make_script_portable(f2.read())
 
 
 class Connection:
@@ -135,8 +162,8 @@ class Connection:
                 "filename": permuter.filename,
                 "keep_prob": permuter.keep_prob,
                 "stack_differences": permuter.stack_differences,
+                "compile_script": permuter.compile_script,
             }
-            # TODO: compile.sh
             permuter_objs.append(obj)
         init_obj = {
             "permuters": permuter_objs,
