@@ -67,6 +67,7 @@ class Permuter:
         self.compiler = compiler
         self.scorer = scorer
         self.source_file = source_file
+        self.source = source
 
         if fn_name is None:
             fns = find_fns(source)

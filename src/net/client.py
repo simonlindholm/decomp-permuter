@@ -11,7 +11,15 @@ from nacl.public import Box, PrivateKey
 from nacl.signing import SigningKey, VerifyKey
 
 from ..candidate import CandidateResult
-from ..permuter import EvalError, EvalResult, Feedback, Finished, NeedMoreWork, Task
+from ..permuter import (
+    EvalError,
+    EvalResult,
+    Feedback,
+    Finished,
+    NeedMoreWork,
+    Permuter,
+    Task,
+)
 from ..profiler import Profiler
 from .common import Config, PROTOCOL_VERSION, Port, RemoteServer, json_prop
 
@@ -49,6 +57,7 @@ class Connection:
     _config: Config
     _server: RemoteServer
     _grant: bytes
+    _permuters: List[Permuter]
     _task_queue: "multiprocessing.Queue[Task]"
     _feedback_queue: "multiprocessing.Queue[Feedback]"
     _sock: Optional[socket.socket]
@@ -58,12 +67,14 @@ class Connection:
         config: Config,
         server: RemoteServer,
         grant: bytes,
+        permuters: List[Permuter],
         task_queue: "multiprocessing.Queue[Task]",
         feedback_queue: "multiprocessing.Queue[Feedback]",
     ) -> None:
         self._config = config
         self._server = server
         self._grant = grant
+        self._permuters = permuters
         self._task_queue = task_queue
         self._feedback_queue = feedback_queue
         self._sock = None
@@ -104,11 +115,37 @@ class Connection:
             num_cpus=json_prop(obj, "num_cpus", float),
         )
 
+    def _send_permuters(self, port: Port) -> None:
+        permuter_objs = []
+        for permuter in self._permuters:
+            obj = {
+                "fn_name": permuter.fn_name,
+                "filename": permuter.source_file,
+                "keep_prob": permuter.keep_prob,
+                "stack_differences": permuter.scorer.stack_differences,
+            }
+            # TODO: compile.sh, target.o
+            permuter_objs.append(obj)
+        init_obj = {
+            "permuters": permuter_objs,
+        }
+        port.send_json(init_obj)
+
+        # Send the sources separately, compressed, since they can be large.
+        for permuter in self._permuters:
+            port.send(zlib.compress(permuter.source.encode("utf-8")))
+
+        res = port.receive_json()
+        if "error" in res:
+            msg = json_prop(res, "error", str)
+            raise Exception(f"error during initialization: {msg}")
+
     def run(self) -> None:
         try:
             port = self._setup()
             props = self._init(port)
-            # TODO: send initial source files/compile.sh
+            self._send_permuters(port)
+            self._feedback_queue.put(NeedMoreWork())
             finished = False
             while True:
                 # Read a task and send it on, unless we're just waiting for
@@ -155,12 +192,13 @@ def connect_to_servers(
     config: Config,
     servers: List[RemoteServer],
     grant: bytes,
+    permuters: List[Permuter],
     task_queue: "multiprocessing.Queue[Task]",
     feedback_queue: "multiprocessing.Queue[Feedback]",
 ) -> List[threading.Thread]:
     threads = []
     for server in servers:
-        conn = Connection(config, server, grant, task_queue, feedback_queue)
+        conn = Connection(config, server, grant, permuters, task_queue, feedback_queue)
 
         thread = threading.Thread(target=conn.run)
         thread.start()

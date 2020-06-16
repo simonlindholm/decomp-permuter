@@ -304,7 +304,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         else:
             print(base_c)
 
-        compiler = Compiler(compile_cmd, options.show_errors)
+        compiler = Compiler(compile_cmd, show_errors=options.show_errors)
         scorer = Scorer(target_o, stack_differences=options.stack_differences)
         c_source = preprocess(base_c)
 
@@ -359,7 +359,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             config = setup()
             servers, grant = get_servers_and_grant(config)
             net_threads = connect_to_servers(
-                config, servers, grant, task_queue, feedback_queue
+                config, servers, grant, context.permuters, task_queue, feedback_queue
             )
 
         # Start local worker threads
