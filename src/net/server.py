@@ -12,7 +12,7 @@ from nacl.signing import SigningKey, VerifyKey
 from nacl.public import Box, PrivateKey, PublicKey
 import nacl.utils
 
-from .common import Config, PROTOCOL_VERSION, Port, socket_read_fixed
+from .common import Config, PROTOCOL_VERSION, Port, json_prop, socket_read_fixed
 
 
 @dataclass
@@ -73,9 +73,13 @@ class ServerHandler(socketserver.BaseRequestHandler):
         granted_request = auth_ver_key.verify(msg)
         assert granted_request[:32] == client_ver_key
         request = json.loads(granted_request[32:])
+        if not isinstance(request, dict):
+            raise ValueError("Grant JSON must be a dict")
 
         # Verify that the client is not just presenting an old grant.
-        assert int(request["valid_from"]) <= time.time() <= int(request["valid_until"])
+        valid_from = json_prop(request, "valid_from", int)
+        valid_until = json_prop(request, "valid_until", int)
+        assert valid_from <= time.time() <= valid_until
 
         # Read client nickname from the server, signed by the client during
         # registration. (Don't let the client spoof this.)
@@ -89,7 +93,7 @@ class ServerHandler(socketserver.BaseRequestHandler):
             "min_priority": options.min_priority,
             "num_cpus": options.num_cpus,
         }
-        port.send(json.dumps(props).encode("utf-8"))
+        port.send_json(props)
 
     def handle(self) -> None:
         shared: SharedServerData = getattr(self.server, "shared")

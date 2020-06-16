@@ -1,14 +1,16 @@
 from dataclasses import dataclass
+import json
 from socket import socket
 import struct
 import sys
 import toml
-from typing import Optional
+from typing import Optional, Type, TypeVar
 
 from nacl.encoding import HexEncoder
 from nacl.signing import SigningKey, VerifyKey
 from nacl.public import Box, PrivateKey, PublicKey, SealedBox
 
+T = TypeVar("T")
 
 PROTOCOL_VERSION = 1
 
@@ -90,6 +92,14 @@ def socket_read_fixed(sock: socket, n: int) -> bytes:
     return b"".join(ret)
 
 
+def json_prop(obj: dict, prop: str, t: Type[T]) -> T:
+    ret = obj.get(prop)
+    if not isinstance(ret, t):
+        found_type = type(ret).__name__
+        raise ValueError(f"Member {prop} must have type {t.__name__}; got {found_type}")
+    return ret
+
+
 class Port:
     def __init__(self, sock: socket, box: Box, *, is_client: bool) -> None:
         self._sock = sock
@@ -104,6 +114,9 @@ class Port:
         length_data = struct.pack(">Q", len(data))
         self._sock.sendall(length_data + data)
 
+    def send_json(self, msg: dict) -> None:
+        self.send(json.dumps(msg).encode("utf-8"))
+
     def receive(self) -> bytes:
         length_data = socket_read_fixed(self._sock, 8)
         length = struct.unpack(">Q", length_data)[0]
@@ -111,4 +124,13 @@ class Port:
         nonce = struct.pack(">24xQ", self._receive_nonce)
         self._receive_nonce += 2
         ret: bytes = self._box.decrypt(data, nonce)
+        return ret
+
+    def receive_json(self) -> dict:
+        ret = json.loads(self.receive())
+        if not isinstance(ret, dict):
+            # We always pass dictionaries as messages and no other data types,
+            # to ensure future extensibility. (Other types are rare in
+            # practice, anyway.)
+            raise ValueError("Top-level JSON value must be a dictionary")
         return ret

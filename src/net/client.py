@@ -4,19 +4,45 @@ import multiprocessing
 import socket
 import struct
 import threading
-from typing import List, Tuple
+from typing import List, Optional, Tuple, TypeVar
+import zlib
 
 from nacl.public import Box, PrivateKey
 from nacl.signing import SigningKey, VerifyKey
 
-from ..permuter import Feedback, Finished, Task
-from .common import Config, PROTOCOL_VERSION, Port, RemoteServer
+from ..candidate import CandidateResult
+from ..permuter import EvalError, EvalResult, Feedback, Finished, NeedMoreWork, Task
+from ..profiler import Profiler
+from .common import Config, PROTOCOL_VERSION, Port, RemoteServer, json_prop
 
 
 @dataclass
 class ServerProps:
     min_priority: float
     num_cpus: float
+
+
+def _profiler_from_json(obj: dict) -> Profiler:
+    ret = Profiler()
+    for key in obj:
+        assert isinstance(key, str), "json properties are strings"
+        stat = Profiler.StatType(key)
+        time = json_prop(obj, key, float)
+        ret.add_stat(stat, time)
+    return ret
+
+
+def _result_from_json(obj: dict, source: Optional[str]) -> EvalResult:
+    if "error" in obj:
+        return EvalError(exc_str=json_prop(obj, "error", str), seed=None)
+
+    profiler = _profiler_from_json(json_prop(obj, "profiler", dict))
+    return CandidateResult(
+        score=json_prop(obj, "score", int),
+        hash=json_prop(obj, "hash", str),
+        source=source,
+        profiler=profiler,
+    )
 
 
 class Connection:
@@ -72,6 +98,35 @@ class Connection:
         try:
             port = self._setup()
             props = self._init(port)
+            while True:
+                # Read a task and send it on.
+                task = self._task_queue.get()
+                if isinstance(task, Finished):
+                    break
+                work = {
+                    "type": "work",
+                    "permuter": task[0],
+                    "seed": task[1],
+                }
+                port.send_json(work)
+
+                # Receive a result and send it on.
+                msg = port.receive_json()
+                msg_type = json_prop(msg, "type", str)
+                if msg_type == "need_work":
+                    self._feedback_queue.put(NeedMoreWork())
+                elif msg_type == "result":
+                    permuter_index = json_prop(msg, "permuter", int)
+                    source: Optional[str] = None
+                    if msg.get("has_source") == True:
+                        # Source is sent separately, compressed, since it can be large
+                        # (hundreds of kilobytes is not uncommon).
+                        compressed_source = port.receive()
+                        source = zlib.decompress(compressed_source).decode("utf-8")
+                    result = _result_from_json(msg, source)
+                    self._feedback_queue.put((permuter_index, result))
+                else:
+                    raise ValueError(f"Invalid message type {msg_type}")
         finally:
             self._feedback_queue.put(Finished())
 
