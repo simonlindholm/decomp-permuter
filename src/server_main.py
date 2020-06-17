@@ -4,17 +4,18 @@ import threading
 import pystray
 
 from .net.auth import go_online, go_offline, setup
-from .net.server import ServerOptions, start_server
+from .net.server import Server, ServerOptions
 
 
 def run(options: ServerOptions) -> None:
     config = setup()
     go_online(config)
-    server = start_server(config, options)
+    server = Server(config, options)
+    server.start()
 
     # TODO: print statistics, run systray, etc.
     input("Press enter to stop the server.")
-    server.shutdown()
+    server.stop()
     go_offline(config)
 
 

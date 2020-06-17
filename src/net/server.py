@@ -1,18 +1,49 @@
 import base64
 from dataclasses import dataclass
 import json
-from socket import socket
+import queue
+import socket
 import socketserver
 import struct
 import threading
 import time
-from typing import Tuple
+from typing import Dict, Tuple, Union
 
 from nacl.signing import SigningKey, VerifyKey
 from nacl.public import Box, PrivateKey, PublicKey
 import nacl.utils
 
 from .common import Config, PROTOCOL_VERSION, Port, json_prop, socket_read_fixed
+
+
+@dataclass
+class ClientConnection:
+    # Unique identifier for the connecting client
+    client: bytes
+
+    # Name of the connecting client
+    nickname: str
+
+    port: Port
+
+
+@dataclass
+class AddClient:
+    handle: object
+    connection: ClientConnection
+
+
+@dataclass
+class RemoveClient:
+    handle: object
+
+
+@dataclass
+class WakeUp:
+    pass
+
+
+Activity = Union[AddClient, RemoveClient]
 
 
 @dataclass
@@ -29,12 +60,13 @@ class ServerOptions:
 class SharedServerData:
     config: Config
     options: ServerOptions
+    queue: "queue.Queue[Activity]"
 
 
 class ServerHandler(socketserver.BaseRequestHandler):
     def _setup(self, signing_key: SigningKey) -> Tuple[VerifyKey, Port]:
         """Set up a secure (but untrusted) connection with the client."""
-        sock: socket = self.request
+        sock: socket.socket = self.request
 
         # Read and verify protocol version.
         msg = socket_read_fixed(sock, 4)
@@ -102,15 +134,27 @@ class ServerHandler(socketserver.BaseRequestHandler):
 
         auth_ver_key = shared.config.auth_verify_key
         nickname = self._confirm_grant(port, client_ver_key, auth_ver_key)
-        print(f"[{nickname}] connected")
 
-        self._send_init(port, shared.options)
-        # TODO: do stuff!
-        time.sleep(2)
-        print("done")
+        # Create a key object that uniquely identifies the TCP connection
+        handle: object = {}
+
+        shared.queue.put(
+            AddClient(
+                handle=handle,
+                connection=ClientConnection(
+                    client=client_ver_key.encode(), nickname=nickname, port=port,
+                ),
+            )
+        )
+        try:
+            self._send_init(port, shared.options)
+            # TODO: do stuff!
+            time.sleep(2)
+        finally:
+            shared.queue.put(RemoveClient(handle=handle))
 
     def finish(self) -> None:
-        print("finished()")
+        pass
 
 
 class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
@@ -124,18 +168,56 @@ class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     daemon_threads = True
 
 
-def start_server(config: Config, options: ServerOptions) -> ThreadedTCPServer:
-    shared = SharedServerData(config=config, options=options)
+class Server:
+    _config: Config
+    _options: ServerOptions
+    _queue: "queue.Queue[Activity]"
+    _tcp_server: ThreadedTCPServer
+    _state: str
 
-    server = ThreadedTCPServer((options.host, options.port), ServerHandler)
-    setattr(server, "shared", shared)
+    def __init__(self, config: Config, options: ServerOptions) -> None:
+        self._config = config
+        self._options = options
+        self._queue = queue.Queue()
+        self._tcp_server = ThreadedTCPServer(
+            (options.host, options.port), ServerHandler
+        )
+        self._state = "notstarted"
 
-    # Start a thread with the server -- that thread will then start one
-    # more thread for each request.
-    server_thread = threading.Thread(target=server.serve_forever)
+        shared = SharedServerData(config=config, options=options, queue=self._queue)
+        setattr(self._tcp_server, "shared", shared)
 
-    # Exit the server thread when the main thread terminates.
-    server_thread.daemon = True
-    server_thread.start()
+    def _run_loop(self) -> None:
+        clients: Dict[int, ClientConnection] = {}
+        while True:
+            item = self._queue.get()
+            if isinstance(item, WakeUp):
+                # Do nothing special, this was just a call for us to wake up
+                # and schedule work.
+                pass
+            elif isinstance(item, AddClient):
+                client = item.connection
+                clients[id(item.handle)] = client
+                print(f"[{client.nickname}] connected")
+            elif isinstance(item, RemoveClient):
+                client = clients[id(item.handle)]
+                del clients[id(item.handle)]
+                print(f"[{client.nickname}] disconnected")
 
-    return server
+    def start(self) -> None:
+        assert self._state == "notstarted"
+        self._state = "started"
+
+        # Start a thread with the TCP server -- that thread will then start one
+        # more thread for each request.
+        server_thread = threading.Thread(target=self._tcp_server.serve_forever)
+        server_thread.start()
+
+        # Start a thread for the main loop.
+        main_thread = threading.Thread(target=self._run_loop)
+        main_thread.start()
+
+    def stop(self) -> None:
+        assert self._state == "started"
+        self._state = "finished"
+        self._tcp_server.shutdown()
