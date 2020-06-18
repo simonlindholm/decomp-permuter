@@ -1,18 +1,24 @@
 import base64
 from dataclasses import dataclass
 import json
+import os
 import queue
 import socket
 import socketserver
 import struct
+from tempfile import mkstemp
 import threading
 import time
-from typing import Dict, Tuple, Union
+from typing import Dict, List, Tuple, Union
+import zlib
 
 from nacl.signing import SigningKey, VerifyKey
 from nacl.public import Box, PrivateKey, PublicKey
 import nacl.utils
 
+from ..permuter import Permuter
+from ..scorer import Scorer
+from ..compiler import Compiler
 from .common import Config, PROTOCOL_VERSION, Port, json_prop, socket_read_fixed
 
 
@@ -30,6 +36,7 @@ class ClientConnection:
 @dataclass
 class AddClient:
     handle: object
+    permuters: List[Permuter]
     connection: ClientConnection
 
 
@@ -43,7 +50,7 @@ class WakeUp:
     pass
 
 
-Activity = Union[AddClient, RemoveClient]
+Activity = Union[AddClient, RemoveClient, WakeUp]
 
 
 @dataclass
@@ -127,6 +134,48 @@ class ServerHandler(socketserver.BaseRequestHandler):
         }
         port.send_json(props)
 
+    def _receive_permuters(self, port: Port) -> List[Permuter]:
+        msg = port.receive_json()
+        permuters = json_prop(msg, "permuters", list)
+
+        permuters = []
+        for obj in permuters:
+            if not isinstance(obj, dict):
+                raise ValueError(f"Permuters must be dictionaries, found {obj}")
+            fn_name = json_prop(obj, "fn_name", str)
+            filename = json_prop(obj, "filename", str)
+            keep_prob = json_prop(obj, "keep_prob", float)
+            stack_differences = json_prop(obj, "stack_differences", bool)
+            compile_script = json_prop(obj, "compile_script", str)
+
+            source = zlib.decompress(port.receive()).decode("utf-8")
+            target_o_bin = port.receive()
+
+            fd, path = mkstemp(suffix=".o", prefix="permuter", text=False)
+            try:
+                with os.fdopen(fd, "wb") as f:
+                    f.write(target_o_bin)
+                scorer = Scorer(target_o=path, stack_differences=stack_differences)
+            finally:
+                os.unlink(path)
+
+            compiler = Compiler(compile_cmd="TODO", show_errors=False,)
+
+            perm = Permuter(
+                dir="TODO",
+                fn_name=fn_name,
+                compiler=compiler,
+                scorer=scorer,
+                source_file=filename,
+                source=source,
+                force_rng_seed=None,
+                keep_prob=keep_prob,
+                need_all_sources=False,
+            )
+            permuters.append(perm)
+
+        return permuters
+
     def handle(self) -> None:
         shared: SharedServerData = getattr(self.server, "shared")
         signing_key = shared.config.signing_key
@@ -135,12 +184,15 @@ class ServerHandler(socketserver.BaseRequestHandler):
         auth_ver_key = shared.config.auth_verify_key
         nickname = self._confirm_grant(port, client_ver_key, auth_ver_key)
 
+        permuters = self._receive_permuters(port)
+
         # Create a key object that uniquely identifies the TCP connection
         handle: object = {}
 
         shared.queue.put(
             AddClient(
                 handle=handle,
+                permuters=permuters,
                 connection=ClientConnection(
                     client=client_ver_key.encode(), nickname=nickname, port=port,
                 ),
@@ -148,8 +200,18 @@ class ServerHandler(socketserver.BaseRequestHandler):
         )
         try:
             self._send_init(port, shared.options)
-            # TODO: do stuff!
-            time.sleep(2)
+            while True:
+                msg = port.receive_json()
+                tp = json_prop(msg, "type", str)
+                if tp == "finish":
+                    break
+                elif tp == "work":
+                    permuter_index = json_prop(msg, "permuter", int)
+                    seed = json_prop(msg, "seed", int)
+                    # TODO: put index and seed somewhere
+                    shared.queue.put(WakeUp())
+                else:
+                    raise ValueError(f'Unrecognized message type "{tp}"')
         finally:
             shared.queue.put(RemoveClient(handle=handle))
 
@@ -198,11 +260,14 @@ class Server:
             elif isinstance(item, AddClient):
                 client = item.connection
                 clients[id(item.handle)] = client
-                print(f"[{client.nickname}] connected")
+                filenames = ", ".join(p.fn_name for p in item.permuters)
+                print(f"[{client.nickname}] connected ({filenames})")
             elif isinstance(item, RemoveClient):
                 client = clients[id(item.handle)]
                 del clients[id(item.handle)]
                 print(f"[{client.nickname}] disconnected")
+
+            # TODO: process work
 
     def start(self) -> None:
         assert self._state == "notstarted"
