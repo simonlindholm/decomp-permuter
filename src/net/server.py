@@ -88,17 +88,18 @@ class ServerHandler(socketserver.BaseRequestHandler):
         client_ver_key = VerifyKey(msg[:32])
         client_enc_key = PublicKey(client_ver_key.verify(msg[32:]))
 
-        # Set up encrypted communication channel.
-        box = Box(signing_key.to_curve25519_private_key(), client_enc_key)
+        # Create an ephemeral encryption key for ourselves as well. Send it to
+        # the client, signed by a key it trusts.
+        ephemeral_key = PrivateKey.generate()
+        sock.sendall(signing_key.sign(ephemeral_key))
+
+        # Set up encrypted communication channel. Once we receive the first
+        # message we'll know that this isn't a replay attack.
+        box = Box(ephemeral_key, client_enc_key)
         port = Port(sock, box, is_client=False)
 
-        # To protect against replay attacks, send a random message and ask the
-        # client to send it back. (The ephemeral encryption key solves the same
-        # problem for the client.)
-        rand = nacl.utils.random(32)
-        port.send(rand)
-        msg = port.receive()
-        assert msg == rand
+        # Tell the client that this isn't a replay attack.
+        port.send(b"")
 
         return client_ver_key, port
 

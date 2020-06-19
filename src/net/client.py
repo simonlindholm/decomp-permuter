@@ -8,7 +8,7 @@ import threading
 from typing import List, Optional, Tuple, TypeVar
 import zlib
 
-from nacl.public import Box, PrivateKey
+from nacl.public import Box, PrivateKey, PublicKey
 from nacl.signing import SigningKey, VerifyKey
 
 from ..candidate import CandidateResult
@@ -22,7 +22,14 @@ from ..permuter import (
     Task,
 )
 from ..profiler import Profiler
-from .common import Config, PROTOCOL_VERSION, Port, RemoteServer, json_prop
+from .common import (
+    Config,
+    PROTOCOL_VERSION,
+    Port,
+    RemoteServer,
+    json_prop,
+    socket_read_fixed,
+)
 
 
 @dataclass
@@ -125,8 +132,7 @@ class Connection:
 
         # Send over the protocol version, a verification key for our signatures,
         # and an ephemeral encryption key which we are going to use for all
-        # communication. The ephemeral key serves double duty in protecting us
-        # against replay attacks.
+        # communication.
         ephemeral_key = PrivateKey.generate()
         sock.sendall(
             struct.pack(">I", PROTOCOL_VERSION)
@@ -134,13 +140,16 @@ class Connection:
             + self._config.signing_key.sign(ephemeral_key.public_key.encode())
         )
 
-        box = Box(ephemeral_key, self._server.ver_key.to_curve25519_public_key())
+        # Receive the server's encryption key, verifying that it's correctly
+        # signed. Use it to set up a communication port.
+        msg = socket_read_fixed(sock, 96)
+        server_enc_key = PublicKey(self._server.ver_key.verify(msg))
+        box = Box(ephemeral_key, server_enc_key)
         port = Port(sock, box, is_client=True)
 
-        # To help guard the server against replay attacks, send a server-chosen
-        # string as our first message.
-        rand = port.receive()
-        port.send(rand)
+        # Receive a dummy message on the encrypted connection, just to verify
+        # that this isn't a replay attack.
+        port.receive()
 
         return port
 
