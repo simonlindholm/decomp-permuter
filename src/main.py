@@ -24,7 +24,7 @@ import attr
 from .candidate import CandidateResult
 from .compiler import Compiler
 from .error import CandidateConstructionFailure
-from .net.auth import get_servers_and_grant, run_vouch, setup
+from .net.auth import fetch_servers_and_grant, run_vouch, setup
 from .net.client import connect_to_servers
 from .perm import perm_eval
 from .permuter import (
@@ -357,7 +357,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         net_threads: List[threading.Thread] = []
         if options.use_network:
             config = setup()
-            servers, grant = get_servers_and_grant(config)
+            servers, grant = fetch_servers_and_grant(config)
             net_threads = connect_to_servers(
                 config, servers, grant, context.permuters, task_queue, feedback_queue
             )

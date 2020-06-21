@@ -3,20 +3,27 @@ import threading
 
 import pystray
 
-from .net.auth import go_online, go_offline, setup
-from .net.server import Server, ServerOptions
+from .net.auth import fetch_docker_image_name, go_online, go_offline, setup
+from .net.server import Server, ServerOptions, start_inner_server
 
 
 def run(options: ServerOptions) -> None:
     config = setup()
-    go_online(config)
+    docker_image = fetch_docker_image_name(config)
+
+    comm = start_inner_server(docker_image, options)
+
     server = Server(config, options)
     server.start()
 
+    go_online(config)
+
     # TODO: print statistics, run systray, etc.
+    # Also regularly check in with the auth server to maintain an up-to-date IP,
+    # and to check version.
     input("Press enter to stop the server.")
-    server.stop()
     go_offline(config)
+    server.stop()
 
 
 def main() -> None:

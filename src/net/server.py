@@ -2,18 +2,23 @@ import base64
 from dataclasses import dataclass
 import json
 import os
+import pathlib
 import queue
 import socket
 import socketserver
 import struct
+import subprocess
+import sys
 from tempfile import mkstemp
 import threading
 import time
-from typing import Dict, List, Tuple, Union
+from typing import Dict, List, Tuple, Union, cast
 import zlib
 
-from nacl.signing import SigningKey, VerifyKey
+import docker
 from nacl.public import Box, PrivateKey, PublicKey
+from nacl.secret import SecretBox
+from nacl.signing import SigningKey, VerifyKey
 import nacl.utils
 
 from ..permuter import Permuter
@@ -287,3 +292,147 @@ class Server:
         assert self._state == "started"
         self._state = "finished"
         self._tcp_server.shutdown()
+
+
+class InnerServerComm:
+    def __init__(
+        self, container: docker.models.containers.Container, secret: bytes
+    ) -> None:
+        self._container = container
+        self._box = SecretBox(secret)
+        self._stdout_buffer = b""
+
+        # Set up a socket for reading from stdout/stderr and writing to
+        # stdin for the container. The docker package does not seem to
+        # expose an API for writing the stdin, but we can do so directly
+        # by attaching a socket and poking at internal state. (See
+        # https://github.com/docker/docker-py/issues/983.) For stdout/
+        # stderr, we use the format described at
+        # https://docs.docker.com/engine/api/v1.24/#attach-to-a-container.
+        #
+        # Hopefully this will keep working for at least a while...
+        #
+        # For good measure (i.e. it was fun, and also we get some improved
+        # error-checking), we additionally encrypt all messages we send.
+        try:
+            self._sock = container.attach_socket(
+                params={"stdout": True, "stdin": True, "stderr": True, "stream": True}
+            )
+            self._sock._writing = True
+        except:
+            try:
+                container.remove(force=True)
+            except Exception:
+                pass
+            raise
+
+    def __del__(self) -> None:
+        try:
+            self._sock.close()
+            self._container.remove(force=True)
+        except Exception:
+            pass
+
+    def _read_fixed(self, length: int) -> bytes:
+        ret = []
+        while length > 0:
+            data = self._sock.read(length)
+            ret.append(data)
+            length -= len(data)
+        return b"".join(ret)
+
+    def _read_one(self) -> Tuple[int, bytes]:
+        header = self._read_fixed(8)
+        stream, length = struct.unpack(">BxxxL", header)
+        if stream not in [1, 2]:
+            raise Exception("Unexpected stdout from Docker: " + repr(header))
+        data = self._read_fixed(length)
+        return stream, data
+
+    def read(self) -> bytes:
+        """Read a message from Docker, blocking."""
+        while True:
+            if len(self._stdout_buffer) >= 4:
+                msg_length = 4 + struct.unpack(">I", self._stdout_buffer[:4])[0]
+                if len(self._stdout_buffer) >= msg_length:
+                    msg = self._stdout_buffer[4:msg_length]
+                    self._stdout_buffer = self._stdout_buffer[msg_length:]
+                    return cast(bytes, self._box.decrypt(msg))
+
+            stream, data = self._read_one()
+            if stream == 1:
+                self._stdout_buffer += data
+            else:
+                sys.stderr.buffer.write(data)
+                sys.stderr.buffer.flush()
+
+    def send(self, data: bytes) -> None:
+        """Send a message to Docker, potentially blocking."""
+        data = self._box.encrypt(data)
+        data = struct.pack(">I", len(data)) + data
+        while data:
+            written = self._sock.write(data)
+            data = data[written:]
+        self._sock.flush()
+
+    def check_sanity(self) -> None:
+        """Sanity-check that the Docker container started successfully and can
+        be communicated with."""
+        magic = b"\0" * 1000
+        self.send(magic)
+        r = self.read()
+        if r != magic:
+            raise Exception("Failed initial sanity check.")
+
+
+def start_inner_server(docker_image: str, options: ServerOptions) -> InnerServerComm:
+    """Spawn a docker container and set it up to evaluate permutations in,
+    returning a handle that we can use to communicate with it.
+
+    We do this for a few reasons:
+    - enforcing a known Linux environment, all while the outside server can run
+      on e.g. Windows and display a systray
+    - enforcing resource limits
+    - sandboxing
+
+    Docker does have the downside of requiring root access, so ideally we would
+    also have a Docker-less mode, where we leave the sandboxing to some other
+    tool, e.g. https://github.com/ioi/isolate/."""
+    print("Starting docker...")
+    command = ["python3", "-m", "src.net.inner_server"]
+    secret = nacl.utils.random(32)
+    box = SecretBox(secret)
+    enc_secret = base64.b64encode(secret).decode("utf-8")
+    src_path = pathlib.Path(__file__).parent.parent.absolute()
+
+    try:
+        client = docker.from_env()
+        client.info()
+    except Exception:
+        print(
+            "Failed to start docker. Make sure you have docker installed, "
+            "and either run the permuter with sudo or add yourself to the "
+            '"docker" UNIX group.'
+        )
+        sys.exit(1)
+
+    # TODO tmpfs?
+    container = client.containers.run(
+        docker_image,
+        command,
+        detach=True,
+        remove=True,
+        stdin_open=True,
+        stdout=True,
+        environment={"SECRET": enc_secret},
+        volumes={src_path: {"bind": "/src", "mode": "ro"}},
+        nano_cpus=int(options.num_cpus * 1e9),
+        mem_limit=int(options.max_memory_gb * 2 ** 30),
+        read_only=True,
+        network_disabled=True,
+    )
+
+    comm = InnerServerComm(container, secret)
+    comm.check_sanity()
+
+    return comm

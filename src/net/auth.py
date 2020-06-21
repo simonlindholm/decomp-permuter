@@ -138,7 +138,7 @@ def run_vouch(vouch_text: str) -> None:
     print(base64.b64encode(token).decode("utf-8"))
 
 
-def get_servers_and_grant(config: Config) -> Tuple[List[RemoteServer], bytes]:
+def fetch_servers_and_grant(config: Config) -> Tuple[List[RemoteServer], bytes]:
     print("Connecting to permuter@home...")
     request_obj = {
         "version": 1,
@@ -168,6 +168,11 @@ def get_servers_and_grant(config: Config) -> Tuple[List[RemoteServer], bytes]:
         ret.append(server)
 
     return ret, grant
+
+
+def fetch_docker_image_name(config: Config) -> str:
+    print("Connecting to permuter@home...")
+    return "ido"
 
 
 def go_online(config: Config) -> None:
