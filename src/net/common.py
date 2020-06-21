@@ -4,7 +4,7 @@ from socket import socket
 import struct
 import sys
 import toml
-from typing import Optional, Type, TypeVar
+from typing import Optional, Type, TypeVar, Union
 
 from nacl.encoding import HexEncoder
 from nacl.signing import SigningKey, VerifyKey
@@ -44,18 +44,19 @@ def read_config() -> RawConfig:
     try:
         with open(CONFIG_FILENAME) as f:
             obj = toml.load(f)
-        temp = obj.get("auth_public_key")
+
+        def read(key: str, t: Type[T]) -> Optional[T]:
+            ret = obj.get(key)
+            return ret if isinstance(ret, t) else None
+
+        temp = read("auth_public_key", str)
         if temp:
             config.auth_verify_key = VerifyKey(HexEncoder.decode(temp))
-        temp = obj.get("secret_key")
+        temp = read("secret_key", str)
         if temp:
             config.signing_key = SigningKey(HexEncoder.decode(temp))
-        temp = obj.get("initial_setup_nickname")
-        if isinstance(temp, str):
-            config.initial_setup_nickname = temp
-        temp = obj.get("initial_setup_nickname")
-        if isinstance(temp, str):
-            config.initial_setup_nickname = temp
+        config.initial_setup_nickname = read("initial_setup_nickname", str)
+        config.auth_server = read("auth_server", str)
     except FileNotFoundError:
         pass
     except Exception:
@@ -66,17 +67,22 @@ def read_config() -> RawConfig:
 
 def write_config(config: RawConfig) -> None:
     obj = {}
+
+    def write(key: str, val: Union[None, str, int]) -> None:
+        if val is not None:
+            obj[key] = val
+
+    write("initial_setup_nickname", config.initial_setup_nickname)
+    write("auth_server", config.auth_server)
+
     key_hex: bytes
     if config.auth_verify_key:
         key_hex = config.auth_verify_key.encode(HexEncoder)
-        obj["auth_public_key"] = key_hex.decode("utf-8")
+        write("auth_public_key", key_hex.decode("utf-8"))
     if config.signing_key:
         key_hex = config.signing_key.encode(HexEncoder)
-        obj["secret_key"] = key_hex.decode("utf-8")
-    if config.initial_setup_nickname:
-        obj["initial_setup_nickname"] = config.initial_setup_nickname
-    if config.auth_server:
-        obj["auth_server"] = config.auth_server
+        write("secret_key", key_hex.decode("utf-8"))
+
     with open(CONFIG_FILENAME, "w") as f:
         toml.dump(obj, f)
 
