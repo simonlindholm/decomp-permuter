@@ -76,7 +76,7 @@ def _initial_setup(config: RawConfig) -> None:
     try:
         token = base64.b64decode(inp.encode("utf-8"))
         data = SealedBox(signing_key.to_curve25519_private_key()).decrypt(token)
-        auth_verify_key = data[:32]
+        auth_verify_key = VerifyKey(data[:32])
         auth_server = data[32:].decode("utf-8")
         print(f"Server URL: {auth_server}")
         print("Testing connection...")
@@ -87,6 +87,8 @@ def _initial_setup(config: RawConfig) -> None:
         print("permuter@home successfully set up!")
         print()
         config.auth_server = auth_server
+        config.auth_verify_key = auth_verify_key
+        config.initial_setup_nickname = None
         write_config(config)
     except Exception:
         print("Invalid token!")
@@ -128,7 +130,8 @@ def run_vouch(vouch_text: str) -> None:
 
     # TODO: send signature and signed nickname to central server
 
-    token = SealedBox(verify_key.to_curve25519_public_key()).encrypt(config.auth_server)
+    data = config.auth_verify_key.encode() + config.auth_server.encode("utf-8")
+    token = SealedBox(verify_key.to_curve25519_public_key()).encrypt(data)
     print("Granted!")
     print()
     print("Send them the following token:")
