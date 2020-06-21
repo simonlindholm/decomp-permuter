@@ -15,7 +15,7 @@ https://github.com/laqieer/decomp-permuter-arm has an ARM port.
 ## Usage
 
 `./permuter.py directory/` runs the permuter; see below for the meaning of the directory.
-Pass `-h` to see possible flags.
+Pass `-h` to see possible flags. `-j` is suggested (enables multi-threaded mode).
 
 You'll first need to install a couple of prerequisites: `python3 -m pip install attrs pycparser pynacl toml`
 
@@ -52,6 +52,24 @@ PERM_GENERAL(stmt;, PERM_VAR(delayed, stmt;))
 PERM_VAR(delayed)
 ```
 is a valid pattern for emitting a statement either at one point or later.
+
+## permuter@home
+
+The permuter supports a distributed mode, where people can donate processor power to your permuter runs to speed them up.
+To use this, pass in `-J` and follow the instructions. You will need to be granted access by someone who is
+already connected to a permuter network.
+
+To allow others to use your computer for permuter runs, do the following:
+
+- install Docker (used for sandboxing and to ensure a consistent environment)
+- `python3 -m pip install docker pystray`
+- pick a port number and modify your router settings to forward it to your machine
+- open a terminal, and run `./server.py` to start the server.
+  There are a few required arguments (e.g. port number and how many cores to use), see `--help` for more details.
+
+Anyone who is able to use -J can run a server.
+
+<!-- To set up a new permuter network, see [TODO] -->
 
 ## FAQ
 
