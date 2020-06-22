@@ -101,6 +101,9 @@ class ServerHandler(socketserver.BaseRequestHandler):
         """Set up a secure (but untrusted) connection with the client."""
         sock: socket.socket = self.request
 
+        # Decrease network latency by disabling Nagle's algorithm.
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+
         # Read and verify protocol version.
         msg = socket_read_fixed(sock, 4)
         version = struct.unpack(">I", msg)[0]

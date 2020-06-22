@@ -131,6 +131,9 @@ class Connection:
         sock = socket.create_connection((self._server.ip, self._server.port))
         self._sock = sock
 
+        # Decrease network latency by disabling Nagle's algorithm.
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+
         # Send over the protocol version, a verification key for our signatures,
         # and an ephemeral encryption key which we are going to use for all
         # communication.
