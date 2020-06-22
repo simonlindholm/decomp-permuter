@@ -90,18 +90,16 @@ def _send_result(res: EvalResult, perm: Permuter, port: Port) -> None:
         )
         return
 
-    send_source = res.source is not None and perm.need_to_send_source(res)
     port.send_json(
         {
             "score": res.score,
             "hash": res.hash,
-            "has_source": send_source,
+            "has_source": res.source is not None,
             "profiler": {st: res.profiler.time_stats[st] for st in Profiler.StatType},
         }
     )
 
-    if send_source:
-        assert res.source is not None, "checked above"
+    if res.source is not None:
         port.send(zlib.compress(res.source.encode("utf-8")))
 
 
