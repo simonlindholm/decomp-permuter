@@ -136,9 +136,9 @@ class Port(abc.ABC):
 
     def send(self, msg: bytes) -> None:
         """Send a binary message, potentially blocking."""
-        nonce = struct.pack(">24xQ", self._send_nonce)
+        nonce = struct.pack(">16xQ", self._send_nonce)
         self._send_nonce += 2
-        data = self._box.encrypt(msg, nonce)
+        data = self._box.encrypt(msg, nonce).ciphertext
         length_data = struct.pack(">Q", len(data))
         self._send(length_data + data)
 
@@ -151,7 +151,7 @@ class Port(abc.ABC):
         length_data = self._receive(8)
         length = struct.unpack(">Q", length_data)[0]
         data = self._receive(length)
-        nonce = struct.pack(">24xQ", self._receive_nonce)
+        nonce = struct.pack(">16xQ", self._receive_nonce)
         self._receive_nonce += 2
         ret: bytes = self._box.decrypt(data, nonce)
         return ret
