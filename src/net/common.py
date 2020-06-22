@@ -149,6 +149,10 @@ class Port(abc.ABC):
     def receive(self) -> bytes:
         """Read a binary message, blocking."""
         length_data = self._receive(8)
+        if length_data[0]:
+            # Lengths above 2^56 are unreasonable, so if we get one someone is
+            # sending us bad data. Raise an exception to help debugging.
+            raise Exception("Got unexpected data: " + repr(length_data))
         length = struct.unpack(">Q", length_data)[0]
         data = self._receive(length)
         nonce = struct.pack(">16xQ", self._receive_nonce)

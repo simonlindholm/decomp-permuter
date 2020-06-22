@@ -358,14 +358,14 @@ class DockerPort(Port):
 
     def _read_one(self) -> None:
         header = file_read_fixed(self._sock, 8)
-        stream, length = struct.unpack(">BxxxL", header)
+        stream, length = struct.unpack(">BxxxI", header)
         if stream not in [1, 2]:
-            raise Exception("Unexpected stdout from Docker: " + repr(header))
+            raise Exception("Unexpected output from Docker: " + repr(header))
         data = file_read_fixed(self._sock, length)
         if stream == 1:
             self._stdout_buffer += data
         else:
-            sys.stderr.buffer.write(b"docker stderr: " + data)
+            sys.stderr.buffer.write(b"Docker stderr: " + data)
             sys.stderr.buffer.flush()
 
     def _receive(self, length: int) -> bytes:
