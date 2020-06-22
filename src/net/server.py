@@ -407,7 +407,6 @@ def start_inner_server(docker_image: str, options: ServerOptions) -> Port:
         )
         sys.exit(1)
 
-    # TODO tmpfs?
     container = client.containers.run(
         docker_image,
         command,
@@ -417,6 +416,7 @@ def start_inner_server(docker_image: str, options: ServerOptions) -> Port:
         stdout=True,
         environment={"SECRET": enc_secret},
         volumes={src_path: {"bind": "/src", "mode": "ro"}},
+        tmpfs={"/tmp": "size=1G"},
         nano_cpus=int(options.num_cpus * 1e9),
         mem_limit=int(options.max_memory_gb * 2 ** 30),
         read_only=True,
