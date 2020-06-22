@@ -6,12 +6,14 @@ import struct
 import sys
 from tempfile import mkstemp
 import traceback
-from typing import BinaryIO
+from typing import BinaryIO, Dict
+import zlib
 
 from nacl.secret import SecretBox
 
 from ..error import CandidateConstructionFailure
-from ..permuter import Permuter
+from ..permuter import EvalError, EvalResult, Permuter
+from ..profiler import Profiler
 from ..scorer import Scorer
 from ..compiler import Compiler
 from .common import FilePort, Port, file_read_fixed, json_prop
@@ -53,32 +55,69 @@ def _receive_permuter(obj: dict, port: Port) -> Permuter:
     finally:
         os.unlink(path)
 
-    # TODO
-    compiler = Compiler(compile_cmd="TODO", show_errors=False,)
+    fd, path = mkstemp(suffix=".sh", prefix="permuter", text=True)
+    try:
+        os.chmod(fd, 0o755)
+        with os.fdopen(fd, "w") as f:
+            f.write(compile_script)
+        compiler = Compiler(compile_cmd=path, show_errors=False,)
 
-    return Permuter(
-        dir="unused",
-        fn_name=fn_name,
-        compiler=compiler,
-        scorer=scorer,
-        source_file=filename,
-        source=source,
-        force_rng_seed=None,
-        keep_prob=keep_prob,
-        need_all_sources=False,
+        return Permuter(
+            dir="unused",
+            fn_name=fn_name,
+            compiler=compiler,
+            scorer=scorer,
+            source_file=filename,
+            source=source,
+            force_rng_seed=None,
+            keep_prob=keep_prob,
+            need_all_sources=False,
+        )
+    except:
+        os.unlink(path)
+        raise
+
+
+def _remove_permuter(perm: Permuter) -> None:
+    # TODO: deal with multiprocessing
+    os.unlink(perm.compiler.compile_cmd)
+
+
+def _send_result(res: EvalResult, perm: Permuter, port: Port) -> None:
+    if isinstance(res, EvalError):
+        port.send_json(
+            {"type": "result", "error": res.exc_str,}
+        )
+        return
+
+    send_source = res.source is not None and perm.need_to_send_source(res)
+    port.send_json(
+        {
+            "score": res.score,
+            "hash": res.hash,
+            "has_source": send_source,
+            "profiler": {st: res.profiler.time_stats[st] for st in Profiler.StatType},
+        }
     )
+
+    if send_source:
+        assert res.source is not None, "checked above"
+        port.send(zlib.compress(res.source.encode("utf-8")))
 
 
 def main() -> None:
+    num_threads = int(sys.argv[1])
     port = _setup_port()
+    perms: Dict[str, Permuter] = {}
 
     while True:
         item = port.receive_json()
-        tp = json_prop(item, "type", str)
-        if tp == "add":
+        msg_type = json_prop(item, "type", str)
+        if msg_type == "add":
             perm_id = json_prop(item, "id", str)
             try:
-                perm = _receive_permuter(item, port)
+                assert perm_id not in perms, perm_id
+                perms[perm_id] = _receive_permuter(item, port)
                 success = True
             except Exception as e:
                 if isinstance(e, CandidateConstructionFailure):
@@ -89,12 +128,19 @@ def main() -> None:
             port.send_json(
                 {"type": "init", "id": perm_id, "success": success,}
             )
-        elif tp == "remove":
-            pass
-        elif tp == "work":
-            pass
+        elif msg_type == "remove":
+            perm_id = json_prop(item, "id", str)
+            _remove_permuter(perms[perm_id])
+            del perms[perm_id]
+        elif msg_type == "work":
+            # TODO: multiprocessing
+            perm_id = json_prop(item, "id", str)
+            seed = json_prop(item, "seed", int)
+            perm = perms[perm_id]
+            result = perm.try_eval_candidate(seed)
+            _send_result(result, perm, port)
         else:
-            raise Exception(f"Invalid work type {tp}")
+            raise Exception(f"Invalid message type {msg_type}")
 
 
 if __name__ == "__main__":

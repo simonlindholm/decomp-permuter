@@ -601,7 +601,8 @@ def start_evaluator(docker_image: str, options: ServerOptions) -> DockerPort:
     also have a Docker-less mode, where we leave the sandboxing to some other
     tool, e.g. https://github.com/ioi/isolate/."""
     print("Starting docker...")
-    command = ["python3", "-m", "src.net.evaluator"]
+    num_threads = int(options.num_cpus + 0.5) + 1
+    command = ["python3", "-m", "src.net.evaluator", str(num_threads)]
     secret = nacl.utils.random(32)
     box = SecretBox(secret)
     enc_secret = base64.b64encode(secret).decode("utf-8")
