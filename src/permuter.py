@@ -72,7 +72,7 @@ class Permuter:
         self.source = source
 
         if fn_name is None:
-            fns = find_fns(source)
+            fns = _find_fns(source)
             if len(fns) == 0:
                 raise Exception(f"{self.source_file} does not contain any function!")
             if len(fns) > 1:
@@ -94,7 +94,7 @@ class Permuter:
         self.keep_prob = keep_prob
         self.need_all_sources = need_all_sources
 
-        self.base, base_score, self.base_hash = self.create_and_score_base()
+        self.base, base_score, self.base_hash = self._create_and_score_base()
         self.hashes = {self.base_hash}
         self.cand: Optional[Candidate] = None
         self.base_score: int = base_score
@@ -104,7 +104,7 @@ class Permuter:
     def reseed_random(self) -> None:
         self.random = random.Random()
 
-    def create_and_score_base(self) -> Tuple[Candidate, int, str]:
+    def _create_and_score_base(self) -> Tuple[Candidate, int, str]:
         base_source = perm_eval.perm_evaluate_one(self.permutations)
         base_cand = Candidate.from_source(
             base_source, self.fn_name, self.parser, rng_seed=0
@@ -115,7 +115,7 @@ class Permuter:
         base_result = base_cand.score(self.scorer, o_file)
         return base_cand, base_result.score, base_result.hash
 
-    def need_to_send_source(self, result: CandidateResult) -> bool:
+    def _need_to_send_source(self, result: CandidateResult) -> bool:
         if self.need_all_sources:
             return True
         if result.score < self.base_score:
@@ -124,7 +124,7 @@ class Permuter:
             return result.hash != self.base_hash
         return False
 
-    def eval_candidate(self, seed: int) -> CandidateResult:
+    def _eval_candidate(self, seed: int) -> CandidateResult:
         t0 = time.time()
 
         # Determine if we should keep the last candidate.
@@ -175,14 +175,14 @@ class Permuter:
 
         self._last_score = result.score
 
-        if not self.need_to_send_source(result):
+        if not self._need_to_send_source(result):
             result.source = None
 
         return result
 
     def try_eval_candidate(self, seed: int) -> EvalResult:
         try:
-            return self.eval_candidate(seed)
+            return self._eval_candidate(seed)
         except Exception:
             return EvalError(exc_str=traceback.format_exc(), seed=self.cur_seed)
 
@@ -205,7 +205,7 @@ class Permuter:
         )
 
 
-def find_fns(source: str) -> List[str]:
+def _find_fns(source: str) -> List[str]:
     fns = re.findall(r"(\w+)\([^()\n]*\)\s*?{", source)
     return [
         fn
