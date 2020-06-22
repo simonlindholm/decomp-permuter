@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 import difflib
 import random
 import re
@@ -35,8 +36,9 @@ class NeedMoreWork:
     pass
 
 
+@dataclass
 class Finished:
-    pass
+    reason: Optional[str] = None
 
 
 Task = Union[Finished, Tuple[int, int]]

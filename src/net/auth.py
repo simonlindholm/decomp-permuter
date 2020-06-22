@@ -156,6 +156,7 @@ def fetch_servers_and_grant(config: Config) -> Tuple[List[RemoteServer], bytes]:
     granted_request = config.auth_verify_key.verify(grant)
     assert granted_request[:32] == config.signing_key.verify_key.encode()
 
+    # TODO: use json_prop, print list of servers
     server_list = resp["server_list"]
 
     ret = []
@@ -163,6 +164,7 @@ def fetch_servers_and_grant(config: Config) -> Tuple[List[RemoteServer], bytes]:
         server = RemoteServer(
             ip=obj["ip"],
             port=obj["port"],
+            nickname=obj["nickname"],
             ver_key=VerifyKey(_decode_hex_key(obj["verification_key"])),
         )
         ret.append(server)

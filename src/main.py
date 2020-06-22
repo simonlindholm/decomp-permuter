@@ -392,6 +392,8 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             heartbeat()
             feedback = feedback_queue.get()
             if isinstance(feedback, Finished):
+                if feedback.reason:
+                    print(feedback.reason)
                 active_workers -= 1
                 continue
             if isinstance(feedback, NeedMoreWork):

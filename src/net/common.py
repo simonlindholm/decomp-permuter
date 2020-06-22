@@ -24,6 +24,7 @@ CONFIG_FILENAME = "pah.conf"
 class RemoteServer:
     ip: str
     port: int
+    nickname: str
     ver_key: VerifyKey
 
 
@@ -95,7 +96,7 @@ def file_read_fixed(inf: BinaryIO, n: int) -> bytes:
     while n > 0:
         data = inf.read(n)
         if not data:
-            raise Exception("eof")
+            raise EOFError()
         ret.append(data)
         n -= len(data)
     return b"".join(ret)
@@ -106,7 +107,7 @@ def socket_read_fixed(sock: socket, n: int) -> bytes:
     while n > 0:
         data = sock.recv(min(n, 4096))
         if not data:
-            raise Exception("eof")
+            raise EOFError()
         ret.append(data)
         n -= len(data)
     return b"".join(ret)
@@ -181,6 +182,9 @@ class SocketPort(Port):
 
     def _receive(self, length: int) -> bytes:
         return socket_read_fixed(self._sock, length)
+
+    def close(self) -> None:
+        self._sock.close()
 
 
 class FilePort(Port):

@@ -193,10 +193,16 @@ class Connection:
             raise Exception(f"error during initialization: {msg}")
 
     def run(self) -> None:
+        finish_reason: Optional[str] = None
         try:
             port = self._setup()
             props = self._init(port)
             self._send_permuters(port)
+            msg = port.receive_json()
+            success = json_prop(msg, "success", bool)
+            if not success:
+                finish_reason = f"failed to compile at [{self._server.nickname}]"
+                return
             self._feedback_queue.put(NeedMoreWork())
             finished = False
             while True:
@@ -235,7 +241,7 @@ class Connection:
                 else:
                     raise ValueError(f"Invalid message type {msg_type}")
         finally:
-            self._feedback_queue.put(Finished())
+            self._feedback_queue.put(Finished(reason=finish_reason))
             if self._sock is not None:
                 self._sock.close()
 

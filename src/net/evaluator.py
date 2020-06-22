@@ -5,10 +5,12 @@ import os
 import struct
 import sys
 from tempfile import mkstemp
+import traceback
 from typing import BinaryIO
 
 from nacl.secret import SecretBox
 
+from ..error import CandidateConstructionFailure
 from ..permuter import Permuter
 from ..scorer import Scorer
 from ..compiler import Compiler
@@ -74,7 +76,19 @@ def main() -> None:
         item = port.receive_json()
         tp = json_prop(item, "type", str)
         if tp == "add":
-            perm = _receive_permuter(item, port)
+            perm_id = json_prop(item, "id", str)
+            try:
+                perm = _receive_permuter(item, port)
+                success = True
+            except Exception as e:
+                if isinstance(e, CandidateConstructionFailure):
+                    print(e.message)
+                else:
+                    traceback.print_exc()
+                success = False
+            port.send_json(
+                {"type": "init", "id": perm_id, "success": success,}
+            )
         elif tp == "remove":
             pass
         elif tp == "work":
