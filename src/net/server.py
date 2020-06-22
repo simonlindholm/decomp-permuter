@@ -1,6 +1,6 @@
 import abc
 import base64
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 import os
 import pathlib
@@ -10,11 +10,10 @@ import socketserver
 import struct
 import subprocess
 import sys
-from tempfile import mkstemp
 import threading
 import time
 import traceback
-from typing import BinaryIO, Dict, List, Tuple, Union
+from typing import BinaryIO, Dict, List, Optional, Tuple, Union
 import zlib
 
 import docker
@@ -23,9 +22,6 @@ from nacl.secret import SecretBox
 from nacl.signing import SigningKey, VerifyKey
 import nacl.utils
 
-from ..permuter import Permuter
-from ..scorer import Scorer
-from ..compiler import Compiler
 from .common import (
     Config,
     PROTOCOL_VERSION,
@@ -38,34 +34,38 @@ from .common import (
 
 
 @dataclass
-class ClientConnection:
-    # Unique identifier for the connecting client
-    client: bytes
-
-    # Name of the connecting client
+class ClientState:
+    handle: object
+    client: bytes  # Unique identifier for the connecting client
     nickname: str
-
     port: Port
+    initial_permuters: List[PermuterData]
+    num_permuters: int
+    eof: bool = False
+    has_sent_permuters: bool = False
+    cooldown: float = 0.0
+    queue: "queue.Queue[MoreWork]" = field(default_factory=queue.Queue)
 
 
 @dataclass
 class AddClient:
     handle: object
-    permuters: List[Permuter]
-    connection: ClientConnection
+    state: ClientState
 
 
 @dataclass
-class RemoveClient:
+class EofClient:
     handle: object
 
 
 @dataclass
-class WakeUp:
-    pass
+class MoreWork:
+    handle: object
+    permuter_index: int
+    seed: int
 
 
-Activity = Union[AddClient, RemoveClient, WakeUp]
+Activity = Union[AddClient, EofClient, MoreWork]
 
 
 @dataclass
@@ -76,6 +76,17 @@ class ServerOptions:
     max_memory_gb: float
     min_priority: float
     systray: bool
+
+
+@dataclass
+class PermuterData:
+    fn_name: str
+    filename: str
+    keep_prob: float
+    stack_differences: bool
+    compile_script: str
+    source: str
+    target_o_bin: bytes
 
 
 @dataclass
@@ -150,45 +161,28 @@ class ServerHandler(socketserver.BaseRequestHandler):
         }
         port.send_json(props)
 
-    def _receive_permuters(self, port: Port) -> List[Permuter]:
+    def _receive_permuters(self, port: Port) -> List[PermuterData]:
         msg = port.receive_json()
-        permuters = json_prop(msg, "permuters", list)
 
         permuters = []
-        for obj in permuters:
+        for obj in json_prop(msg, "permuters", list):
             if not isinstance(obj, dict):
                 raise ValueError(f"Permuters must be dictionaries, found {obj}")
-            fn_name = json_prop(obj, "fn_name", str)
-            filename = json_prop(obj, "filename", str)
-            keep_prob = json_prop(obj, "keep_prob", float)
-            stack_differences = json_prop(obj, "stack_differences", bool)
-            compile_script = json_prop(obj, "compile_script", str)
 
             source = zlib.decompress(port.receive()).decode("utf-8")
             target_o_bin = port.receive()
 
-            fd, path = mkstemp(suffix=".o", prefix="permuter", text=False)
-            try:
-                with os.fdopen(fd, "wb") as f:
-                    f.write(target_o_bin)
-                scorer = Scorer(target_o=path, stack_differences=stack_differences)
-            finally:
-                os.unlink(path)
-
-            compiler = Compiler(compile_cmd="TODO", show_errors=False,)
-
-            perm = Permuter(
-                dir="TODO",
-                fn_name=fn_name,
-                compiler=compiler,
-                scorer=scorer,
-                source_file=filename,
-                source=source,
-                force_rng_seed=None,
-                keep_prob=keep_prob,
-                need_all_sources=False,
+            permuters.append(
+                PermuterData(
+                    fn_name=json_prop(obj, "fn_name", str),
+                    filename=json_prop(obj, "filename", str),
+                    keep_prob=json_prop(obj, "keep_prob", float),
+                    stack_differences=json_prop(obj, "stack_differences", bool),
+                    compile_script=json_prop(obj, "compile_script", str),
+                    source=source,
+                    target_o_bin=target_o_bin,
+                )
             )
-            permuters.append(perm)
 
         return permuters
 
@@ -201,6 +195,7 @@ class ServerHandler(socketserver.BaseRequestHandler):
         nickname = self._confirm_grant(port, client_ver_key, auth_ver_key)
 
         permuters = self._receive_permuters(port)
+        num_perm = len(permuters)
 
         # Create a key object that uniquely identifies the TCP connection
         handle: object = {}
@@ -208,9 +203,13 @@ class ServerHandler(socketserver.BaseRequestHandler):
         shared.queue.put(
             AddClient(
                 handle=handle,
-                permuters=permuters,
-                connection=ClientConnection(
-                    client=client_ver_key.encode(), nickname=nickname, port=port,
+                state=ClientState(
+                    handle=handle,
+                    client=client_ver_key.encode(),
+                    nickname=nickname,
+                    port=port,
+                    initial_permuters=permuters,
+                    num_permuters=len(permuters),
                 ),
             )
         )
@@ -224,12 +223,19 @@ class ServerHandler(socketserver.BaseRequestHandler):
                 elif tp == "work":
                     permuter_index = json_prop(msg, "permuter", int)
                     seed = json_prop(msg, "seed", int)
-                    # TODO: put index and seed somewhere
-                    shared.queue.put(WakeUp())
+                    if not 0 <= permuter_index < num_perm:
+                        raise ValueError(
+                            f"Permuter index out of range ({permuter_index}/{num_perm})"
+                        )
+                    shared.queue.put(
+                        MoreWork(
+                            handle=handle, permuter_index=permuter_index, seed=seed
+                        )
+                    )
                 else:
                     raise ValueError(f'Unrecognized message type "{tp}"')
         finally:
-            shared.queue.put(RemoveClient(handle=handle))
+            shared.queue.put(EofClient(handle=handle))
 
     def finish(self) -> None:
         pass
@@ -249,45 +255,126 @@ class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
 class Server:
     _config: Config
     _options: ServerOptions
-    _inner_server_port: Port
+    _evaluator_port: Port
     _queue: "queue.Queue[Activity]"
     _tcp_server: ThreadedTCPServer
     _state: str
+    _states: Dict[int, ClientState]
+    _active_work: int = 0
 
     def __init__(
-        self, config: Config, options: ServerOptions, inner_server_port: Port
+        self, config: Config, options: ServerOptions, evaluator_port: Port
     ) -> None:
         self._config = config
         self._options = options
-        self._inner_server_port = inner_server_port
+        self._evaluator_port = evaluator_port
         self._queue = queue.Queue()
         self._tcp_server = ThreadedTCPServer(
             (options.host, options.port), ServerHandler
         )
         self._state = "notstarted"
+        self._states = {}
 
         shared = SharedServerData(config=config, options=options, queue=self._queue)
         setattr(self._tcp_server, "shared", shared)
 
-    def _run_loop(self) -> None:
-        clients: Dict[int, ClientConnection] = {}
-        while True:
-            item = self._queue.get()
-            if isinstance(item, WakeUp):
-                # Do nothing special, this was just a call for us to wake up
-                # and schedule work.
-                pass
-            elif isinstance(item, AddClient):
-                client = item.connection
-                clients[id(item.handle)] = client
-                filenames = ", ".join(p.fn_name for p in item.permuters)
-                print(f"[{client.nickname}] connected ({filenames})")
-            elif isinstance(item, RemoveClient):
-                client = clients[id(item.handle)]
-                del clients[id(item.handle)]
-                print(f"[{client.nickname}] disconnected")
+    def _permuter_id(self, state: ClientState, index: int) -> str:
+        return str(id(state.handle)) + "," + str(index)
 
-            # TODO: process work
+    def _handle_message(self, msg: Activity) -> None:
+        if isinstance(msg, MoreWork):
+            state = self._states[id(msg.handle)]
+            assert not state.eof
+            state.queue.put(msg)
+        elif isinstance(msg, AddClient):
+            state = msg.state
+            self._states[id(msg.handle)] = state
+            filenames = ", ".join(p.fn_name for p in state.initial_permuters)
+            print(f"[{state.nickname}] connected ({filenames})")
+        elif isinstance(msg, EofClient):
+            state = self._states[id(msg.handle)]
+            assert not state.eof
+            state.eof = True
+            print(f"[{state.nickname}] disconnected")
+
+    def _prune_finished(self) -> None:
+        to_remove: List[ClientState] = [
+            state
+            for state in self._states.values()
+            if state.eof and state.has_sent_permuters and state.queue.empty()
+        ]
+
+        for state in to_remove:
+            for i in range(state.num_permuters):
+                self._evaluator_port.send_json(
+                    {"type": "remove", "id": self._permuter_id(state, i),}
+                )
+            del self._states[id(state.handle)]
+
+    def _send_permuter(self, id_: str, perm: PermuterData) -> None:
+        self._active_work += 1
+        self._evaluator_port.send_json(
+            {
+                "type": "add",
+                "id": id_,
+                "fn_name": perm.fn_name,
+                "filename": perm.filename,
+                "keep_prob": perm.keep_prob,
+                "stack_differences": perm.stack_differences,
+                "compile_script": perm.compile_script,
+            }
+        )
+        self._evaluator_port.send(perm.source.encode("utf-8"))
+        self._evaluator_port.send(perm.target_o_bin)
+
+    def _send_work(self) -> bool:
+        # Go through the queues and check if anything needs to be sent to the
+        # evaluator. We prioritize queues based on cooldown -- the queue with
+        # the shortest remaining cooldown is processed first (and gets
+        # normalized to have cooldown = 0).
+        smallest_cooldown = float("inf")
+        chosen: Optional[ClientState] = None
+
+        for state in self._states.values():
+            if state.has_sent_permuters and state.queue.empty():
+                continue
+
+            if state.cooldown < smallest_cooldown:
+                smallest_cooldown = state.cooldown
+                chosen = state
+
+        if not chosen:
+            return False
+
+        if not chosen.has_sent_permuters:
+            chosen.has_sent_permuters = True
+            for i, p in enumerate(state.initial_permuters):
+                self._send_permuter(self._permuter_id(chosen, i), p)
+            state.initial_permuters = []
+        else:
+            work = chosen.queue.get_nowait()
+            assert work is not None
+            self._evaluator_port.send_json(
+                {
+                    "type": "work",
+                    "id": self._permuter_id(chosen, work.permuter_index),
+                    "seed": work.seed,
+                }
+            )
+            self._active_work += 1
+
+        return True
+
+    def _run_loop(self) -> None:
+        max_work = int(self._options.num_cpus) * 2 + 4
+        while True:
+            msg = self._queue.get()
+            self._handle_message(msg)
+
+            while self._active_work < max_work:
+                self._prune_finished()
+                if not self._send_work():
+                    break
 
     def start(self) -> None:
         assert self._state == "notstarted"
@@ -382,7 +469,7 @@ class DockerPort(Port):
         self._sock.flush()
 
 
-def start_inner_server(docker_image: str, options: ServerOptions) -> DockerPort:
+def start_evaluator(docker_image: str, options: ServerOptions) -> DockerPort:
     """Spawn a docker container and set it up to evaluate permutations in,
     returning a handle that we can use to communicate with it.
 
@@ -396,7 +483,7 @@ def start_inner_server(docker_image: str, options: ServerOptions) -> DockerPort:
     also have a Docker-less mode, where we leave the sandboxing to some other
     tool, e.g. https://github.com/ioi/isolate/."""
     print("Starting docker...")
-    command = ["python3", "-m", "src.net.inner_server"]
+    command = ["python3", "-m", "src.net.evaluator"]
     secret = nacl.utils.random(32)
     box = SecretBox(secret)
     enc_secret = base64.b64encode(secret).decode("utf-8")

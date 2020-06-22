@@ -172,6 +172,7 @@ def fetch_servers_and_grant(config: Config) -> Tuple[List[RemoteServer], bytes]:
 
 def fetch_docker_image_name(config: Config) -> str:
     print("Connecting to permuter@home...")
+    # TODO
     return "ido"
 
 

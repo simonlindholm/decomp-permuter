@@ -4,14 +4,14 @@ import threading
 import pystray
 
 from .net.auth import fetch_docker_image_name, go_online, go_offline, setup
-from .net.server import Server, ServerOptions, start_inner_server
+from .net.server import Server, ServerOptions, start_evaluator
 
 
 def run(options: ServerOptions) -> None:
     config = setup()
     docker_image = fetch_docker_image_name(config)
 
-    port = start_inner_server(docker_image, options)
+    port = start_evaluator(docker_image, options)
 
     try:
         server = Server(config, options, port)
