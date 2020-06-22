@@ -1,3 +1,4 @@
+import abc
 import base64
 from dataclasses import dataclass
 import json
@@ -12,7 +13,7 @@ import sys
 from tempfile import mkstemp
 import threading
 import time
-from typing import Dict, List, Tuple, Union, cast
+from typing import BinaryIO, Dict, List, Tuple, Union
 import zlib
 
 import docker
@@ -24,7 +25,15 @@ import nacl.utils
 from ..permuter import Permuter
 from ..scorer import Scorer
 from ..compiler import Compiler
-from .common import Config, PROTOCOL_VERSION, Port, json_prop, socket_read_fixed
+from .common import (
+    Config,
+    PROTOCOL_VERSION,
+    Port,
+    SocketPort,
+    file_read_fixed,
+    json_prop,
+    socket_read_fixed,
+)
 
 
 @dataclass
@@ -101,7 +110,7 @@ class ServerHandler(socketserver.BaseRequestHandler):
         # Set up encrypted communication channel. Once we receive the first
         # message we'll know that this isn't a replay attack.
         box = Box(ephemeral_key, client_enc_key)
-        port = Port(sock, box, is_client=False)
+        port = SocketPort(sock, box, is_client=False)
 
         # Tell the client that this isn't a replay attack.
         port.send(b"")
@@ -294,12 +303,21 @@ class Server:
         self._tcp_server.shutdown()
 
 
-class InnerServerComm:
+class DockerPort(Port):
+    """Port for communicating with Docker. Communication is encrypted for a few
+    not-very-good reasons:
+    - it allows code reuse
+    - it adds error-checking
+    - it was fun to implement"""
+
+    _sock: BinaryIO
+    _container: docker.models.containers.Container
+    _stdout_buffer: bytes
+
     def __init__(
         self, container: docker.models.containers.Container, secret: bytes
     ) -> None:
         self._container = container
-        self._box = SecretBox(secret)
         self._stdout_buffer = b""
 
         # Set up a socket for reading from stdout/stderr and writing to
@@ -311,20 +329,19 @@ class InnerServerComm:
         # https://docs.docker.com/engine/api/v1.24/#attach-to-a-container.
         #
         # Hopefully this will keep working for at least a while...
-        #
-        # For good measure (i.e. it was fun, and also we get some improved
-        # error-checking), we additionally encrypt all messages we send.
         try:
             self._sock = container.attach_socket(
                 params={"stdout": True, "stdin": True, "stderr": True, "stream": True}
             )
-            self._sock._writing = True
+            self._sock._writing = True  # type: ignore
         except:
             try:
                 container.remove(force=True)
             except Exception:
                 pass
             raise
+
+        super().__init__(SecretBox(secret), is_client=True)
 
     def __del__(self) -> None:
         try:
@@ -333,59 +350,33 @@ class InnerServerComm:
         except Exception:
             pass
 
-    def _read_fixed(self, length: int) -> bytes:
-        ret = []
-        while length > 0:
-            data = self._sock.read(length)
-            ret.append(data)
-            length -= len(data)
-        return b"".join(ret)
-
-    def _read_one(self) -> Tuple[int, bytes]:
-        header = self._read_fixed(8)
+    def _read_one(self) -> None:
+        header = file_read_fixed(self._sock, 8)
         stream, length = struct.unpack(">BxxxL", header)
         if stream not in [1, 2]:
             raise Exception("Unexpected stdout from Docker: " + repr(header))
-        data = self._read_fixed(length)
-        return stream, data
+        data = file_read_fixed(self._sock, length)
+        if stream == 1:
+            self._stdout_buffer += data
+        else:
+            sys.stderr.buffer.write(data)
+            sys.stderr.buffer.flush()
 
-    def read(self) -> bytes:
-        """Read a message from Docker, blocking."""
-        while True:
-            if len(self._stdout_buffer) >= 4:
-                msg_length = 4 + struct.unpack(">I", self._stdout_buffer[:4])[0]
-                if len(self._stdout_buffer) >= msg_length:
-                    msg = self._stdout_buffer[4:msg_length]
-                    self._stdout_buffer = self._stdout_buffer[msg_length:]
-                    return cast(bytes, self._box.decrypt(msg))
+    def _receive(self, length: int) -> bytes:
+        while len(self._stdout_buffer) < length:
+            self._read_one()
+        ret = self._stdout_buffer[:length]
+        self._stdout_buffer = self._stdout_buffer[length:]
+        return ret
 
-            stream, data = self._read_one()
-            if stream == 1:
-                self._stdout_buffer += data
-            else:
-                sys.stderr.buffer.write(data)
-                sys.stderr.buffer.flush()
-
-    def send(self, data: bytes) -> None:
-        """Send a message to Docker, potentially blocking."""
-        data = self._box.encrypt(data)
-        data = struct.pack(">I", len(data)) + data
+    def _send(self, data: bytes) -> None:
         while data:
             written = self._sock.write(data)
             data = data[written:]
         self._sock.flush()
 
-    def check_sanity(self) -> None:
-        """Sanity-check that the Docker container started successfully and can
-        be communicated with."""
-        magic = b"\0" * 1000
-        self.send(magic)
-        r = self.read()
-        if r != magic:
-            raise Exception("Failed initial sanity check.")
 
-
-def start_inner_server(docker_image: str, options: ServerOptions) -> InnerServerComm:
+def start_inner_server(docker_image: str, options: ServerOptions) -> Port:
     """Spawn a docker container and set it up to evaluate permutations in,
     returning a handle that we can use to communicate with it.
 
@@ -432,7 +423,14 @@ def start_inner_server(docker_image: str, options: ServerOptions) -> InnerServer
         network_disabled=True,
     )
 
-    comm = InnerServerComm(container, secret)
-    comm.check_sanity()
+    port = DockerPort(container, secret)
 
-    return comm
+    # Sanity-check that the Docker container started successfully and can
+    # be communicated with.
+    magic = b"\0" * 1000
+    port.send(magic)
+    r = port.receive()
+    if r != magic:
+        raise Exception("Failed initial sanity check.")
+
+    return port

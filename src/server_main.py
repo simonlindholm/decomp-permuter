@@ -11,7 +11,7 @@ def run(options: ServerOptions) -> None:
     config = setup()
     docker_image = fetch_docker_image_name(config)
 
-    comm = start_inner_server(docker_image, options)
+    port = start_inner_server(docker_image, options)
 
     server = Server(config, options)
     server.start()

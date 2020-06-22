@@ -27,6 +27,7 @@ from .common import (
     PROTOCOL_VERSION,
     Port,
     RemoteServer,
+    SocketPort,
     json_prop,
     socket_read_fixed,
 )
@@ -145,7 +146,7 @@ class Connection:
         msg = socket_read_fixed(sock, 96)
         server_enc_key = PublicKey(self._server.ver_key.verify(msg))
         box = Box(ephemeral_key, server_enc_key)
-        port = Port(sock, box, is_client=True)
+        port = SocketPort(sock, box, is_client=True)
 
         # Receive a dummy message on the encrypted connection, just to verify
         # that this isn't a replay attack.

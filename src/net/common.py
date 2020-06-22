@@ -1,16 +1,19 @@
+import abc
 from dataclasses import dataclass
 import json
 from socket import socket
 import struct
 import sys
 import toml
-from typing import Optional, Type, TypeVar, Union
+from typing import BinaryIO, Optional, Type, TypeVar, Union
 
 from nacl.encoding import HexEncoder
-from nacl.signing import SigningKey, VerifyKey
 from nacl.public import Box, PrivateKey, PublicKey, SealedBox
+from nacl.secret import SecretBox
+from nacl.signing import SigningKey, VerifyKey
 
 T = TypeVar("T")
+AnyBox = Union[Box, SecretBox]
 
 PROTOCOL_VERSION = 1
 
@@ -87,6 +90,17 @@ def write_config(config: RawConfig) -> None:
         toml.dump(obj, f)
 
 
+def file_read_fixed(inf: BinaryIO, n: int) -> bytes:
+    ret = []
+    while n > 0:
+        data = inf.read(n)
+        if not data:
+            raise Exception("eof")
+        ret.append(data)
+        n -= len(data)
+    return b"".join(ret)
+
+
 def socket_read_fixed(sock: socket, n: int) -> bytes:
     ret = []
     while n > 0:
@@ -106,33 +120,44 @@ def json_prop(obj: dict, prop: str, t: Type[T]) -> T:
     return ret
 
 
-class Port:
-    def __init__(self, sock: socket, box: Box, *, is_client: bool) -> None:
-        self._sock = sock
+class Port(abc.ABC):
+    def __init__(self, box: AnyBox, *, is_client: bool) -> None:
         self._box = box
         self._send_nonce = 0 if is_client else 1
         self._receive_nonce = 1 if is_client else 0
 
+    @abc.abstractmethod
+    def _send(self, data: bytes) -> None:
+        ...
+
+    @abc.abstractmethod
+    def _receive(self, length: int) -> bytes:
+        ...
+
     def send(self, msg: bytes) -> None:
+        """Send a binary message, potentially blocking."""
         nonce = struct.pack(">24xQ", self._send_nonce)
         self._send_nonce += 2
         data = self._box.encrypt(msg, nonce)
         length_data = struct.pack(">Q", len(data))
-        self._sock.sendall(length_data + data)
+        self._send(length_data + data)
 
     def send_json(self, msg: dict) -> None:
+        """Send a message in the form of a JSON dict, potentially blocking."""
         self.send(json.dumps(msg).encode("utf-8"))
 
     def receive(self) -> bytes:
-        length_data = socket_read_fixed(self._sock, 8)
+        """Read a binary message, blocking."""
+        length_data = self._receive(8)
         length = struct.unpack(">Q", length_data)[0]
-        data = socket_read_fixed(self._sock, length)
+        data = self._receive(length)
         nonce = struct.pack(">24xQ", self._receive_nonce)
         self._receive_nonce += 2
         ret: bytes = self._box.decrypt(data, nonce)
         return ret
 
     def receive_json(self) -> dict:
+        """Read a message in the form of a JSON dict, blocking."""
         ret = json.loads(self.receive())
         if not isinstance(ret, dict):
             # We always pass dictionaries as messages and no other data types,
@@ -140,3 +165,31 @@ class Port:
             # practice, anyway.)
             raise ValueError("Top-level JSON value must be a dictionary")
         return ret
+
+
+class SocketPort(Port):
+    def __init__(self, sock: socket, box: AnyBox, *, is_client: bool) -> None:
+        self._sock = sock
+        super().__init__(box, is_client=is_client)
+
+    def _send(self, data: bytes) -> None:
+        self._sock.sendall(data)
+
+    def _receive(self, length: int) -> bytes:
+        return socket_read_fixed(self._sock, length)
+
+
+class FilePort(Port):
+    def __init__(
+        self, inf: BinaryIO, outf: BinaryIO, box: AnyBox, *, is_client: bool
+    ) -> None:
+        self._inf = inf
+        self._outf = outf
+        super().__init__(box, is_client=is_client)
+
+    def _send(self, data: bytes) -> None:
+        self._outf.write(data)
+        self._outf.flush()
+
+    def _receive(self, length: int) -> bytes:
+        return file_read_fixed(self._inf, length)
