@@ -13,17 +13,20 @@ def run(options: ServerOptions) -> None:
 
     port = start_inner_server(docker_image, options)
 
-    server = Server(config, options)
-    server.start()
+    try:
+        server = Server(config, options, port)
+        server.start()
 
-    go_online(config)
+        go_online(config)
 
-    # TODO: print statistics, run systray, etc.
-    # Also regularly check in with the auth server to maintain an up-to-date IP,
-    # and to check version.
-    input("Press enter to stop the server.")
-    go_offline(config)
-    server.stop()
+        # TODO: print statistics, run systray, etc.
+        # Also regularly check in with the auth server to maintain an up-to-date IP,
+        # and to check version.
+        input("Press enter to stop the server.")
+        go_offline(config)
+        server.stop()
+    finally:
+        port.shutdown()
 
 
 def main() -> None:

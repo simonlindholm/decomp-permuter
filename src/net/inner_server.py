@@ -9,10 +9,10 @@ from nacl.secret import SecretBox
 from .common import FilePort, Port, file_read_fixed
 
 
-def _setup_comm() -> Port:
+def _setup_port() -> Port:
     """Set up communication with the outside world."""
     secret = base64.b64decode(os.environ["SECRET"])
-    comm = FilePort(
+    port = FilePort(
         sys.stdin.buffer, sys.stdout.buffer, SecretBox(secret), is_client=False
     )
 
@@ -21,14 +21,14 @@ def _setup_comm() -> Port:
     sys.stdout = sys.stderr
 
     # Follow the controlling process's sanity check protocol.
-    magic = comm.receive()
-    comm.send(magic)
+    magic = port.receive()
+    port.send(magic)
 
-    return comm
+    return port
 
 
 def main() -> None:
-    comm = _setup_comm()
+    port = _setup_port()
 
 
 if __name__ == "__main__":

@@ -13,6 +13,7 @@ import sys
 from tempfile import mkstemp
 import threading
 import time
+import traceback
 from typing import BinaryIO, Dict, List, Tuple, Union
 import zlib
 
@@ -248,13 +249,17 @@ class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
 class Server:
     _config: Config
     _options: ServerOptions
+    _inner_server_port: Port
     _queue: "queue.Queue[Activity]"
     _tcp_server: ThreadedTCPServer
     _state: str
 
-    def __init__(self, config: Config, options: ServerOptions) -> None:
+    def __init__(
+        self, config: Config, options: ServerOptions, inner_server_port: Port
+    ) -> None:
         self._config = config
         self._options = options
+        self._inner_server_port = inner_server_port
         self._queue = queue.Queue()
         self._tcp_server = ThreadedTCPServer(
             (options.host, options.port), ServerHandler
@@ -343,12 +348,13 @@ class DockerPort(Port):
 
         super().__init__(SecretBox(secret), is_client=True)
 
-    def __del__(self) -> None:
+    def shutdown(self) -> None:
         try:
             self._sock.close()
             self._container.remove(force=True)
-        except Exception:
-            pass
+        except Exception as e:
+            print("Failed to shut down Docker")
+            traceback.print_exc()
 
     def _read_one(self) -> None:
         header = file_read_fixed(self._sock, 8)
@@ -359,7 +365,7 @@ class DockerPort(Port):
         if stream == 1:
             self._stdout_buffer += data
         else:
-            sys.stderr.buffer.write(data)
+            sys.stderr.buffer.write(b"docker stderr: " + data)
             sys.stderr.buffer.flush()
 
     def _receive(self, length: int) -> bytes:
@@ -376,7 +382,7 @@ class DockerPort(Port):
         self._sock.flush()
 
 
-def start_inner_server(docker_image: str, options: ServerOptions) -> Port:
+def start_inner_server(docker_image: str, options: ServerOptions) -> DockerPort:
     """Spawn a docker container and set it up to evaluate permutations in,
     returning a handle that we can use to communicate with it.
 
@@ -425,12 +431,16 @@ def start_inner_server(docker_image: str, options: ServerOptions) -> Port:
 
     port = DockerPort(container, secret)
 
-    # Sanity-check that the Docker container started successfully and can
-    # be communicated with.
-    magic = b"\0" * 1000
-    port.send(magic)
-    r = port.receive()
-    if r != magic:
-        raise Exception("Failed initial sanity check.")
+    try:
+        # Sanity-check that the Docker container started successfully and can
+        # be communicated with.
+        magic = b"\0" * 1000
+        port.send(magic)
+        r = port.receive()
+        if r != magic:
+            raise Exception("Failed initial sanity check.")
+    except:
+        port.shutdown()
+        raise
 
     return port
