@@ -13,7 +13,14 @@ from nacl.exceptions import BadSignatureError
 from nacl.public import PublicKey, SealedBox
 from nacl.signing import SigningKey, VerifyKey
 
-from .common import Config, RawConfig, RemoteServer, read_config, write_config
+from .common import (
+    Config,
+    RawConfig,
+    RemoteServer,
+    json_prop,
+    read_config,
+    write_config,
+)
 
 
 def _random_name() -> str:
@@ -151,21 +158,22 @@ def fetch_servers_and_grant(config: Config) -> Tuple[List[RemoteServer], bytes]:
     raw_resp = b""
     raw_resp = config.auth_verify_key.verify(raw_resp)
     resp = json.loads(raw_resp)
-    assert resp["version"] == 1
-    grant = base64.b64decode(resp["grant"])
+    version = json_prop(resp, "version", int)
+    assert version == 1
+    grant = base64.b64decode(json_prop(resp, "grant", str))
     granted_request = config.auth_verify_key.verify(grant)
     assert granted_request[:32] == config.signing_key.verify_key.encode()
 
-    # TODO: use json_prop, print list of servers
-    server_list = resp["server_list"]
+    server_list = json_prop(resp, "server_list", list)
 
     ret = []
     for obj in server_list:
+        assert isinstance(obj, dict)
         server = RemoteServer(
-            ip=obj["ip"],
-            port=obj["port"],
-            nickname=obj["nickname"],
-            ver_key=VerifyKey(_decode_hex_key(obj["verification_key"])),
+            ip=json_prop(obj, "ip", str),
+            port=json_prop(obj, "port", int),
+            nickname=json_prop(obj, "nickname", str),
+            ver_key=VerifyKey(_decode_hex_key(json_prop(obj, "verification_key", str))),
         )
         ret.append(server)
 

@@ -256,6 +256,12 @@ def connect_to_servers(
 ) -> List[threading.Thread]:
     threads = []
     portable_permuters = [PortablePermuter(p) for p in permuters]
+    if not servers:
+        print("No permuter@home servers online.")
+    else:
+        name_list = ", ".join(s.nickname for s in servers)
+        print(f"Connecting to: {name_list}")
+
     for server in servers:
         conn = Connection(
             config, server, grant, portable_permuters, task_queue, feedback_queue
