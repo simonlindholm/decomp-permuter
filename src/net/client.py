@@ -78,9 +78,14 @@ def _make_script_portable(source: str) -> str:
             ind = line.find(quote + " ")
             if ind == -1:
                 ind = len(line)
+            else:
+                ind += len(quote)
             lastind = line.rfind("/", 0, ind)
             assert lastind != -1
-            line = quote + line[lastind + 1 :]
+            # Emit a call to "which" as the first part, to ensure the called
+            # binary still sees an absolute path. qemu-irix requires this,
+            # for some reason.
+            line = "$(which " + quote + line[lastind + 1 : ind] + ")" + line[ind:]
         lines.append(line)
     return "\n".join(lines)
 
