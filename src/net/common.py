@@ -5,7 +5,7 @@ from socket import socket
 import struct
 import sys
 import toml
-from typing import BinaryIO, Optional, Type, TypeVar, Union
+from typing import BinaryIO, NoReturn, Optional, Type, TypeVar, Union
 
 from nacl.encoding import HexEncoder
 from nacl.public import Box, PrivateKey, PublicKey, SealedBox
@@ -41,6 +41,10 @@ class Config:
     auth_server: str
     auth_verify_key: VerifyKey
     signing_key: SigningKey
+
+
+def static_assert_unreachable(x: NoReturn) -> NoReturn:
+    raise Exception("Unreachable! " + repr(x))
 
 
 def read_config() -> RawConfig:

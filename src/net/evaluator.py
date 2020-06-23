@@ -20,7 +20,13 @@ from ..error import CandidateConstructionFailure
 from ..permuter import EvalError, EvalResult, Permuter
 from ..profiler import Profiler
 from ..scorer import Scorer
-from .common import FilePort, Port, file_read_fixed, json_prop
+from .common import (
+    FilePort,
+    Port,
+    file_read_fixed,
+    json_prop,
+    static_assert_unreachable,
+)
 
 
 @dataclass
@@ -164,7 +170,7 @@ def multiprocess_worker(
             elif isinstance(task, RemovePermuter):
                 del permuters[task.perm_id]
             else:
-                assert False
+                static_assert_unreachable(task)
 
         permuter = permuters[work.perm_id]
         result = permuter.try_eval_candidate(work.seed)
@@ -299,7 +305,7 @@ def main() -> None:
             worker_queue.put(item)
 
         else:
-            assert False
+            static_assert_unreachable(item)
 
 
 if __name__ == "__main__":
