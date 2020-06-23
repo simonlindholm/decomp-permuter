@@ -133,7 +133,8 @@ class ServerHandler(socketserver.BaseRequestHandler):
         # Read and verify protocol version.
         msg = socket_read_fixed(sock, 4)
         version = struct.unpack(">I", msg)[0]
-        assert version == PROTOCOL_VERSION
+        if version != PROTOCOL_VERSION:
+            raise ValueError(f"Bad protocol version: {version} vs {PROTOCOL_VERSION}")
 
         # Read signing and (ephemeral) encryption keys from the client. We
         # don't know who the client is yet, so we don't fully trust these keys;
@@ -166,7 +167,8 @@ class ServerHandler(socketserver.BaseRequestHandler):
         this saves some complexity and network traffic.)"""
         msg = port.receive()
         granted_request = auth_ver_key.verify(msg)
-        assert granted_request[:32] == client_ver_key
+        if granted_request[:32] != client_ver_key:
+            raise ValueError("Grant is for another client")
         request = json.loads(granted_request[32:])
         if not isinstance(request, dict):
             raise ValueError("Grant JSON must be a dict")
@@ -174,7 +176,8 @@ class ServerHandler(socketserver.BaseRequestHandler):
         # Verify that the client is not just presenting an old grant.
         valid_from = json_prop(request, "valid_from", int)
         valid_until = json_prop(request, "valid_until", int)
-        assert valid_from <= time.time() <= valid_until
+        if not valid_from <= time.time() <= valid_until:
+            raise ValueError("Grant is no longer valid")
 
         # Read client nickname from the server, signed by the client during
         # registration. (Don't let the client spoof this.)
