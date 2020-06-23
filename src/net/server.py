@@ -15,6 +15,7 @@ import threading
 import time
 import traceback
 from typing import BinaryIO, Dict, List, Optional, Tuple, Union
+import uuid
 import zlib
 
 import docker
@@ -42,7 +43,7 @@ class InitState(Enum):
 
 @dataclass
 class ClientState:
-    handle: object
+    handle: str
     client: bytes  # Unique identifier for the connecting client
     nickname: str
     input_queue: "queue.Queue[Input]"
@@ -57,18 +58,18 @@ class ClientState:
 
 @dataclass
 class AddClient:
-    handle: object
+    handle: str
     state: ClientState
 
 
 @dataclass
 class NoMoreWork:
-    handle: object
+    handle: str
 
 
 @dataclass
 class InputError:
-    handle: object
+    handle: str
 
 
 @dataclass
@@ -79,7 +80,7 @@ class PermInit:
 
 @dataclass
 class MoreWork:
-    handle: object
+    handle: str
     permuter_index: int
     seed: int
 
@@ -236,8 +237,7 @@ class ServerHandler(socketserver.BaseRequestHandler):
         permuters = self._receive_permuters(port)
         num_perm = len(permuters)
 
-        # Create a key object that uniquely identifies the TCP connection
-        handle: object = {}
+        handle: str = str(uuid.uuid4())
 
         input_queue: queue.Queue[MoreWork] = queue.Queue()
         output_queue: queue.Queue[Output] = queue.Queue()
@@ -329,7 +329,7 @@ class Server:
     _queue: "queue.Queue[Activity]"
     _tcp_server: ThreadedTCPServer
     _state: str
-    _states: Dict[int, ClientState]
+    _states: Dict[str, ClientState]
     _active_work: int = 0
 
     def __init__(
@@ -349,35 +349,37 @@ class Server:
         setattr(self._tcp_server, "shared", shared)
 
     def _permuter_id(self, state: ClientState, index: int) -> str:
-        return str(id(state.handle)) + "," + str(index)
+        return state.handle + "," + str(index)
 
     def _handle_message(self, msg: Activity) -> None:
         if isinstance(msg, MoreWork):
-            state = self._states[id(msg.handle)]
+            state = self._states[msg.handle]
             assert not state.eof
             state.input_queue.put(msg)
         elif isinstance(msg, AddClient):
             state = msg.state
-            self._states[id(msg.handle)] = state
+            self._states[msg.handle] = state
             filenames = ", ".join(p.fn_name for p in state.initial_permuters)
             print(f"[{state.nickname}] connected ({filenames})")
         elif isinstance(msg, NoMoreWork):
-            state = self._states[id(msg.handle)]
+            state = self._states[msg.handle]
             assert not state.eof
             state.eof = True
             print(f"[{state.nickname}] disconnected")
         elif isinstance(msg, InputError):
-            if id(msg.handle) not in self._states:
+            if msg.handle not in self._states:
                 # We already removed this client (e.g. as part of a PermInit
                 # failure).
                 return
-            state = self._states[id(msg.handle)]
+            state = self._states[msg.handle]
             # TODO some complex error state, where we handle different init_state
             # transitions...
             state.eof = True
             print(f"[{state.nickname}] disconnected")
         elif isinstance(msg, PermInit):
-            state_id, perm_index = map(int, msg.id.split(","))
+            id_parts = msg.id.split(",")
+            state_id = id_parts[0]
+            perm_index = int(id_parts[1])
             state = self._states[state_id]
             assert state.init_state == InitState.WAITING
             state.init_successes[perm_index] = msg.success
@@ -391,7 +393,7 @@ class Server:
                             self._evaluator_port.send_json(
                                 {"type": "remove", "id": self._permuter_id(state, i),}
                             )
-                    del self._states[id(state.handle)]
+                    del self._states[state.handle]
                     state.output_queue.put(InitDone(success=False))
                     print(f"[{state.nickname}] failed to compile")
 
@@ -409,7 +411,7 @@ class Server:
                 self._evaluator_port.send_json(
                     {"type": "remove", "id": self._permuter_id(state, i),}
                 )
-            del self._states[id(state.handle)]
+            del self._states[state.handle]
 
     def _send_permuter(self, id_: str, perm: PermuterData) -> None:
         self._active_work += 1
