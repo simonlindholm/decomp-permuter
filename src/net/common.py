@@ -125,6 +125,18 @@ def json_prop(obj: dict, prop: str, t: Type[T]) -> T:
     return ret
 
 
+def sign_with_magic(magic: bytes, signing_key: SigningKey, data: bytes) -> bytes:
+    ret: bytes = signing_key.sign(magic + b":" + data)
+    return ret
+
+
+def verify_with_magic(magic: bytes, verify_key: VerifyKey, data: bytes) -> bytes:
+    verified_data: bytes = verify_key.verify(data)
+    if not verified_data.startswith(magic + b":"):
+        raise ValueError("Bad magic")
+    return verified_data[len(magic) + 1 :]
+
+
 class Port(abc.ABC):
     def __init__(self, box: AnyBox, *, is_client: bool) -> None:
         self._box = box

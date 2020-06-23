@@ -31,7 +31,9 @@ from .common import (
     SocketPort,
     file_read_fixed,
     json_prop,
+    sign_with_magic,
     socket_read_fixed,
+    verify_with_magic,
 )
 
 
@@ -141,14 +143,15 @@ class ServerHandler(socketserver.BaseRequestHandler):
         # don't know who the client is yet, so we don't fully trust these keys;
         # we'll start doing so when it presents proof signed by the central
         # server that its signature is legit.
-        msg = socket_read_fixed(sock, 32 + 96)
+        msg = socket_read_fixed(sock, 32 + 7 + 32 + 64)
         client_ver_key = VerifyKey(msg[:32])
-        client_enc_key = PublicKey(client_ver_key.verify(msg[32:]))
+        inner_msg = verify_with_magic(b"CLIENT", client_ver_key, msg[32:])
+        client_enc_key = PublicKey(inner_msg)
 
         # Create an ephemeral encryption key for ourselves as well. Send it to
         # the client, signed by a key it trusts.
         ephemeral_key = PrivateKey.generate()
-        sock.sendall(signing_key.sign(ephemeral_key))
+        sock.sendall(sign_with_magic(b"SERVER", signing_key, ephemeral_key.encode()))
 
         # Set up encrypted communication channel. Once we receive the first
         # message we'll know that this isn't a replay attack.

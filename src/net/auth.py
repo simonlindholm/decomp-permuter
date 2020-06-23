@@ -19,6 +19,8 @@ from .common import (
     RemoteServer,
     json_prop,
     read_config,
+    sign_with_magic,
+    verify_with_magic,
     write_config,
 )
 
@@ -70,7 +72,7 @@ def _initial_setup(config: RawConfig) -> None:
         config.initial_setup_nickname = nickname
         write_config(config)
 
-    signed_nickname = signing_key.sign(nickname.encode("utf-8"))
+    signed_nickname = sign_with_magic(b"NICK", signing_key, nickname.encode("utf-8"))
 
     vouch_data = verify_key.encode() + signed_nickname
     vouch_text = base64.b64encode(vouch_data).decode("utf-8")
@@ -126,8 +128,8 @@ def run_vouch(vouch_text: str) -> None:
     try:
         vouch_data = base64.b64decode(vouch_text.encode("utf-8"))
         verify_key = VerifyKey(vouch_data[:32])
-        signed_nickname = vouch_data[32:]
-        nickname = verify_key.verify(signed_nickname)
+        msg = verify_with_magic(b"NICK", verify_key, vouch_data[32:])
+        nickname = msg.decode("utf-8")
     except Exception:
         print("Could not parse data!")
         return

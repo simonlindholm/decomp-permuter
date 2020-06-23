@@ -29,7 +29,9 @@ from .common import (
     RemoteServer,
     SocketPort,
     json_prop,
+    sign_with_magic,
     socket_read_fixed,
+    verify_with_magic,
 )
 
 
@@ -146,13 +148,16 @@ class Connection:
         sock.sendall(
             struct.pack(">I", PROTOCOL_VERSION)
             + self._config.signing_key.verify_key.encode()
-            + self._config.signing_key.sign(ephemeral_key.public_key.encode())
+            + sign_with_magic(
+                b"CLIENT", self._config.signing_key, ephemeral_key.public_key.encode()
+            )
         )
 
         # Receive the server's encryption key, verifying that it's correctly
         # signed. Use it to set up a communication port.
-        msg = socket_read_fixed(sock, 96)
-        server_enc_key = PublicKey(self._server.ver_key.verify(msg))
+        msg = socket_read_fixed(sock, 7 + 32 + 64)
+        inner_msg = verify_with_magic(b"SERVER", self._server.ver_key, msg)
+        server_enc_key = PublicKey(inner_msg)
         box = Box(ephemeral_key, server_enc_key)
         port = SocketPort(sock, box, is_client=True)
 
