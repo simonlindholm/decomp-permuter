@@ -213,9 +213,6 @@ def multiprocess_worker(
     input_queue: "multiprocessing.Queue[Task]",
     output_queue: "multiprocessing.Queue[Feedback]",
 ) -> None:
-    input_queue.cancel_join_thread()
-    output_queue.cancel_join_thread()
-
     # Don't use the same RNGs as the parent
     for permuter in permuters:
         permuter.reseed_random()
@@ -234,6 +231,7 @@ def multiprocess_worker(
             should_block = False
             if isinstance(queue_item, Finished):
                 output_queue.put(queue_item)
+                output_queue.close()
                 break
             permuter_index, seed = queue_item
             permuter = permuters[permuter_index]
@@ -243,7 +241,9 @@ def multiprocess_worker(
         # Don't clutter the output with stack traces; Ctrl+C is the expected
         # way to quit and sends KeyboardInterrupt to all processes.
         # A heartbeat thing here would be good but is too complex.
-        pass
+        # Don't wait for queue flushes to happen, since the parent process
+        # might not be reading.
+        output_queue.cancel_join_thread()
 
 
 def run(options: Options) -> List[int]:
@@ -347,12 +347,9 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
                 if options.stop_on_zero:
                     break
     else:
-        # Create queues. Call cancel_join_thread on them in an attempt to not
-        # block on the worker threads on exit.
+        # Create queues.
         task_queue: "multiprocessing.Queue[Task]" = multiprocessing.Queue()
         feedback_queue: "multiprocessing.Queue[Feedback]" = multiprocessing.Queue()
-        task_queue.cancel_join_thread()
-        feedback_queue.cancel_join_thread()
 
         # Connect to network and create client threads
         net_threads: List[threading.Thread] = []
