@@ -41,9 +41,8 @@ class PermuterData:
     target_o_bin: bytes
 
 
-def _setup_port() -> Port:
+def _setup_port(secret: bytes) -> Port:
     """Set up communication with the outside world."""
-    secret = base64.b64decode(os.environ["SECRET"])
     port = FilePort(
         sys.stdin.buffer, sys.stdout.buffer, SecretBox(secret), is_client=False
     )
@@ -231,7 +230,11 @@ def read_loop(task_queue: "Queue[Task]", port: Port) -> None:
 
 def main() -> None:
     num_threads = int(sys.argv[1])
-    port = _setup_port()
+    secret = base64.b64decode(os.environ["SECRET"])
+    del os.environ["SECRET"]
+    os.environ["PERMUTER_IS_REMOTE"] = "1"
+
+    port = _setup_port(secret)
 
     worker_queue: "Queue[Work]" = Queue()
     task_queue: "Queue[Task]" = Queue()
