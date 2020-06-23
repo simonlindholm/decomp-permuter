@@ -253,6 +253,7 @@ def main() -> None:
     permuters: Dict[str, Permuter] = {}
 
     def try_remove(perm_id: str) -> None:
+        assert perm_id in permuters
         if perm_id not in should_remove or remaining_work[perm_id] != 0:
             return
         del remaining_work[perm_id]
