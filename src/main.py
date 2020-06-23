@@ -347,7 +347,8 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
                 if options.stop_on_zero:
                     break
     else:
-        # Create queues
+        # Create queues. Call cancel_join_thread on them in an attempt to not
+        # block on the worker threads on exit.
         task_queue: "multiprocessing.Queue[Task]" = multiprocessing.Queue()
         feedback_queue: "multiprocessing.Queue[Feedback]" = multiprocessing.Queue()
         task_queue.cancel_join_thread()

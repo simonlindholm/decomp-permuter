@@ -1,22 +1,38 @@
 """This file runs as a free-standing program within a sandbox, and processes
 permutation requests. It communicates with the outside world on stdin/stdout."""
 import base64
+from dataclasses import dataclass
+from multiprocessing import Process, Queue
 import os
 import struct
 import sys
 from tempfile import mkstemp
+import threading
 import traceback
-from typing import BinaryIO, Dict
+from typing import BinaryIO, Counter, Dict, List, Optional, Set, Union
 import zlib
 
 from nacl.secret import SecretBox
 
+from ..candidate import CandidateResult
+from ..compiler import Compiler
 from ..error import CandidateConstructionFailure
 from ..permuter import EvalError, EvalResult, Permuter
 from ..profiler import Profiler
 from ..scorer import Scorer
-from ..compiler import Compiler
 from .common import FilePort, Port, file_read_fixed, json_prop
+
+
+@dataclass
+class PermuterData:
+    perm_id: str
+    fn_name: str
+    filename: str
+    keep_prob: float
+    stack_differences: bool
+    compile_script: str
+    source: str
+    target_o_bin: bytes
 
 
 def _setup_port() -> Port:
@@ -37,21 +53,12 @@ def _setup_port() -> Port:
     return port
 
 
-def _receive_permuter(obj: dict, port: Port) -> Permuter:
-    fn_name = json_prop(obj, "fn_name", str)
-    filename = json_prop(obj, "filename", str)
-    keep_prob = json_prop(obj, "keep_prob", float)
-    stack_differences = json_prop(obj, "stack_differences", bool)
-    compile_script = json_prop(obj, "compile_script", str)
-
-    source = port.receive().decode("utf-8")
-    target_o_bin = port.receive()
-
+def _create_permuter(data: PermuterData) -> Permuter:
     fd, path = mkstemp(suffix=".o", prefix="permuter", text=False)
     try:
         with os.fdopen(fd, "wb") as f:
-            f.write(target_o_bin)
-        scorer = Scorer(target_o=path, stack_differences=stack_differences)
+            f.write(data.target_o_bin)
+        scorer = Scorer(target_o=path, stack_differences=data.stack_differences)
     finally:
         os.unlink(path)
 
@@ -59,18 +66,18 @@ def _receive_permuter(obj: dict, port: Port) -> Permuter:
     try:
         os.chmod(fd, 0o755)
         with os.fdopen(fd, "w") as f:
-            f.write(compile_script)
+            f.write(data.compile_script)
         compiler = Compiler(compile_cmd=path, show_errors=False,)
 
         return Permuter(
             dir="unused",
-            fn_name=fn_name,
+            fn_name=data.fn_name,
             compiler=compiler,
             scorer=scorer,
-            source_file=filename,
-            source=source,
+            source_file=data.filename,
+            source=data.source,
             force_rng_seed=None,
-            keep_prob=keep_prob,
+            keep_prob=data.keep_prob,
             need_all_sources=False,
         )
     except:
@@ -79,66 +86,220 @@ def _receive_permuter(obj: dict, port: Port) -> Permuter:
 
 
 def _remove_permuter(perm: Permuter) -> None:
-    # TODO: deal with multiprocessing
     os.unlink(perm.compiler.compile_cmd)
 
 
-def _send_result(res: EvalResult, perm: Permuter, port: Port) -> None:
+def _send_result(res: EvalResult, port: Port) -> None:
     if isinstance(res, EvalError):
         port.send_json(
             {"type": "result", "error": res.exc_str,}
         )
         return
 
+    compressed_source = getattr(res, "compressed_source")
     port.send_json(
         {
+            "type": "result",
             "score": res.score,
             "hash": res.hash,
-            "has_source": res.source is not None,
+            "has_source": compressed_source is not None,
             "profiler": {st: res.profiler.time_stats[st] for st in Profiler.StatType},
         }
     )
 
-    if res.source is not None:
-        port.send(zlib.compress(res.source.encode("utf-8")))
+    if compressed_source is not None:
+        port.send(compressed_source)
 
 
-def main() -> None:
-    num_threads = int(sys.argv[1])
-    port = _setup_port()
-    perms: Dict[str, Permuter] = {}
+@dataclass
+class AddPermuter:
+    perm_id: str
+    data: PermuterData
 
+
+@dataclass
+class AddPermuterLocal:
+    perm_id: str
+    permuter: Permuter
+
+
+@dataclass
+class RemovePermuter:
+    perm_id: str
+
+
+@dataclass
+class WorkDone:
+    perm_id: str
+    result: EvalResult
+
+
+@dataclass
+class Work:
+    perm_id: str
+    seed: int
+
+
+LocalWork = Union[AddPermuterLocal, RemovePermuter]
+Task = Union[AddPermuter, RemovePermuter, Work, WorkDone]
+
+
+def multiprocess_worker(
+    worker_queue: "Queue[Work]",
+    local_worker_queue: "Queue[LocalWork]",
+    task_queue: "Queue[Task]",
+) -> None:
+    permuters: Dict[str, Permuter] = {}
+
+    while True:
+        work = worker_queue.get()
+        while True:
+            task = local_worker_queue.get_nowait()
+            if not task:
+                break
+            if isinstance(task, AddPermuterLocal):
+                # Don't use the same RNG as the parent
+                task.permuter.reseed_random()
+                permuters[task.perm_id] = task.permuter
+            elif isinstance(task, RemovePermuter):
+                del permuters[task.perm_id]
+            else:
+                assert False
+
+        permuter = permuters[work.perm_id]
+        result = permuter.try_eval_candidate(work.seed)
+
+        # Compress the source within the worker. (Why waste a free
+        # multi-threading opportunity?)
+        if isinstance(result, CandidateResult):
+            compressed_source: Optional[bytes] = None
+            if result.source is not None:
+                compressed_source = zlib.compress(result.source.encode("utf-8"))
+            setattr(result, "compressed_source", compressed_source)
+            result.source = None
+
+        task_queue.put(WorkDone(perm_id=work.perm_id, result=result))
+
+
+def read_loop(task_queue: "Queue[Task]", port: Port) -> None:
     while True:
         item = port.receive_json()
         msg_type = json_prop(item, "type", str)
         if msg_type == "add":
             perm_id = json_prop(item, "id", str)
+            fn_name = json_prop(item, "fn_name", str)
+            filename = json_prop(item, "filename", str)
+            keep_prob = json_prop(item, "keep_prob", float)
+            stack_differences = json_prop(item, "stack_differences", bool)
+            compile_script = json_prop(item, "compile_script", str)
+            source = port.receive().decode("utf-8")
+            target_o_bin = port.receive()
+            task_queue.put(
+                AddPermuter(
+                    perm_id=perm_id,
+                    data=PermuterData(
+                        perm_id=perm_id,
+                        fn_name=fn_name,
+                        filename=filename,
+                        keep_prob=keep_prob,
+                        stack_differences=stack_differences,
+                        compile_script=compile_script,
+                        source=source,
+                        target_o_bin=target_o_bin,
+                    ),
+                )
+            )
+
+        elif msg_type == "remove":
+            perm_id = json_prop(item, "id", str)
+            task_queue.put(RemovePermuter(perm_id=perm_id))
+
+        elif msg_type == "work":
+            perm_id = json_prop(item, "id", str)
+            seed = json_prop(item, "seed", int)
+            task_queue.put(Work(perm_id=perm_id, seed=seed))
+
+        else:
+            raise Exception(f"Invalid message type {msg_type}")
+
+
+def main() -> None:
+    num_threads = int(sys.argv[1])
+    port = _setup_port()
+
+    worker_queue: "Queue[Work]" = Queue()
+    task_queue: "Queue[Task]" = Queue()
+    local_queues: "List[Queue[LocalWork]]" = []
+
+    for i in range(num_threads):
+        local_queue: "Queue[LocalWork]" = Queue()
+        p = Process(
+            target=multiprocess_worker, args=(worker_queue, local_queue, task_queue),
+        )
+        p.start()
+        local_queues.append(local_queue)
+
+    reader_thread = threading.Thread(target=read_loop, args=(task_queue, port))
+    reader_thread.start()
+
+    remaining_work: Counter[str] = Counter()
+    should_remove: Set[str] = set()
+    permuters: Dict[str, Permuter] = {}
+
+    def try_remove(perm_id: str) -> None:
+        if perm_id not in should_remove or remaining_work[perm_id] != 0:
+            return
+        del remaining_work[perm_id]
+        should_remove.remove(perm_id)
+        for queue in local_queues:
+            queue.put(RemovePermuter(perm_id=perm_id))
+        _remove_permuter(permuters[perm_id])
+        del permuters[perm_id]
+
+    while True:
+        item = task_queue.get()
+
+        if isinstance(item, AddPermuter):
+            assert item.perm_id not in permuters
+            success = True
+
             try:
-                assert perm_id not in perms, perm_id
-                perms[perm_id] = _receive_permuter(item, port)
-                success = True
+                # Construct a permuter. This involves a compilation on the main
+                # thread, which isn't great but we can live with it for now.
+                permuter = _create_permuter(item.data)
+                permuters[item.perm_id] = permuter
+
+                # Tell all the workers about the new permuter.
+                for queue in local_queues:
+                    queue.put(AddPermuterLocal(perm_id=item.perm_id, permuter=permuter))
             except Exception as e:
+                # This shouldn't practically happen, since the client compiled
+                # the code successfully. Print a message if it does.
+                success = False
                 if isinstance(e, CandidateConstructionFailure):
                     print(e.message)
                 else:
                     traceback.print_exc()
-                success = False
+
             port.send_json(
-                {"type": "init", "id": perm_id, "success": success,}
+                {"type": "init", "id": item.perm_id, "success": success,}
             )
-        elif msg_type == "remove":
-            perm_id = json_prop(item, "id", str)
-            _remove_permuter(perms[perm_id])
-            del perms[perm_id]
-        elif msg_type == "work":
-            # TODO: multiprocessing
-            perm_id = json_prop(item, "id", str)
-            seed = json_prop(item, "seed", int)
-            perm = perms[perm_id]
-            result = perm.try_eval_candidate(seed)
-            _send_result(result, perm, port)
+
+        elif isinstance(item, RemovePermuter):
+            should_remove.add(item.perm_id)
+            try_remove(item.perm_id)
+
+        elif isinstance(item, WorkDone):
+            remaining_work[item.perm_id] -= 1
+            try_remove(item.perm_id)
+            _send_result(item.result, port)
+
+        elif isinstance(item, Work):
+            remaining_work[item.perm_id] += 1
+            worker_queue.put(item)
+
         else:
-            raise Exception(f"Invalid message type {msg_type}")
+            assert False
 
 
 if __name__ == "__main__":
