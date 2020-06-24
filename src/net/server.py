@@ -26,6 +26,8 @@ import nacl.utils
 
 from .common import (
     Config,
+    MAX_PRIO,
+    MIN_PRIO,
     PROTOCOL_VERSION,
     Port,
     SocketPort,
@@ -53,6 +55,7 @@ class ClientState:
     handle: str
     user: bytes
     nickname: str
+    priority: float
     output_queue: "queue.Queue[Output]"
     initial_permuters: List[PermuterData]
     num_permuters: int
@@ -221,7 +224,9 @@ class ServerHandler(socketserver.BaseRequestHandler):
         enc_nickname: bytes = client_ver_key.verify(signed_nickname)
         return enc_nickname.decode("utf-8")
 
-    def _send_init(self, port: Port, options: ServerOptions) -> None:
+    def _receive_initial(
+        self, port: Port, options: ServerOptions
+    ) -> Tuple[List[PermuterData], float]:
         # TODO include current load
         props = {
             "min_priority": options.min_priority,
@@ -229,8 +234,8 @@ class ServerHandler(socketserver.BaseRequestHandler):
         }
         port.send_json(props)
 
-    def _receive_permuters(self, port: Port) -> List[PermuterData]:
         msg = port.receive_json()
+        priority = json_prop(msg, "priority", float)
 
         permuters = []
         for obj in json_prop(msg, "permuters", list):
@@ -258,7 +263,9 @@ class ServerHandler(socketserver.BaseRequestHandler):
             # in practice anyway.
             raise ValueError("Must send at least one permuter!")
 
-        return permuters
+        priority = min(MAX_PRIO, max(MIN_PRIO, priority))
+
+        return permuters, priority
 
     def handle(self) -> None:
         shared: SharedServerData = getattr(self.server, "shared")
@@ -273,8 +280,7 @@ class ServerHandler(socketserver.BaseRequestHandler):
             return
 
         try:
-            self._send_init(port, shared.options)
-            permuters = self._receive_permuters(port)
+            permuters, priority = self._receive_initial(port, shared.options)
 
             output_queue: queue.Queue[Output] = queue.Queue()
             init_done = threading.Event()
@@ -327,6 +333,7 @@ class ServerHandler(socketserver.BaseRequestHandler):
                         handle=handle,
                         user=client_ver_key.encode(),
                         nickname=nickname,
+                        priority=priority,
                         output_queue=output_queue,
                         initial_permuters=permuters,
                         num_permuters=len(permuters),
@@ -580,7 +587,7 @@ class Server:
             if state.user == chosen.user and state.requested_work_time is None:
                 same_user += 1
 
-        chosen.cooldown += same_user
+        chosen.cooldown += same_user / chosen.priority
 
     def _send_work(self, state: ClientState) -> None:
         state.requested_work_time = None

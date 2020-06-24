@@ -115,6 +115,7 @@ class Connection:
     _task_queue: "multiprocessing.Queue[Task]"
     _feedback_queue: "multiprocessing.Queue[Feedback]"
     _sock: Optional[socket.socket]
+    _priority: float
 
     def __init__(
         self,
@@ -124,6 +125,7 @@ class Connection:
         permuters: List[PortablePermuter],
         task_queue: "multiprocessing.Queue[Task]",
         feedback_queue: "multiprocessing.Queue[Feedback]",
+        priority: float,
     ) -> None:
         self._config = config
         self._server = server
@@ -132,6 +134,7 @@ class Connection:
         self._task_queue = task_queue
         self._feedback_queue = feedback_queue
         self._sock = None
+        self._priority = priority
 
     def _setup(self) -> Port:
         """Set up a secure connection with the server."""
@@ -189,6 +192,7 @@ class Connection:
             }
             permuter_objs.append(obj)
         init_obj = {
+            "priority": self._priority,
             "permuters": permuter_objs,
         }
         port.send_json(init_obj)
@@ -207,6 +211,12 @@ class Connection:
         try:
             port = self._setup()
             props = self._init(port)
+            if self._priority < props.min_priority:
+                finish_reason = (
+                    f"skipping [{self._server.nickname}] due to priority requirement "
+                    + str(props.min_priority)
+                )
+                return
             self._send_permuters(port)
             msg = port.receive_json()
             success = json_prop(msg, "success", bool)
@@ -278,6 +288,7 @@ def connect_to_servers(
     permuters: List[Permuter],
     task_queue: "multiprocessing.Queue[Task]",
     feedback_queue: "multiprocessing.Queue[Feedback]",
+    priority: float,
 ) -> List[threading.Thread]:
     threads = []
     portable_permuters = [PortablePermuter(p) for p in permuters]
@@ -289,7 +300,13 @@ def connect_to_servers(
 
     for server in servers:
         conn = Connection(
-            config, server, grant, portable_permuters, task_queue, feedback_queue
+            config,
+            server,
+            grant,
+            portable_permuters,
+            task_queue,
+            feedback_queue,
+            priority,
         )
 
         thread = threading.Thread(target=conn.run)

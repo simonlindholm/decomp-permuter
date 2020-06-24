@@ -19,6 +19,9 @@ PROTOCOL_VERSION = 1
 
 CONFIG_FILENAME = "pah.conf"
 
+MIN_PRIO = 0.01
+MAX_PRIO = 2.0
+
 
 @dataclass
 class RemoteServer:

@@ -26,6 +26,7 @@ from .compiler import Compiler
 from .error import CandidateConstructionFailure
 from .net.auth import fetch_servers_and_grant, run_vouch, setup
 from .net.client import connect_to_servers
+from .net.common import MAX_PRIO, MIN_PRIO
 from .perm import perm_eval
 from .permuter import (
     Permuter,
@@ -357,7 +358,13 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             config = setup()
             servers, grant = fetch_servers_and_grant(config)
             net_threads = connect_to_servers(
-                config, servers, grant, context.permuters, task_queue, feedback_queue
+                config,
+                servers,
+                grant,
+                context.permuters,
+                task_queue,
+                feedback_queue,
+                options.network_priority,
             )
 
         # Start local worker threads
@@ -520,12 +527,12 @@ def main() -> None:
         "--priority",
         dest="network_priority",
         metavar="PRIORITY",
-        type=restricted_float(0.01, 2.0),
+        type=restricted_float(MIN_PRIO, MAX_PRIO),
         default=1.0,
         help="Proportion of server resources to use when multiple people "
         "are using -J at the same time. "
         "Defaults to 1.0, meaning resources are split equally, but can be "
-        "set to any value within [0.01, 2.0]. "
+        f"set to any value within [{MIN_PRIO}, {MAX_PRIO}]. "
         "Each server runs with a priority threshold, which defaults to 0.1, "
         "below which they will not run permuter jobs at all.",
     )
