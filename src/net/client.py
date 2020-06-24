@@ -215,6 +215,17 @@ class Connection:
                 return
             self._feedback_queue.put(NeedMoreWork())
             finished = False
+
+            # Main loop: send messages from the queue on to the server, and
+            # vice versa. We could decrease latency a bit by doing the two in
+            # parallel, but we currently don't, instead preferring to alternate
+            # between the two directions. This is done for a few reasons:
+            # - it's simpler
+            # - in practice, sending messages from the queue to the server will
+            #   never block, since "need_work" messages make sure there is
+            #   enough work in the queue, and the messages we send are small.
+            # - this method ensures that we don't build up arbitrarily large
+            #   queues.
             while True:
                 # Read a task and send it on, unless we're just waiting for
                 # things to finish.
@@ -236,8 +247,10 @@ class Connection:
                 msg_type = json_prop(msg, "type", str)
                 if msg_type == "finish":
                     break
+
                 elif msg_type == "need_work":
                     self._feedback_queue.put(NeedMoreWork())
+
                 elif msg_type == "result":
                     permuter_index = json_prop(msg, "permuter", int)
                     source: Optional[str] = None
@@ -248,8 +261,10 @@ class Connection:
                         source = zlib.decompress(compressed_source).decode("utf-8")
                     result = _result_from_json(msg, source)
                     self._feedback_queue.put((permuter_index, result))
+
                 else:
                     raise ValueError(f"Invalid message type {msg_type}")
+
         finally:
             self._feedback_queue.put(Finished(reason=finish_reason))
             if self._sock is not None:

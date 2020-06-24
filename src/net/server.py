@@ -283,12 +283,15 @@ class ServerHandler(socketserver.BaseRequestHandler):
                 msg = port.receive_json()
                 if not init_done.is_set():
                     raise ValueError("Got messages before initialization finished.")
-                tp = json_prop(msg, "type", str)
-                if tp == "finish":
+
+                msg_type = json_prop(msg, "type", str)
+
+                if msg_type == "finish":
                     shared.queue.put(NoMoreWork(handle=handle))
                     output_thread.join()
                     break
-                elif tp == "work":
+
+                elif msg_type == "work":
                     permuter_index = json_prop(msg, "permuter", int)
                     seed = json_prop(msg, "seed", int)
                     if not 0 <= permuter_index < num_perm:
@@ -300,8 +303,9 @@ class ServerHandler(socketserver.BaseRequestHandler):
                             handle=handle, permuter_index=permuter_index, seed=seed
                         )
                     )
+
                 else:
-                    raise ValueError(f'Unrecognized message type "{tp}"')
+                    raise ValueError(f'Unrecognized message type "{msg_type}"')
         except Exception as e:
             shared.queue.put(InputError(handle=handle))
             if not isinstance(e, EOFError):
