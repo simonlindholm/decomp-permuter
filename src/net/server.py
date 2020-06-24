@@ -38,6 +38,10 @@ from .common import (
 )
 
 
+# Close connections that haven't sent input in 5 minutes.
+HANG_TIMEOUT = 5 * 60
+
+
 class InitState(Enum):
     UNINIT = 0
     WAITING = 1
@@ -53,6 +57,8 @@ class ClientState:
     initial_permuters: List[PermuterData]
     num_permuters: int
     work_queue: "queue.Queue[Work]" = field(default_factory=queue.Queue)
+    active_work: int = 0
+    requested_work_time: Optional[float] = None
     eof: bool = False
     init_state: InitState = InitState.UNINIT
     waiting_perms: int = 0
@@ -106,6 +112,11 @@ class OutputInit:
 
 @dataclass
 class OutputFinished:
+    graceful: bool
+
+
+@dataclass
+class OutputNeedMoreWork:
     pass
 
 
@@ -115,7 +126,7 @@ class OutputWork:
     compressed_source: Optional[bytes]
 
 
-Output = Union[OutputInit, OutputFinished, OutputWork]
+Output = Union[OutputInit, OutputFinished, OutputNeedMoreWork, OutputWork]
 
 
 @dataclass
@@ -282,7 +293,13 @@ class ServerHandler(socketserver.BaseRequestHandler):
                                 break
 
                         elif isinstance(item, OutputFinished):
+                            if item.graceful:
+                                port.send_json({"type": "finish"})
                             break
+
+                        elif isinstance(item, OutputNeedMoreWork):
+                            assert init_done.is_set()
+                            port.send_json({"type": "need_work"})
 
                         elif isinstance(item, OutputWork):
                             assert init_done.is_set()
@@ -433,6 +450,8 @@ class Server:
                 print(f"[{state.nickname}] disconnected")
 
         elif isinstance(msg, PermInit):
+            self._active_work -= 1
+
             handle, perm_index = self._from_permid(msg.perm_id)
             if handle not in self._states:
                 # Ignore messages after disconnect.
@@ -452,6 +471,8 @@ class Server:
                 state.output_queue.put(OutputInit(success=True))
 
         elif isinstance(msg, WorkDone):
+            self._active_work -= 1
+
             handle, perm_index = self._from_permid(msg.perm_id)
             if handle not in self._states:
                 # Ignore messages after disconnect.
@@ -459,6 +480,7 @@ class Server:
 
             state = self._states[handle]
             assert state.init_state == InitState.READY
+            state.active_work -= 1
             obj = msg.obj
             obj["permuter"] = perm_index
             state.output_queue.put(
@@ -484,15 +506,15 @@ class Server:
             if state.eof
             and state.init_state == InitState.READY
             and state.work_queue.empty()
+            and state.active_work == 0
         ]
 
         for state in to_remove:
             self._remove(state)
-            state.output_queue.put(OutputFinished())
+            state.output_queue.put(OutputFinished(graceful=True))
             print(f"[{state.nickname}] disconnected")
 
     def _send_permuter(self, id_: str, perm: PermuterData) -> None:
-        self._active_work += 1
         self._evaluator_port.send_json(
             {
                 "type": "add",
@@ -506,48 +528,78 @@ class Server:
         )
         self._evaluator_port.send(perm.source.encode("utf-8"))
         self._evaluator_port.send(perm.target_o_bin)
+        self._active_work += 1
 
-    def _send_work(self) -> bool:
-        # Go through the queues and check if anything needs to be sent to the
-        # evaluator. We prioritize queues based on cooldown -- the queue with
-        # the shortest remaining cooldown is processed first (and gets
-        # normalized to have cooldown = 0).
+    def _next_work(self) -> Optional[ClientState]:
+        """Select the next client state to perform work on, i.e. the active one
+        with smallest cooldown. Additionally, tell clients with empty queues to
+        send us more work, or disconnect them if they are slow."""
         smallest_cooldown = float("inf")
         chosen: Optional[ClientState] = None
+        to_remove = []
 
         for state in self._states.values():
             if state.init_state == InitState.WAITING:
-                continue
+                # Ignore clients that are waiting on sandbox setup.
+                pass
 
-            if state.init_state == InitState.READY and state.work_queue.empty():
-                continue
+            elif state.init_state == InitState.READY and state.work_queue.empty():
 
-            if state.cooldown < smallest_cooldown:
+                if state.requested_work_time is None:
+                    state.requested_work_time = time.time()
+                    state.output_queue.put(OutputNeedMoreWork())
+
+                elif time.time() > state.requested_work_time + HANG_TIMEOUT:
+                    to_remove.append(state)
+
+            elif state.cooldown < smallest_cooldown:
                 smallest_cooldown = state.cooldown
                 chosen = state
 
-        if not chosen:
-            return False
+        for state in to_remove:
+            self._remove(state)
+            state.output_queue.put(OutputFinished(graceful=False))
+            print(f"[{state.nickname}] not responding, dropping")
 
-        if chosen.init_state == InitState.UNINIT:
-            chosen.init_state = InitState.WAITING
-            chosen.waiting_perms = state.num_permuters
+        return chosen
+
+    def _add_cooldown(self, state: ClientState) -> None:
+        pass
+
+    def _send_work(self, state: ClientState) -> None:
+        state.requested_work_time = None
+        if state.init_state == InitState.UNINIT:
+            state.init_state = InitState.WAITING
+            state.waiting_perms = state.num_permuters
             for i, p in enumerate(state.initial_permuters):
-                self._send_permuter(self._to_permid(chosen, i), p)
+                self._send_permuter(self._to_permid(state, i), p)
             state.initial_permuters = []
         else:
-            work = chosen.work_queue.get_nowait()
+            work = state.work_queue.get_nowait()
             assert work is not None, "queue is non-empty"
             self._evaluator_port.send_json(
                 {
                     "type": "work",
-                    "id": self._to_permid(chosen, work.permuter_index),
+                    "id": self._to_permid(state, work.permuter_index),
                     "seed": work.seed,
                 }
             )
             self._active_work += 1
+            state.active_work += 1
 
-        return True
+    def _maybe_send_work(self) -> bool:
+        # Go through the queues and check if anything needs to be sent to the
+        # evaluator. We prioritize queues based on cooldown -- the queue with
+        # the shortest remaining cooldown is processed first (and gets
+        # normalized to have cooldown = 0).
+        state = self._next_work()
+
+        if state is not None:
+            self._send_work(state)
+            self._add_cooldown(state)
+            return True
+
+        return False
 
     def _read_eval_loop(self) -> None:
         while True:
@@ -584,9 +636,10 @@ class Server:
             self._handle_message(msg)
 
             while self._active_work < max_work:
-                self._prune_finished()
-                if not self._send_work():
+                if not self._maybe_send_work():
                     break
+
+            self._prune_finished()
 
     def start(self) -> None:
         assert self._state == "notstarted"
