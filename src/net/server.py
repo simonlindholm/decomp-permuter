@@ -33,6 +33,7 @@ from .common import (
     json_prop,
     sign_with_magic,
     socket_read_fixed,
+    static_assert_unreachable,
     verify_with_magic,
 )
 
@@ -48,13 +49,13 @@ class ClientState:
     handle: str
     client: bytes  # Unique identifier for the connecting client
     nickname: str
-    input_queue: "queue.Queue[Input]"
     output_queue: "queue.Queue[Output]"
     initial_permuters: List[PermuterData]
     num_permuters: int
+    work_queue: "queue.Queue[Work]" = field(default_factory=queue.Queue)
     eof: bool = False
     init_state: InitState = InitState.UNINIT
-    init_successes: List[Optional[bool]] = []
+    waiting_perms: int = 0
     cooldown: float = 0.0
 
 
@@ -81,7 +82,7 @@ class PermInit:
 
 
 @dataclass
-class MoreWork:
+class Work:
     handle: str
     permuter_index: int
     seed: int
@@ -92,9 +93,8 @@ class InitDone:
     success: bool
 
 
-Input = Union[MoreWork]
 Output = Union[InitDone]
-Activity = Union[AddClient, NoMoreWork, InputError, MoreWork, PermInit]
+Activity = Union[AddClient, NoMoreWork, InputError, Work, PermInit]
 
 
 @dataclass
@@ -231,54 +231,54 @@ class ServerHandler(socketserver.BaseRequestHandler):
     def handle(self) -> None:
         shared: SharedServerData = getattr(self.server, "shared")
         signing_key = shared.config.signing_key
-        client_ver_key, port = self._setup(signing_key)
-
         auth_ver_key = shared.config.auth_verify_key
-        nickname = self._confirm_grant(port, client_ver_key, auth_ver_key)
-        self._send_init(port, shared.options)
-
-        permuters = self._receive_permuters(port)
-        num_perm = len(permuters)
-
-        handle: str = str(uuid.uuid4())
-
-        input_queue: queue.Queue[MoreWork] = queue.Queue()
-        output_queue: queue.Queue[Output] = queue.Queue()
-
-        init_done = threading.Event()
-
-        def output_loop() -> None:
-            while True:
-                item = output_queue.get()
-                if isinstance(item, InitDone):
-                    assert not init_done.is_set()
-                    port.send_json({"success": item.success})
-                    if item.success:
-                        init_done.set()
-                    else:
-                        break
-
-            port.close()
-
-        output_thread = threading.Thread(target=output_loop)
-        output_thread.start()
-
-        shared.queue.put(
-            AddClient(
-                handle=handle,
-                state=ClientState(
-                    handle=handle,
-                    client=client_ver_key.encode(),
-                    nickname=nickname,
-                    input_queue=input_queue,
-                    output_queue=output_queue,
-                    initial_permuters=permuters,
-                    num_permuters=len(permuters),
-                ),
-            )
-        )
 
         try:
+            client_ver_key, port = self._setup(signing_key)
+            nickname = self._confirm_grant(port, client_ver_key, auth_ver_key)
+        except Exception:
+            # Connection attempt by someone who was not allowed access.
+            return
+
+        try:
+            self._send_init(port, shared.options)
+            permuters = self._receive_permuters(port)
+
+            output_queue: queue.Queue[Output] = queue.Queue()
+            init_done = threading.Event()
+
+            def output_loop() -> None:
+                while True:
+                    item = output_queue.get()
+                    if isinstance(item, InitDone):
+                        assert not init_done.is_set()
+                        port.send_json({"success": item.success})
+                        if item.success:
+                            init_done.set()
+                        else:
+                            break
+
+                port.close()
+
+            output_thread = threading.Thread(target=output_loop)
+            output_thread.start()
+
+            handle: str = str(uuid.uuid4())
+
+            shared.queue.put(
+                AddClient(
+                    handle=handle,
+                    state=ClientState(
+                        handle=handle,
+                        client=client_ver_key.encode(),
+                        nickname=nickname,
+                        output_queue=output_queue,
+                        initial_permuters=permuters,
+                        num_permuters=len(permuters),
+                    ),
+                )
+            )
+
             while True:
                 msg = port.receive_json()
                 if not init_done.is_set():
@@ -294,24 +294,25 @@ class ServerHandler(socketserver.BaseRequestHandler):
                 elif msg_type == "work":
                     permuter_index = json_prop(msg, "permuter", int)
                     seed = json_prop(msg, "seed", int)
+                    num_perm = len(permuters)
                     if not 0 <= permuter_index < num_perm:
                         raise ValueError(
                             f"Permuter index out of range ({permuter_index}/{num_perm})"
                         )
                     shared.queue.put(
-                        MoreWork(
-                            handle=handle, permuter_index=permuter_index, seed=seed
-                        )
+                        Work(handle=handle, permuter_index=permuter_index, seed=seed)
                     )
 
                 else:
                     raise ValueError(f'Unrecognized message type "{msg_type}"')
+
         except Exception as e:
             shared.queue.put(InputError(handle=handle))
             if not isinstance(e, EOFError):
                 # Errors due to clients disconnecting aren't worth logging.
                 # Other errors can legitimately happen, but only due to
                 # protocol violations, and are worth logging to aid debugging.
+                print(f"[{nickname}] protocol error:", file=sys.stderr)
                 traceback.print_exc()
 
     def finish(self) -> None:
@@ -359,50 +360,65 @@ class Server:
         return state.handle + "," + str(index)
 
     def _handle_message(self, msg: Activity) -> None:
-        if isinstance(msg, MoreWork):
+        if isinstance(msg, Work):
             state = self._states[msg.handle]
-            assert not state.eof
-            state.input_queue.put(msg)
+            assert not state.eof, "cannot be sent after EOF"
+            state.work_queue.put(msg)
+
         elif isinstance(msg, AddClient):
             state = msg.state
+            assert msg.handle not in self._states, "unique IDs"
             self._states[msg.handle] = state
             filenames = ", ".join(p.fn_name for p in state.initial_permuters)
             print(f"[{state.nickname}] connected ({filenames})")
+
         elif isinstance(msg, NoMoreWork):
             state = self._states[msg.handle]
-            assert not state.eof
+            assert not state.eof, "cannot be sent after EOF"
             state.eof = True
             print(f"[{state.nickname}] disconnected")
+
         elif isinstance(msg, InputError):
             if msg.handle not in self._states:
                 # We already removed this client (e.g. as part of a PermInit
                 # failure).
                 return
             state = self._states[msg.handle]
-            # TODO some complex error state, where we handle different init_state
-            # transitions...
-            state.eof = True
+            self._remove(state)
             print(f"[{state.nickname}] disconnected")
+
         elif isinstance(msg, PermInit):
             id_parts = msg.id.split(",")
-            state_id = id_parts[0]
+            handle = id_parts[0]
             perm_index = int(id_parts[1])
-            state = self._states[state_id]
+
+            if handle not in self._states:
+                # Ignore PermInit messages after disconnect.
+                return
+
+            state = self._states[handle]
             assert state.init_state == InitState.WAITING
-            state.init_successes[perm_index] = msg.success
-            if all(s is not None for s in state.init_successes):
-                if all(state.init_successes):
-                    state.init_state = InitState.READY
-                    state.output_queue.put(InitDone(success=True))
-                else:
-                    for i in range(state.num_permuters):
-                        if state.init_successes[i]:
-                            self._evaluator_port.send_json(
-                                {"type": "remove", "id": self._permuter_id(state, i),}
-                            )
-                    del self._states[state.handle]
-                    state.output_queue.put(InitDone(success=False))
-                    print(f"[{state.nickname}] failed to compile")
+            state.waiting_perms -= 1
+
+            if not msg.success:
+                self._remove(state)
+                state.output_queue.put(InitDone(success=False))
+                print(f"[{state.nickname}] failed to compile")
+
+            elif state.waiting_perms == 0:
+                state.init_state = InitState.READY
+                state.output_queue.put(InitDone(success=True))
+
+        else:
+            static_assert_unreachable(msg)
+
+    def _remove(self, state: ClientState) -> None:
+        if state.init_state != InitState.UNINIT:
+            for i in range(state.num_permuters):
+                self._evaluator_port.send_json(
+                    {"type": "remove", "id": self._permuter_id(state, i),}
+                )
+        del self._states[state.handle]
 
     def _prune_finished(self) -> None:
         to_remove: List[ClientState] = [
@@ -410,15 +426,11 @@ class Server:
             for state in self._states.values()
             if state.eof
             and state.init_state == InitState.READY
-            and state.input_queue.empty()
+            and state.work_queue.empty()
         ]
 
         for state in to_remove:
-            for i in range(state.num_permuters):
-                self._evaluator_port.send_json(
-                    {"type": "remove", "id": self._permuter_id(state, i),}
-                )
-            del self._states[state.handle]
+            self._remove(state)
 
     def _send_permuter(self, id_: str, perm: PermuterData) -> None:
         self._active_work += 1
@@ -448,7 +460,7 @@ class Server:
             if state.init_state == InitState.WAITING:
                 continue
 
-            if state.init_state == InitState.READY and state.input_queue.empty():
+            if state.init_state == InitState.READY and state.work_queue.empty():
                 continue
 
             if state.cooldown < smallest_cooldown:
@@ -460,13 +472,13 @@ class Server:
 
         if chosen.init_state == InitState.UNINIT:
             chosen.init_state = InitState.WAITING
-            chosen.init_successes = [None] * state.num_permuters
+            chosen.waiting_perms = state.num_permuters
             for i, p in enumerate(state.initial_permuters):
                 self._send_permuter(self._permuter_id(chosen, i), p)
             state.initial_permuters = []
         else:
-            work = chosen.input_queue.get_nowait()
-            assert work is not None
+            work = chosen.work_queue.get_nowait()
+            assert work is not None, "queue is non-empty"
             self._evaluator_port.send_json(
                 {
                     "type": "work",
@@ -481,14 +493,18 @@ class Server:
     def _read_eval_loop(self) -> None:
         while True:
             msg = self._evaluator_port.receive_json()
-            tp = json_prop(msg, "type", str)
-            if tp == "init":
+            msg_type = json_prop(msg, "type", str)
+
+            if msg_type == "init":
                 self._queue.put(
                     PermInit(
                         id=json_prop(msg, "id", str),
                         success=json_prop(msg, "success", bool),
                     )
                 )
+
+            else:
+                raise Exception(f"Unknown message type from evaluator: {msg_type}")
 
     def _main_loop(self) -> None:
         max_work = int(self._options.num_cpus) * 2 + 4

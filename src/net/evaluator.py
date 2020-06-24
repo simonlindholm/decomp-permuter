@@ -296,8 +296,11 @@ def main() -> None:
             )
 
         elif isinstance(item, RemovePermuter):
-            should_remove.add(item.perm_id)
-            try_remove(item.perm_id)
+            # Silently ignore requests to remove permuters that have already
+            # been removed, which can occur when AddPermuter fails.
+            if item.perm_id in permuters:
+                should_remove.add(item.perm_id)
+                try_remove(item.perm_id)
 
         elif isinstance(item, WorkDone):
             remaining_work[item.perm_id] -= 1
