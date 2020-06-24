@@ -73,6 +73,7 @@ class NoMoreWork:
 @dataclass
 class InputError:
     handle: str
+    errmsg: Optional[str]
 
 
 @dataclass
@@ -344,13 +345,13 @@ class ServerHandler(socketserver.BaseRequestHandler):
                     raise ValueError(f'Unrecognized message type "{msg_type}"')
 
         except Exception as e:
-            shared.queue.put(InputError(handle=handle))
+            errmsg: Optional[str] = None
             if not isinstance(e, EOFError):
                 # Errors due to clients disconnecting aren't worth logging.
                 # Other errors can legitimately happen, but only due to
                 # protocol violations, and are worth logging to aid debugging.
-                print(f"[{nickname}] protocol error:", file=sys.stderr)
-                traceback.print_exc()
+                errmsg = traceback.format_exc()
+            shared.queue.put(InputError(handle=handle, errmsg=errmsg))
 
     def finish(self) -> None:
         pass
@@ -426,7 +427,10 @@ class Server:
                 return
             state = self._states[msg.handle]
             self._remove(state)
-            print(f"[{state.nickname}] disconnected")
+            if msg.errmsg:
+                print(f"[{state.nickname}] disconnected with error:\n{msg.errmsg}")
+            else:
+                print(f"[{state.nickname}] disconnected")
 
         elif isinstance(msg, PermInit):
             handle, perm_index = self._from_permid(msg.perm_id)
@@ -465,6 +469,7 @@ class Server:
             static_assert_unreachable(msg)
 
     def _remove(self, state: ClientState) -> None:
+        assert state.handle in self._states
         if state.init_state != InitState.UNINIT:
             for i in range(state.num_permuters):
                 self._evaluator_port.send_json(
