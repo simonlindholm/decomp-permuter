@@ -51,7 +51,7 @@ class InitState(Enum):
 @dataclass
 class ClientState:
     handle: str
-    client: bytes  # Unique identifier for the connecting client
+    user: bytes
     nickname: str
     output_queue: "queue.Queue[Output]"
     initial_permuters: List[PermuterData]
@@ -325,7 +325,7 @@ class ServerHandler(socketserver.BaseRequestHandler):
                     handle=handle,
                     state=ClientState(
                         handle=handle,
-                        client=client_ver_key.encode(),
+                        user=client_ver_key.encode(),
                         nickname=nickname,
                         output_queue=output_queue,
                         initial_permuters=permuters,
@@ -563,8 +563,24 @@ class Server:
 
         return chosen
 
-    def _add_cooldown(self, state: ClientState) -> None:
-        pass
+    def _add_cooldown(self, chosen: ClientState) -> None:
+        # Subtract a constant from all cooldowns, to make the selected client's
+        # cooldown zero. This makes sure that new clients enter with a cooldown
+        # similar to the existing ones. Also clamp clients that were skipped due
+        # to empty queues to the same level, so that they don't take over once
+        # their queues fill up.
+        baseline = chosen.cooldown
+        for state in self._states.values():
+            state.cooldown = max(state.cooldown - baseline, 0.0)
+
+        # Add a value to the selected client's cooldown corresponding to its
+        # priority and how many other clients correspond to the same user.
+        same_user = 0
+        for state in self._states.values():
+            if state.user == chosen.user and state.requested_work_time is None:
+                same_user += 1
+
+        chosen.cooldown += same_user
 
     def _send_work(self, state: ClientState) -> None:
         state.requested_work_time = None
