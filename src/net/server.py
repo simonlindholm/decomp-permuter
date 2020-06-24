@@ -104,12 +104,17 @@ class OutputInit:
 
 
 @dataclass
+class OutputFinished:
+    pass
+
+
+@dataclass
 class OutputWork:
     obj: dict
     compressed_source: Optional[bytes]
 
 
-Output = Union[OutputInit, OutputWork]
+Output = Union[OutputInit, OutputFinished, OutputWork]
 
 
 @dataclass
@@ -275,6 +280,9 @@ class ServerHandler(socketserver.BaseRequestHandler):
                             else:
                                 break
 
+                        elif isinstance(item, OutputFinished):
+                            break
+
                         elif isinstance(item, OutputWork):
                             assert init_done.is_set()
                             port.send_json(item.obj)
@@ -410,7 +418,6 @@ class Server:
             state = self._states[msg.handle]
             assert not state.eof, "cannot be sent after EOF"
             state.eof = True
-            print(f"[{state.nickname}] disconnected")
 
         elif isinstance(msg, InputError):
             if msg.handle not in self._states:
@@ -476,6 +483,8 @@ class Server:
 
         for state in to_remove:
             self._remove(state)
+            state.output_queue.put(OutputFinished())
+            print(f"[{state.nickname}] disconnected")
 
     def _send_permuter(self, id_: str, perm: PermuterData) -> None:
         self._active_work += 1
