@@ -94,10 +94,10 @@ def _remove_permuter(perm: Permuter) -> None:
     os.unlink(perm.compiler.compile_cmd)
 
 
-def _send_result(res: EvalResult, port: Port) -> None:
+def _send_result(perm_id: str, res: EvalResult, port: Port) -> None:
     if isinstance(res, EvalError):
         port.send_json(
-            {"type": "result", "error": res.exc_str,}
+            {"type": "result", "id": perm_id, "error": res.exc_str,}
         )
         return
 
@@ -105,6 +105,7 @@ def _send_result(res: EvalResult, port: Port) -> None:
     port.send_json(
         {
             "type": "result",
+            "id": perm_id,
             "score": res.score,
             "hash": res.hash,
             "has_source": compressed_source is not None,
@@ -305,7 +306,7 @@ def main() -> None:
         elif isinstance(item, WorkDone):
             remaining_work[item.perm_id] -= 1
             try_remove(item.perm_id)
-            _send_result(item.result, port)
+            _send_result(item.perm_id, item.result, port)
 
         elif isinstance(item, Work):
             remaining_work[item.perm_id] += 1

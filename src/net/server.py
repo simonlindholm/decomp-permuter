@@ -77,8 +77,15 @@ class InputError:
 
 @dataclass
 class PermInit:
-    id: str
+    perm_id: str
     success: bool
+
+
+@dataclass
+class WorkDone:
+    perm_id: str
+    obj: dict
+    compressed_source: Optional[bytes]
 
 
 @dataclass
@@ -88,13 +95,21 @@ class Work:
     seed: int
 
 
+Activity = Union[AddClient, NoMoreWork, InputError, Work, PermInit, WorkDone]
+
+
 @dataclass
-class InitDone:
+class OutputInit:
     success: bool
 
 
-Output = Union[InitDone]
-Activity = Union[AddClient, NoMoreWork, InputError, Work, PermInit]
+@dataclass
+class OutputWork:
+    obj: dict
+    compressed_source: Optional[bytes]
+
+
+Output = Union[OutputInit, OutputWork]
 
 
 @dataclass
@@ -248,17 +263,31 @@ class ServerHandler(socketserver.BaseRequestHandler):
             init_done = threading.Event()
 
             def output_loop() -> None:
-                while True:
-                    item = output_queue.get()
-                    if isinstance(item, InitDone):
-                        assert not init_done.is_set()
-                        port.send_json({"success": item.success})
-                        if item.success:
-                            init_done.set()
-                        else:
-                            break
+                try:
+                    while True:
+                        item = output_queue.get()
 
-                port.close()
+                        if isinstance(item, OutputInit):
+                            assert not init_done.is_set()
+                            port.send_json({"success": item.success})
+                            if item.success:
+                                init_done.set()
+                            else:
+                                break
+
+                        elif isinstance(item, OutputWork):
+                            assert init_done.is_set()
+                            port.send_json(item.obj)
+                            if item.compressed_source is not None:
+                                port.send(item.compressed_source)
+
+                        else:
+                            static_assert_unreachable(item)
+
+                    port.close()
+
+                except EOFError:
+                    pass
 
             output_thread = threading.Thread(target=output_loop)
             output_thread.start()
@@ -356,8 +385,13 @@ class Server:
         shared = SharedServerData(config=config, options=options, queue=self._queue)
         setattr(self._tcp_server, "shared", shared)
 
-    def _permuter_id(self, state: ClientState, index: int) -> str:
+    def _to_permid(self, state: ClientState, index: int) -> str:
         return state.handle + "," + str(index)
+
+    def _from_permid(self, perm_id: str) -> Tuple[str, int]:
+        id_parts = perm_id.split(",")
+        assert len(id_parts) == 2, f"bad perm_id format: {perm_id}"
+        return id_parts[0], int(id_parts[1])
 
     def _handle_message(self, msg: Activity) -> None:
         if isinstance(msg, Work):
@@ -388,12 +422,9 @@ class Server:
             print(f"[{state.nickname}] disconnected")
 
         elif isinstance(msg, PermInit):
-            id_parts = msg.id.split(",")
-            handle = id_parts[0]
-            perm_index = int(id_parts[1])
-
+            handle, perm_index = self._from_permid(msg.perm_id)
             if handle not in self._states:
-                # Ignore PermInit messages after disconnect.
+                # Ignore messages after disconnect.
                 return
 
             state = self._states[handle]
@@ -402,12 +433,26 @@ class Server:
 
             if not msg.success:
                 self._remove(state)
-                state.output_queue.put(InitDone(success=False))
+                state.output_queue.put(OutputInit(success=False))
                 print(f"[{state.nickname}] failed to compile")
 
             elif state.waiting_perms == 0:
                 state.init_state = InitState.READY
-                state.output_queue.put(InitDone(success=True))
+                state.output_queue.put(OutputInit(success=True))
+
+        elif isinstance(msg, WorkDone):
+            handle, perm_index = self._from_permid(msg.perm_id)
+            if handle not in self._states:
+                # Ignore messages after disconnect.
+                return
+
+            state = self._states[handle]
+            assert state.init_state == InitState.READY
+            obj = msg.obj
+            obj["permuter"] = perm_index
+            state.output_queue.put(
+                OutputWork(obj=obj, compressed_source=msg.compressed_source,)
+            )
 
         else:
             static_assert_unreachable(msg)
@@ -416,7 +461,7 @@ class Server:
         if state.init_state != InitState.UNINIT:
             for i in range(state.num_permuters):
                 self._evaluator_port.send_json(
-                    {"type": "remove", "id": self._permuter_id(state, i),}
+                    {"type": "remove", "id": self._to_permid(state, i),}
                 )
         del self._states[state.handle]
 
@@ -474,7 +519,7 @@ class Server:
             chosen.init_state = InitState.WAITING
             chosen.waiting_perms = state.num_permuters
             for i, p in enumerate(state.initial_permuters):
-                self._send_permuter(self._permuter_id(chosen, i), p)
+                self._send_permuter(self._to_permid(chosen, i), p)
             state.initial_permuters = []
         else:
             work = chosen.work_queue.get_nowait()
@@ -482,7 +527,7 @@ class Server:
             self._evaluator_port.send_json(
                 {
                     "type": "work",
-                    "id": self._permuter_id(chosen, work.permuter_index),
+                    "id": self._to_permid(chosen, work.permuter_index),
                     "seed": work.seed,
                 }
             )
@@ -498,8 +543,20 @@ class Server:
             if msg_type == "init":
                 self._queue.put(
                     PermInit(
-                        id=json_prop(msg, "id", str),
+                        perm_id=json_prop(msg, "id", str),
                         success=json_prop(msg, "success", bool),
+                    )
+                )
+
+            elif msg_type == "result":
+                compressed_source: Optional[bytes] = None
+                if msg.get("has_source") == True:
+                    compressed_source = self._evaluator_port.receive()
+                perm_id = json_prop(msg, "id", str)
+                del msg["id"]
+                self._queue.put(
+                    WorkDone(
+                        perm_id=perm_id, obj=msg, compressed_source=compressed_source,
                     )
                 )
 
