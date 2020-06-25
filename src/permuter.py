@@ -94,7 +94,7 @@ class Permuter:
         self.keep_prob = keep_prob
         self.need_all_sources = need_all_sources
 
-        self.base, base_score, self.base_hash = self._create_and_score_base()
+        base_score, self.base_hash, self._base_source = self._create_and_score_base()
         self.hashes = {self.base_hash}
         self.cand: Optional[Candidate] = None
         self.base_score: int = base_score
@@ -104,7 +104,7 @@ class Permuter:
     def reseed_random(self) -> None:
         self.random = random.Random()
 
-    def _create_and_score_base(self) -> Tuple[Candidate, int, str]:
+    def _create_and_score_base(self) -> Tuple[int, str, str]:
         base_source = perm_eval.perm_evaluate_one(self.permutations)
         base_cand = Candidate.from_source(
             base_source, self.fn_name, self.parser, rng_seed=0
@@ -113,7 +113,7 @@ class Permuter:
         if not o_file:
             raise Exception(f"Unable to compile {self.source_file}")
         base_result = base_cand.score(self.scorer, o_file)
-        return base_cand, base_result.score, base_result.hash
+        return base_result.score, base_result.hash, base_cand.get_source()
 
     def _need_to_send_source(self, result: CandidateResult) -> bool:
         if self.need_all_sources:
@@ -187,7 +187,7 @@ class Permuter:
             return EvalError(exc_str=traceback.format_exc(), seed=self.cur_seed)
 
     def base_source(self) -> str:
-        return self.base.get_source()
+        return self._base_source
 
     def diff(self, other_source: str) -> str:
         # Return a unified white-space-ignoring diff
