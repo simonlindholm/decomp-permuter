@@ -1,7 +1,7 @@
 import abc
 from dataclasses import dataclass
 import json
-from socket import socket
+import socket
 import struct
 import sys
 import toml
@@ -109,7 +109,7 @@ def file_read_fixed(inf: BinaryIO, n: int) -> bytes:
     return b"".join(ret)
 
 
-def socket_read_fixed(sock: socket, n: int) -> bytes:
+def socket_read_fixed(sock: socket.socket, n: int) -> bytes:
     ret = []
     while n > 0:
         data = sock.recv(min(n, 4096))
@@ -192,7 +192,7 @@ class Port(abc.ABC):
 
 
 class SocketPort(Port):
-    def __init__(self, sock: socket, box: AnyBox, *, is_client: bool) -> None:
+    def __init__(self, sock: socket.socket, box: AnyBox, *, is_client: bool) -> None:
         self._sock = sock
         super().__init__(box, is_client=is_client)
 
@@ -201,6 +201,9 @@ class SocketPort(Port):
 
     def _receive(self, length: int) -> bytes:
         return socket_read_fixed(self._sock, length)
+
+    def shutdown(self, how: int = socket.SHUT_RDWR) -> None:
+        self._sock.shutdown(how)
 
     def close(self) -> None:
         self._sock.close()

@@ -136,7 +136,7 @@ class Connection:
         self._sock = None
         self._priority = priority
 
-    def _setup(self) -> Port:
+    def _setup(self) -> SocketPort:
         """Set up a secure connection with the server."""
         sock = socket.create_connection((self._server.ip, self._server.port))
         self._sock = sock
@@ -238,6 +238,7 @@ class Connection:
                     task = self._task_queue.get()
                     if isinstance(task, Finished):
                         port.send_json({"type": "finish"})
+                        port.shutdown(socket.SHUT_WR)
                         finished = True
                     else:
                         work = {
@@ -273,6 +274,7 @@ class Connection:
         finally:
             self._feedback_queue.put(Finished(reason=finish_reason))
             if self._sock is not None:
+                self._sock.shutdown(socket.SHUT_RDWR)
                 self._sock.close()
 
 

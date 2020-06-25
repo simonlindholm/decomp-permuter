@@ -183,6 +183,7 @@ class ServerHandler(socketserver.BaseRequestHandler):
 
             # Close the connection and raise an exception that the caller will
             # silently swallow.
+            sock.shutdown(socket.SHUT_RDWR)
             sock.close()
             raise EOFError
 
@@ -338,10 +339,11 @@ class ServerHandler(socketserver.BaseRequestHandler):
                         else:
                             static_assert_unreachable(item)
 
-                    port.close()
-
-                except EOFError:
+                except BrokenPipeError:
                     pass
+
+                finally:
+                    port.shutdown()
 
             output_thread = threading.Thread(target=output_loop)
             output_thread.start()
@@ -372,7 +374,7 @@ class ServerHandler(socketserver.BaseRequestHandler):
 
                 if msg_type == "finish":
                     shared.queue.put(NoMoreWork(handle=handle))
-                    output_thread.join()
+                    port.shutdown(socket.SHUT_RD)
                     break
 
                 elif msg_type == "work":
@@ -398,6 +400,10 @@ class ServerHandler(socketserver.BaseRequestHandler):
                 # protocol violations, and are worth logging to aid debugging.
                 errmsg = traceback.format_exc()
             shared.queue.put(InputError(handle=handle, errmsg=errmsg))
+            port.shutdown()
+
+        output_thread.join()
+        port.close()
 
     def finish(self) -> None:
         pass
