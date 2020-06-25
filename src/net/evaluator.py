@@ -4,6 +4,7 @@ import base64
 from dataclasses import dataclass
 from multiprocessing import Process, Queue
 import os
+import queue
 import struct
 import sys
 from tempfile import mkstemp
@@ -161,8 +162,9 @@ def multiprocess_worker(
     while True:
         work = worker_queue.get()
         while True:
-            task = local_worker_queue.get_nowait()
-            if not task:
+            try:
+                task = local_worker_queue.get_nowait()
+            except queue.Empty:
                 break
             if isinstance(task, AddPermuterLocal):
                 permuters[task.perm_id] = task.permuter
