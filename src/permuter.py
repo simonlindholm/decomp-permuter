@@ -7,7 +7,7 @@ import time
 import traceback
 from typing import (
     Any,
-    Iterable,
+    Iterator,
     List,
     Optional,
     Tuple,
@@ -183,12 +183,12 @@ class Permuter:
 
         return result
 
-    def seed_generator(self) -> Iterable[int]:
+    def seed_iterator(self) -> Iterator[int]:
         if self._force_seed is None:
-            return perm_eval.perm_gen_all_seeds(self._permutations)
+            return iter(perm_eval.perm_gen_all_seeds(self._permutations))
         if self._permutations.is_random():
             return itertools.repeat(self._force_seed)
-        return [self._force_seed]
+        return iter([self._force_seed])
 
     def try_eval_candidate(self, seed: int) -> EvalResult:
         try:

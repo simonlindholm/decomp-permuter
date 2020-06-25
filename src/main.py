@@ -185,7 +185,7 @@ def cycle_seeds(permuters: List[Permuter]) -> Iterable[Tuple[int, int]]:
     """
     iterators: List[Iterator[Tuple[int, int]]] = []
     for perm_ind, permuter in enumerate(permuters):
-        it = permuter.seed_generator()
+        it = permuter.seed_iterator()
         iterators.append(zip(itertools.repeat(perm_ind), it))
 
     i = 0
