@@ -161,8 +161,11 @@ class SharedServerData:
 
 
 class ServerHandler(socketserver.BaseRequestHandler):
-    def _setup(self, signing_key: SigningKey) -> Tuple[VerifyKey, SocketPort]:
-        """Set up a secure (but untrusted) connection with the client."""
+    def _setup(
+        self, signing_key: SigningKey, auth_ver_key: VerifyKey
+    ) -> Tuple[VerifyKey, SocketPort]:
+        """Set up a secure (but untrusted) connection with the client, or
+        handle an auth server ping."""
         sock: socket.socket = self.request
 
         # Decrease network latency by disabling Nagle's algorithm.
@@ -171,6 +174,18 @@ class ServerHandler(socketserver.BaseRequestHandler):
         # Read and verify protocol version.
         msg = socket_read_fixed(sock, 4)
         version = struct.unpack(">I", msg)[0]
+
+        if version == -1:
+            # Auth server ping.
+            msg = socket_read_fixed(sock, 9 + 32 + 64)
+            magic = verify_with_magic(b"AUTHPING", auth_ver_key, msg[32:])
+            sock.sendall(sign_with_magic(b"AUTHPONG", signing_key, magic))
+
+            # Close the connection and raise an exception that the caller will
+            # silently swallow.
+            sock.close()
+            raise EOFError
+
         if version != PROTOCOL_VERSION:
             raise ValueError(f"Bad protocol version: {version} vs {PROTOCOL_VERSION}")
 
@@ -227,8 +242,9 @@ class ServerHandler(socketserver.BaseRequestHandler):
     def _receive_initial(
         self, port: Port, options: ServerOptions
     ) -> Tuple[List[PermuterData], float]:
-        # TODO include current load
+        # TODO: include current load
         props = {
+            "version": 1,
             "min_priority": options.min_priority,
             "num_cpus": options.num_cpus,
         }
@@ -277,7 +293,7 @@ class ServerHandler(socketserver.BaseRequestHandler):
         auth_ver_key = shared.config.auth_verify_key
 
         try:
-            client_ver_key, port = self._setup(signing_key)
+            client_ver_key, port = self._setup(signing_key, auth_ver_key)
             nickname = self._confirm_grant(port, client_ver_key, auth_ver_key)
         except Exception:
             # Connection attempt by someone who was not allowed access.
