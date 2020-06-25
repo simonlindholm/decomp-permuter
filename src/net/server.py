@@ -237,6 +237,10 @@ class ServerHandler(socketserver.BaseRequestHandler):
         msg = port.receive_json()
         priority = json_prop(msg, "priority", float)
 
+        if msg.get("files"):
+            # TODO: support this
+            raise ValueError("Additional files not supported")
+
         permuters = []
         for obj in json_prop(msg, "permuters", list):
             if not isinstance(obj, dict):
