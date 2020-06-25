@@ -208,7 +208,7 @@ class Connection:
             props = self._init(port)
             if self._priority < props.min_priority:
                 finish_reason = (
-                    f"skipping [{self._server.nickname}] due to priority requirement "
+                    f"[{self._server.nickname}] skipping due to priority requirement "
                     + str(props.min_priority)
                 )
                 return
@@ -216,7 +216,7 @@ class Connection:
             msg = port.receive_json()
             success = json_prop(msg, "success", bool)
             if not success:
-                finish_reason = f"failed to compile at [{self._server.nickname}]"
+                finish_reason = f"[{self._server.nickname}] failed to compile"
                 return
             self._feedback_queue.put(NeedMoreWork())
             finished = False
@@ -270,6 +270,9 @@ class Connection:
 
                 else:
                     raise ValueError(f"Invalid message type {msg_type}")
+
+        except Exception as e:
+            finish_reason = f"[{self._server.nickname}] error: {e}"
 
         finally:
             self._feedback_queue.put(Finished(reason=finish_reason))
