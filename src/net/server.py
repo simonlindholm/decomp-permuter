@@ -44,6 +44,17 @@ from .common import (
 HANG_TIMEOUT = 5 * 60
 
 
+@dataclass
+class PermuterData:
+    fn_name: str
+    filename: str
+    keep_prob: float
+    stack_differences: bool
+    compile_script: str
+    source: str
+    target_o_bin: bytes
+
+
 class InitState(Enum):
     UNINIT = 0
     WAITING = 1
@@ -140,17 +151,6 @@ class ServerOptions:
     max_memory_gb: float
     min_priority: float
     systray: bool
-
-
-@dataclass
-class PermuterData:
-    fn_name: str
-    filename: str
-    keep_prob: float
-    stack_differences: bool
-    compile_script: str
-    source: str
-    target_o_bin: bytes
 
 
 @dataclass
