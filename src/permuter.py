@@ -185,7 +185,7 @@ class Permuter:
 
     def seed_generator(self) -> Iterable[int]:
         if self._force_seed is None:
-            return perm_eval.perm_gen_all_seeds(self._permutations, random.Random())
+            return perm_eval.perm_gen_all_seeds(self._permutations)
         if self._permutations.is_random():
             return itertools.repeat(self._force_seed)
         return [self._force_seed]
