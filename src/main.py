@@ -103,7 +103,7 @@ def write_candidate(perm: Permuter, result: CandidateResult) -> None:
     with open(os.path.join(output_dir, "source.c"), "x", encoding="utf-8") as f:
         f.write(source)
     with open(os.path.join(output_dir, "base.c"), "x", encoding="utf-8") as f:
-        f.write(perm.base_source())
+        f.write(perm.base_source)
     with open(os.path.join(output_dir, "score.txt"), "x", encoding="utf-8") as f:
         f.write(f"{result.score}\n")
     with open(os.path.join(output_dir, "diff.txt"), "x", encoding="utf-8") as f:

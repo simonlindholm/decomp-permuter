@@ -85,20 +85,23 @@ class Permuter:
             self.fn_name = fn_name
         self.unique_name = self.fn_name
 
-        self.parser = pycparser.CParser()
+        self._parser = pycparser.CParser()
         self.permutations = perm_gen.perm_gen(source)
 
-        self.force_rng_seed = force_rng_seed
-        self.cur_seed: Optional[Tuple[int, int]] = None
+        self._force_rng_seed = force_rng_seed
+        self._cur_seed: Optional[Tuple[int, int]] = None
 
         self.keep_prob = keep_prob
-        self.need_all_sources = need_all_sources
+        self._need_all_sources = need_all_sources
 
-        base_score, self.base_hash, self._base_source = self._create_and_score_base()
+        (
+            self.base_score,
+            self.base_hash,
+            self.base_source,
+        ) = self._create_and_score_base()
+        self.best_score = self.base_score
         self.hashes = {self.base_hash}
-        self.cand: Optional[Candidate] = None
-        self.base_score: int = base_score
-        self.best_score: int = base_score
+        self._cur_cand: Optional[Candidate] = None
         self._last_score: Optional[int] = None
 
     def reseed_random(self) -> None:
@@ -107,7 +110,7 @@ class Permuter:
     def _create_and_score_base(self) -> Tuple[int, str, str]:
         base_source = perm_eval.perm_evaluate_one(self.permutations)
         base_cand = Candidate.from_source(
-            base_source, self.fn_name, self.parser, rng_seed=0
+            base_source, self.fn_name, self._parser, rng_seed=0
         )
         o_file = base_cand.compile(self.compiler, show_errors=True)
         if not o_file:
@@ -116,7 +119,7 @@ class Permuter:
         return base_result.score, base_result.hash, base_cand.get_source()
 
     def _need_to_send_source(self, result: CandidateResult) -> bool:
-        if self.need_all_sources:
+        if self._need_all_sources:
             return True
         if result.score < self.base_score:
             return True
@@ -133,7 +136,7 @@ class Permuter:
             self.permutations.is_random()
             and self.random.uniform(0, 1) < self.keep_prob
             and self._last_score != 0
-        ) or self.force_rng_seed
+        ) or self._force_rng_seed
 
         self._last_score = None
 
@@ -141,29 +144,29 @@ class Permuter:
         # N.B. if we decide to keep the previous candidate, we will skip over the provided seed.
         # This means we're not guaranteed to test all seeds, but it doesn't really matter since
         # we're randomizing anyway.
-        if not self.cand or not keep:
+        if not self._cur_cand or not keep:
             cand_c = self.permutations.evaluate(seed, EvalState())
-            rng_seed = self.force_rng_seed or random.randrange(1, 10 ** 20)
-            self.cur_seed = (seed, rng_seed)
-            self.cand = Candidate.from_source(
-                cand_c, self.fn_name, self.parser, rng_seed=rng_seed
+            rng_seed = self._force_rng_seed or random.randrange(1, 10 ** 20)
+            self._cur_seed = (seed, rng_seed)
+            self._cur_cand = Candidate.from_source(
+                cand_c, self.fn_name, self._parser, rng_seed=rng_seed
             )
 
         # Randomize the candidate
         if self.permutations.is_random():
-            self.cand.randomize_ast()
+            self._cur_cand.randomize_ast()
 
         t1 = time.time()
 
-        self.cand.get_source()
+        self._cur_cand.get_source()
 
         t2 = time.time()
 
-        o_file = self.cand.compile(self.compiler)
+        o_file = self._cur_cand.compile(self.compiler)
 
         t3 = time.time()
 
-        result = self.cand.score(self.scorer, o_file)
+        result = self._cur_cand.score(self.scorer, o_file)
 
         t4 = time.time()
 
@@ -184,10 +187,7 @@ class Permuter:
         try:
             return self._eval_candidate(seed)
         except Exception:
-            return EvalError(exc_str=traceback.format_exc(), seed=self.cur_seed)
-
-    def base_source(self) -> str:
-        return self._base_source
+            return EvalError(exc_str=traceback.format_exc(), seed=self._cur_seed)
 
     def diff(self, other_source: str) -> str:
         # Return a unified white-space-ignoring diff
@@ -198,7 +198,7 @@ class Permuter:
             def __hash__(self) -> int:
                 return hash(self.strip())
 
-        a = list(map(Line, self.base_source().split("\n")))
+        a = list(map(Line, self.base_source.split("\n")))
         b = list(map(Line, other_source.split("\n")))
         return "\n".join(
             difflib.unified_diff(a, b, fromfile="before", tofile="after", lineterm="")
