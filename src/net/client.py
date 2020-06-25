@@ -201,11 +201,6 @@ class Connection:
             port.send(permuter.compressed_source)
             port.send(permuter.target_o_bin)
 
-        res = port.receive_json()
-        if "error" in res:
-            msg = json_prop(res, "error", str)
-            raise Exception(f"error during initialization: {msg}")
-
     def run(self) -> None:
         finish_reason: Optional[str] = None
         try:
