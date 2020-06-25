@@ -65,7 +65,6 @@ class Permuter:
         need_all_sources: bool,
     ) -> None:
         self.dir = dir
-        self.random = random.Random()
         self.compiler = compiler
         self.scorer = scorer
         self.source_file = source_file
@@ -104,9 +103,6 @@ class Permuter:
         self._cur_cand: Optional[Candidate] = None
         self._last_score: Optional[int] = None
 
-    def reseed_random(self) -> None:
-        self.random = random.Random()
-
     def _create_and_score_base(self) -> Tuple[int, str, str]:
         base_source = perm_eval.perm_evaluate_one(self.permutations)
         base_cand = Candidate.from_source(
@@ -134,7 +130,7 @@ class Permuter:
         # Don't keep 0-score candidates; we'll only create new, worse, zeroes.
         keep = (
             self.permutations.is_random()
-            and self.random.uniform(0, 1) < self.keep_prob
+            and random.uniform(0, 1) < self.keep_prob
             and self._last_score != 0
         ) or self._force_rng_seed
 

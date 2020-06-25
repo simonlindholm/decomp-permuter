@@ -164,8 +164,6 @@ def multiprocess_worker(
             if not task:
                 break
             if isinstance(task, AddPermuterLocal):
-                # Don't use the same RNG as the parent
-                task.permuter.reseed_random()
                 permuters[task.perm_id] = task.permuter
             elif isinstance(task, RemovePermuter):
                 del permuters[task.perm_id]

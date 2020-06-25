@@ -214,10 +214,6 @@ def multiprocess_worker(
     input_queue: "multiprocessing.Queue[Task]",
     output_queue: "multiprocessing.Queue[Feedback]",
 ) -> None:
-    # Don't use the same RNGs as the parent
-    for permuter in permuters:
-        permuter.reseed_random()
-
     try:
         should_block = False
         while True:
