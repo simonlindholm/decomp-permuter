@@ -15,7 +15,6 @@ from typing import (
 )
 
 import attr
-import pycparser
 
 from .candidate import Candidate, CandidateResult
 from .compiler import Compiler
@@ -87,7 +86,6 @@ class Permuter:
             self.fn_name = fn_name
         self.unique_name = self.fn_name
 
-        self._parser = pycparser.CParser()
         self._permutations = perm_gen.perm_gen(source)
 
         self._force_seed = force_seed
@@ -109,9 +107,7 @@ class Permuter:
 
     def _create_and_score_base(self) -> Tuple[int, str, str]:
         base_source = perm_eval.perm_evaluate_one(self._permutations)
-        base_cand = Candidate.from_source(
-            base_source, self.fn_name, self._parser, rng_seed=0
-        )
+        base_cand = Candidate.from_source(base_source, self.fn_name, rng_seed=0)
         o_file = base_cand.compile(self.compiler, show_errors=True)
         if not o_file:
             raise Exception(f"Unable to compile {self.source_file}")
@@ -149,7 +145,7 @@ class Permuter:
             rng_seed = self._force_rng_seed or random.randrange(1, 10 ** 20)
             self._cur_seed = (seed, rng_seed)
             self._cur_cand = Candidate.from_source(
-                cand_c, self.fn_name, self._parser, rng_seed=rng_seed
+                cand_c, self.fn_name, rng_seed=rng_seed
             )
 
         # Randomize the candidate

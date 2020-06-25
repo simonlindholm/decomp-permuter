@@ -58,9 +58,7 @@ class Candidate:
         return orig_fn, fn_index, ast
 
     @staticmethod
-    def from_source(
-        source: str, fn_name: str, cparser: CParser, rng_seed: int
-    ) -> "Candidate":
+    def from_source(source: str, fn_name: str, rng_seed: int) -> "Candidate":
         # Use the same AST for all instances of the same original source, but
         # with the target function deeply copied. Since we never change the
         # AST outside of the target function, this is fine, and it saves us

@@ -441,7 +441,7 @@ def main() -> None:
     # pickling, which mysteriously breaks with pycparser...
     # (AttributeError: 'CParser' object has no attribute 'p_abstract_declarator_opt')
     # So, for now we live with the defaults, which make multiprocessing work on Linux,
-    # where it uses fork and don't pickle arguments, and break on Windows. Sigh.
+    # where it uses fork and doesn't pickle arguments, and break on Windows. Sigh.
 
     parser = argparse.ArgumentParser(
         description="Randomly permute C files to better match a target binary."
