@@ -831,7 +831,7 @@ def start_evaluator(docker_image: str, options: ServerOptions) -> DockerPort:
         stdout=True,
         environment={"SECRET": enc_secret},
         volumes={src_path: {"bind": "/src", "mode": "ro"}},
-        tmpfs={"/tmp": "size=1G"},
+        tmpfs={"/tmp": "size=1G,exec"},
         nano_cpus=int(options.num_cpus * 1e9),
         mem_limit=int(options.max_memory_gb * 2 ** 30),
         read_only=True,
