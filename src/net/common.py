@@ -103,7 +103,7 @@ def file_read_fixed(inf: BinaryIO, n: int) -> bytes:
     while n > 0:
         data = inf.read(n)
         if not data:
-            raise EOFError()
+            raise EOFError
         ret.append(data)
         n -= len(data)
     return b"".join(ret)
@@ -114,7 +114,7 @@ def socket_read_fixed(sock: socket, n: int) -> bytes:
     while n > 0:
         data = sock.recv(min(n, 4096))
         if not data:
-            raise EOFError()
+            raise EOFError
         ret.append(data)
         n -= len(data)
     return b"".join(ret)

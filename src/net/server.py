@@ -201,7 +201,9 @@ class ServerHandler(socketserver.BaseRequestHandler):
         # Create an ephemeral encryption key for ourselves as well. Send it to
         # the client, signed by a key it trusts.
         ephemeral_key = PrivateKey.generate()
-        sock.sendall(sign_with_magic(b"SERVER", signing_key, ephemeral_key.encode()))
+        sock.sendall(
+            sign_with_magic(b"SERVER", signing_key, ephemeral_key.public_key.encode())
+        )
 
         # Set up encrypted communication channel. Once we receive the first
         # message we'll know that this isn't a replay attack.
