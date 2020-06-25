@@ -81,6 +81,7 @@ def _create_permuter(data: PermuterData) -> Permuter:
             scorer=scorer,
             source_file=data.filename,
             source=data.source,
+            force_seed=None,
             force_rng_seed=None,
             keep_prob=data.keep_prob,
             need_all_sources=False,

@@ -1,11 +1,13 @@
 from dataclasses import dataclass
 import difflib
+import itertools
 import random
 import re
 import time
 import traceback
 from typing import (
     Any,
+    Iterable,
     List,
     Optional,
     Tuple,
@@ -60,6 +62,7 @@ class Permuter:
         source_file: str,
         source: str,
         *,
+        force_seed: Optional[int],
         force_rng_seed: Optional[int],
         keep_prob: float,
         need_all_sources: bool,
@@ -85,8 +88,9 @@ class Permuter:
         self.unique_name = self.fn_name
 
         self._parser = pycparser.CParser()
-        self.permutations = perm_gen.perm_gen(source)
+        self._permutations = perm_gen.perm_gen(source)
 
+        self._force_seed = force_seed
         self._force_rng_seed = force_rng_seed
         self._cur_seed: Optional[Tuple[int, int]] = None
 
@@ -104,7 +108,7 @@ class Permuter:
         self._last_score: Optional[int] = None
 
     def _create_and_score_base(self) -> Tuple[int, str, str]:
-        base_source = perm_eval.perm_evaluate_one(self.permutations)
+        base_source = perm_eval.perm_evaluate_one(self._permutations)
         base_cand = Candidate.from_source(
             base_source, self.fn_name, self._parser, rng_seed=0
         )
@@ -129,7 +133,7 @@ class Permuter:
         # Determine if we should keep the last candidate.
         # Don't keep 0-score candidates; we'll only create new, worse, zeroes.
         keep = (
-            self.permutations.is_random()
+            self._permutations.is_random()
             and random.uniform(0, 1) < self.keep_prob
             and self._last_score != 0
         ) or self._force_rng_seed
@@ -141,7 +145,7 @@ class Permuter:
         # This means we're not guaranteed to test all seeds, but it doesn't really matter since
         # we're randomizing anyway.
         if not self._cur_cand or not keep:
-            cand_c = self.permutations.evaluate(seed, EvalState())
+            cand_c = self._permutations.evaluate(seed, EvalState())
             rng_seed = self._force_rng_seed or random.randrange(1, 10 ** 20)
             self._cur_seed = (seed, rng_seed)
             self._cur_cand = Candidate.from_source(
@@ -149,7 +153,7 @@ class Permuter:
             )
 
         # Randomize the candidate
-        if self.permutations.is_random():
+        if self._permutations.is_random():
             self._cur_cand.randomize_ast()
 
         t1 = time.time()
@@ -178,6 +182,13 @@ class Permuter:
             result.source = None
 
         return result
+
+    def seed_generator(self) -> Iterable[int]:
+        if self._force_seed is None:
+            return perm_eval.perm_gen_all_seeds(self._permutations, random.Random())
+        if self._permutations.is_random():
+            return itertools.repeat(self._force_seed)
+        return [self._force_seed]
 
     def try_eval_candidate(self, seed: int) -> EvalResult:
         try:

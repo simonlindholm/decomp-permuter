@@ -27,7 +27,6 @@ from .error import CandidateConstructionFailure
 from .net.auth import fetch_servers_and_grant, run_vouch, setup
 from .net.client import connect_to_servers
 from .net.common import MAX_PRIO, MIN_PRIO
-from .perm import perm_eval
 from .permuter import (
     Permuter,
     EvalError,
@@ -179,22 +178,14 @@ def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> 
     return score_value == 0
 
 
-def cycle_seeds(
-    permuters: List[Permuter], force_seed: Optional[int]
-) -> Iterable[Tuple[int, int]]:
+def cycle_seeds(permuters: List[Permuter]) -> Iterable[Tuple[int, int]]:
     """
     Return all possible (permuter index, seed) pairs, cycling over permuters.
     If a permuter is randomized, it will keep repeating seeds infinitely.
     """
     iterators: List[Iterator[Tuple[int, int]]] = []
     for perm_ind, permuter in enumerate(permuters):
-        it: Iterable[int]
-        if not force_seed:
-            it = perm_eval.perm_gen_all_seeds(permuter.permutations, random.Random())
-        elif permuter.permutations.is_random():
-            it = itertools.repeat(force_seed)
-        else:
-            it = [force_seed]
+        it = permuter.seed_generator()
         iterators.append(zip(itertools.repeat(perm_ind), it))
 
     i = 0
@@ -268,8 +259,8 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
 
     context = EvalContext(options)
 
-    force_rng_seed: Optional[int] = None
     force_seed: Optional[int] = None
+    force_rng_seed: Optional[int] = None
     if options.force_seed:
         seed_parts = list(map(int, options.force_seed.split(",")))
         force_rng_seed = seed_parts[-1]
@@ -313,6 +304,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
                 scorer,
                 base_c,
                 c_source,
+                force_seed=force_seed,
                 force_rng_seed=force_rng_seed,
                 keep_prob=options.keep_prob,
                 need_all_sources=options.print_diffs,
@@ -331,7 +323,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         print(f"[{permuter.unique_name}] base score = {permuter.best_score}")
 
     found_zero = False
-    perm_seed_iter = iter(cycle_seeds(context.permuters, force_seed))
+    perm_seed_iter = iter(cycle_seeds(context.permuters))
     if options.threads == 1 and not options.use_network:
         # Simple single-threaded mode. This is not technically needed, but
         # makes the permuter easier to debug.
