@@ -111,7 +111,9 @@ def _send_result(perm_id: str, res: EvalResult, port: Port) -> None:
             "score": res.score,
             "hash": res.hash,
             "has_source": compressed_source is not None,
-            "profiler": {st: res.profiler.time_stats[st] for st in Profiler.StatType},
+            "profiler": {
+                st.name: res.profiler.time_stats[st] for st in Profiler.StatType
+            },
         }
     )
 

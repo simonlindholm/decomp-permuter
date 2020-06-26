@@ -45,7 +45,7 @@ def _profiler_from_json(obj: dict) -> Profiler:
     ret = Profiler()
     for key in obj:
         assert isinstance(key, str), "json properties are strings"
-        stat = Profiler.StatType(key)
+        stat = Profiler.StatType[key]
         time = json_prop(obj, key, float)
         ret.add_stat(stat, time)
     return ret
