@@ -86,6 +86,11 @@ class AddClient:
 
 
 @dataclass
+class RemoveClient:
+    handle: str
+
+
+@dataclass
 class NoMoreWork:
     handle: str
 
@@ -120,7 +125,9 @@ class Shutdown:
     pass
 
 
-Activity = Union[AddClient, NoMoreWork, InputError, Work, PermInit, WorkDone, Shutdown]
+Activity = Union[
+    AddClient, RemoveClient, NoMoreWork, InputError, Work, PermInit, WorkDone, Shutdown
+]
 
 
 @dataclass
@@ -488,6 +495,9 @@ class Server:
             pass
 
         elif isinstance(msg, Work):
+            if msg.handle not in self._states:
+                return
+
             state = self._states[msg.handle]
             assert not state.eof, "cannot be sent after EOF"
             state.work_queue.put(msg)
@@ -499,16 +509,27 @@ class Server:
             filenames = [p.fn_name for p in state.initial_permuters]
             self._send_io(state, IoConnect(filenames))
 
+        elif isinstance(msg, RemoveClient):
+            if msg.handle not in self._states:
+                return
+
+            state = self._states[msg.handle]
+            self._remove(state)
+            self._send_io(state, IoDisconnect("kicked"))
+            state.output_queue.put(OutputFinished(graceful=False))
+
         elif isinstance(msg, NoMoreWork):
+            if msg.handle not in self._states:
+                return
+
             state = self._states[msg.handle]
             assert not state.eof, "cannot be sent after EOF"
             state.eof = True
 
         elif isinstance(msg, InputError):
             if msg.handle not in self._states:
-                # We already removed this client (e.g. as part of a PermInit
-                # failure).
                 return
+
             state = self._states[msg.handle]
             self._remove(state)
             text = "disconnected"
@@ -521,7 +542,6 @@ class Server:
 
             handle, perm_index = self._from_permid(msg.perm_id)
             if handle not in self._states:
-                # Ignore messages after disconnect.
                 return
 
             state = self._states[handle]
@@ -542,7 +562,6 @@ class Server:
 
             handle, perm_index = self._from_permid(msg.perm_id)
             if handle not in self._states:
-                # Ignore messages after disconnect.
                 return
 
             state = self._states[handle]
@@ -753,6 +772,9 @@ class Server:
         main_thread = threading.Thread(target=self._main_loop)
         main_thread.daemon = True
         main_thread.start()
+
+    def remove_client(self, handle: str) -> None:
+        self._queue.put(RemoveClient(handle=handle))
 
     def stop(self) -> None:
         assert self._state == "started"
