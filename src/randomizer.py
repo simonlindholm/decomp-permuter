@@ -1415,12 +1415,12 @@ def perm_struct_ref(
 def perm_split_assignment(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> bool:
-    """Split assignments of the form a (.)= b . c . d ...; into a = b; a (.)= c . d ...;, a = b . c; a (.)= d ...; etc."""
+    """Split assignments of the form a = b . c . d ...; into a = b; a = a . c . d ...;, a = c . d ...; a = b . a;, etc."""
     cands = []
-    # Look for assignments of the form 'var (.)= binaryOp'
+    # Look for assignments of the form 'var = binaryOp' (ignores op=)
     class Visitor(ca.NodeVisitor):
         def visit_Assignment(self, node: ca.Assignment) -> None:
-            if isinstance(node.rvalue, ca.BinaryOp) and region.contains_node(node):
+            if node.op == '=' and isinstance(node.rvalue, ca.BinaryOp) and region.contains_node(node):
                 cands.append(node)
 
     Visitor().visit(fn.body)
@@ -1451,12 +1451,12 @@ def perm_split_assignment(
         side = split.right
         split.right = copy.deepcopy(var)
 
-    # The assignment is always put before the original, so the order of a .= b ... shouldn't be disturbed.
     new_assign = ca.Assignment("=", copy.deepcopy(var), side)
 
     ins_cands = get_insertion_points(fn, region)
     ensure(ins_cands)
 
+    # The assignment is always inserted before the original
     for block, index, node in ins_cands:
         if node is assign:
             ast_util.insert_statement(block, index, new_assign)
