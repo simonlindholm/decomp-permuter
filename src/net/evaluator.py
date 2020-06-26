@@ -177,6 +177,8 @@ def multiprocess_worker(
 
         permuter = permuters[work.perm_id]
         result = permuter.try_eval_candidate(work.seed)
+        if isinstance(result, CandidateResult) and permuter.should_output(result):
+            permuter.record_result(result)
 
         # Compress the source within the worker. (Why waste a free
         # multi-threading opportunity?)

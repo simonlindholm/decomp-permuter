@@ -221,6 +221,8 @@ def multiprocess_worker(
             permuter_index, seed = queue_item
             permuter = permuters[permuter_index]
             result = permuter.try_eval_candidate(seed)
+            if isinstance(result, CandidateResult) and permuter.should_output(result):
+                permuter.record_result(result)
             output_queue.put((WorkDone(permuter_index, result), None))
     except KeyboardInterrupt:
         # Don't clutter the output with stack traces; Ctrl+C is the expected
