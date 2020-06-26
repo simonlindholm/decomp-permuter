@@ -115,14 +115,20 @@ def file_read_fixed(inf: BinaryIO, n: int) -> bytes:
 
 
 def socket_read_fixed(sock: socket.socket, n: int) -> bytes:
-    ret = []
-    while n > 0:
-        data = sock.recv(min(n, 4096))
-        if not data:
+    try:
+        ret = []
+        while n > 0:
+            data = sock.recv(min(n, 4096))
+            if not data:
+                raise EOFError
+            ret.append(data)
+            n -= len(data)
+        return b"".join(ret)
+    except OSError as e:
+        if e.errno == 107:
+            # Ignore ENOTCONN
             raise EOFError
-        ret.append(data)
-        n -= len(data)
-    return b"".join(ret)
+        raise
 
 
 def json_prop(obj: dict, prop: str, t: Type[T]) -> T:
@@ -208,7 +214,12 @@ class SocketPort(Port):
         return socket_read_fixed(self._sock, length)
 
     def shutdown(self, how: int = socket.SHUT_RDWR) -> None:
-        self._sock.shutdown(how)
+        try:
+            self._sock.shutdown(how)
+        except OSError as e:
+            # Ignore ENOTCONN
+            if e.errno != 107:
+                raise
 
     def close(self) -> None:
         self._sock.close()
