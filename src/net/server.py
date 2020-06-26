@@ -148,6 +148,20 @@ Output = Union[OutputInit, OutputFinished, OutputNeedMoreWork, OutputWork]
 
 
 @dataclass
+class IoConnect:
+    filenames: List[str]
+
+
+@dataclass
+class IoDisconnect:
+    reason: str
+
+
+IoMessage = Union[IoConnect, IoDisconnect]
+IoActivity = Tuple[str, str, IoMessage]
+
+
+@dataclass
 class ServerOptions:
     host: str
     port: int
@@ -430,18 +444,24 @@ class Server:
     _options: ServerOptions
     _evaluator_port: Port
     _queue: "queue.Queue[Activity]"
+    _io_queue: "queue.Queue[IoActivity]"
     _tcp_server: ThreadedTCPServer
     _state: str
     _states: Dict[str, ClientState]
     _active_work: int = 0
 
     def __init__(
-        self, config: Config, options: ServerOptions, evaluator_port: Port
+        self,
+        config: Config,
+        options: ServerOptions,
+        evaluator_port: Port,
+        io_queue: "queue.Queue[IoActivity]",
     ) -> None:
         self._config = config
         self._options = options
         self._evaluator_port = evaluator_port
         self._queue = queue.Queue()
+        self._io_queue = io_queue
         self._tcp_server = ThreadedTCPServer(
             (options.host, options.port), ServerHandler
         )
@@ -459,6 +479,9 @@ class Server:
         assert len(id_parts) == 2, f"bad perm_id format: {perm_id}"
         return id_parts[0], int(id_parts[1])
 
+    def _send_io(self, state: ClientState, io_msg: IoMessage) -> None:
+        self._io_queue.put((state.handle, state.nickname, io_msg))
+
     def _handle_message(self, msg: Activity) -> None:
         if isinstance(msg, Shutdown):
             # Handled by caller
@@ -473,8 +496,8 @@ class Server:
             state = msg.state
             assert msg.handle not in self._states, "unique IDs"
             self._states[msg.handle] = state
-            filenames = ", ".join(p.fn_name for p in state.initial_permuters)
-            print(f"[{state.nickname}] connected ({filenames})")
+            filenames = [p.fn_name for p in state.initial_permuters]
+            self._send_io(state, IoConnect(filenames))
 
         elif isinstance(msg, NoMoreWork):
             state = self._states[msg.handle]
@@ -488,10 +511,10 @@ class Server:
                 return
             state = self._states[msg.handle]
             self._remove(state)
+            text = "disconnected"
             if msg.errmsg:
-                print(f"[{state.nickname}] disconnected with error:\n{msg.errmsg}")
-            else:
-                print(f"[{state.nickname}] disconnected")
+                text += f" with error:\n{msg.errmsg}"
+            self._send_io(state, IoDisconnect(text))
 
         elif isinstance(msg, PermInit):
             self._active_work -= 1
@@ -507,8 +530,8 @@ class Server:
 
             if not msg.success:
                 self._remove(state)
+                self._send_io(state, IoDisconnect("failed to compile"))
                 state.output_queue.put(OutputInit(success=False))
-                print(f"[{state.nickname}] failed to compile")
 
             elif state.waiting_perms == 0:
                 state.init_state = InitState.READY
@@ -555,8 +578,8 @@ class Server:
 
         for state in to_remove:
             self._remove(state)
+            self._send_io(state, IoDisconnect("disconnected"))
             state.output_queue.put(OutputFinished(graceful=True))
-            print(f"[{state.nickname}] disconnected")
 
     def _send_permuter(self, id_: str, perm: PermuterData) -> None:
         self._evaluator_port.send_json(
@@ -602,8 +625,8 @@ class Server:
 
         for state in to_remove:
             self._remove(state)
+            self._send_io(state, IoDisconnect("not responding, dropping"))
             state.output_queue.put(OutputFinished(graceful=False))
-            print(f"[{state.nickname}] not responding, dropping")
 
         return chosen
 

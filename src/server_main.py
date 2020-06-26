@@ -2,20 +2,52 @@ import argparse
 import threading
 
 import pystray
+import queue
+import threading
 
 from .net.auth import fetch_docker_image_name, go_online, go_offline, setup
-from .net.server import Server, ServerOptions, start_evaluator
+from .net.common import static_assert_unreachable
+from .net.server import (
+    IoActivity,
+    IoConnect,
+    IoDisconnect,
+    Server,
+    ServerOptions,
+    start_evaluator,
+)
+
+
+def print_loop(print_queue: "queue.Queue[IoActivity]") -> None:
+    while True:
+        handle, nickname, msg = print_queue.get()
+        prefix = f"[{nickname}]"
+
+        if isinstance(msg, IoConnect):
+            filenames = ", ".join(msg.filenames)
+            print(f"{prefix} connected ({filenames})")
+
+        elif isinstance(msg, IoDisconnect):
+            print(f"{prefix} {msg.reason}")
+
+        else:
+            static_assert_unreachable(msg)
 
 
 def run(options: ServerOptions) -> None:
     config = setup()
     docker_image = fetch_docker_image_name(config)
 
+    print_queue: "queue.Queue[IoActivity]" = queue.Queue()
+
     port = start_evaluator(docker_image, options)
 
     try:
-        server = Server(config, options, port)
+        server = Server(config, options, port, print_queue)
         server.start()
+
+        print_thread = threading.Thread(target=print_loop, args=(print_queue,))
+        print_thread.daemon = True
+        print_thread.start()
 
         go_online(config)
 
