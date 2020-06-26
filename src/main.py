@@ -28,15 +28,17 @@ from .net.auth import fetch_servers_and_grant, run_vouch, setup
 from .net.client import connect_to_servers
 from .net.common import MAX_PRIO, MIN_PRIO
 from .permuter import (
-    Permuter,
     EvalError,
     EvalResult,
     Feedback,
     Finished,
     NeedMoreWork,
+    Permuter,
     Task,
+    WorkDone,
 )
 from .preprocess import preprocess
+from .printer import Printer
 from .profiler import Profiler
 from .scorer import Scorer
 
@@ -80,6 +82,7 @@ def restricted_float(lo: float, hi: float) -> Callable[[str], float]:
 @attr.s
 class EvalContext:
     options: Options = attr.ib()
+    printer: Printer = attr.ib(factory=Printer)
     iteration: int = attr.ib(default=0)
     errors: int = attr.ib(default=0)
     overall_profiler: Profiler = attr.ib(factory=Profiler)
@@ -110,9 +113,13 @@ def write_candidate(perm: Permuter, result: CandidateResult) -> None:
     print(f"wrote to {output_dir}")
 
 
-def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> bool:
+def post_score(
+    context: EvalContext, permuter: Permuter, result: EvalResult, who: Optional[str]
+) -> bool:
     if isinstance(result, EvalError):
-        print(f"\n[{permuter.unique_name}] internal permuter failure.")
+        context.printer.print(
+            "internal permuter failure.", permuter, who, keep_progress=True
+        )
         print(result.exc_str)
         if result.seed is not None:
             seed_str = str(result.seed[1])
@@ -155,26 +162,24 @@ def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> 
     ):
         if score_value != 0:
             permuter.hashes.add(score_hash)
-        print("\r" + " " * (len(status_line) + 10) + "\r", end="")
+
         if score_value < permuter.best_score:
-            print(
-                f"\u001b[32;1m[{permuter.unique_name}] found new best score! ({score_value} vs {permuter.base_score})\u001b[0m"
-            )
+            color = "\u001b[32;1m"
+            msg = f"found new best score! ({score_value} vs {permuter.base_score})"
         elif score_value == permuter.best_score:
-            print(
-                f"\u001b[32;1m[{permuter.unique_name}] tied best score! ({score_value} vs {permuter.base_score})\u001b[0m"
-            )
+            color = "\u001b[32;1m"
+            msg = f"tied best score! ({score_value} vs {permuter.base_score})"
         elif score_value < permuter.base_score:
-            print(
-                f"\u001b[33m[{permuter.unique_name}] found a better score! ({score_value} vs {permuter.base_score})\u001b[0m"
-            )
+            color = "\u001b[33m"
+            msg = f"found a better score! ({score_value} vs {permuter.base_score})"
         else:
-            print(
-                f"\u001b[33m[{permuter.unique_name}] found different asm with same score ({score_value})\u001b[0m"
-            )
+            color = "\u001b[33m"
+            msg = f"found different asm with same score ({score_value})"
+        context.printer.print(msg, permuter, who, color=color)
+
         permuter.best_score = min(permuter.best_score, score_value)
         write_candidate(permuter, result)
-    print("\b" * 10 + " " * 10 + "\r" + status_line, end="", flush=True)
+    context.printer.progress(status_line)
     return score_value == 0
 
 
@@ -213,18 +218,18 @@ def multiprocess_worker(
             # the queue.
             queue_item = input_queue.get(block=should_block)
             if queue_item is None:
-                output_queue.put(NeedMoreWork())
+                output_queue.put((NeedMoreWork(), None))
                 should_block = True
                 continue
             should_block = False
             if isinstance(queue_item, Finished):
-                output_queue.put(queue_item)
+                output_queue.put((queue_item, None))
                 output_queue.close()
                 break
             permuter_index, seed = queue_item
             permuter = permuters[permuter_index]
             result = permuter.try_eval_candidate(seed)
-            output_queue.put((permuter_index, result))
+            output_queue.put((WorkDone(permuter_index, result), None))
     except KeyboardInterrupt:
         # Don't clutter the output with stack traces; Ctrl+C is the expected
         # way to quit and sends KeyboardInterrupt to all processes.
@@ -331,7 +336,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             heartbeat()
             permuter = context.permuters[permuter_index]
             result = permuter.try_eval_candidate(seed)
-            if post_score(context, permuter, result):
+            if post_score(context, permuter, result, None):
                 found_zero = True
                 if options.stop_on_zero:
                     break
@@ -371,10 +376,16 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             print("No remote servers available. Exiting.")
             sys.exit(1)
 
-        def process_result(result: Tuple[int, EvalResult]) -> bool:
-            permuter_index, res = result
-            permuter = context.permuters[permuter_index]
-            return post_score(context, permuter, res)
+        def process_finish(finish: Finished, who: Optional[str]) -> None:
+            nonlocal active_workers
+
+            if finish.reason:
+                context.printer.print(finish.reason, None, who, keep_progress=True)
+            active_workers -= 1
+
+        def process_result(work: WorkDone, who: Optional[str]) -> bool:
+            permuter = context.permuters[work.perm_index]
+            return post_score(context, permuter, work.result, who)
 
         # Feed the task queue with work and read from results queue.
         # We generally match these up one-by-one to avoid overfilling queues,
@@ -383,16 +394,14 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         # queues are empty.)
         while active_workers > 0:
             heartbeat()
-            feedback = feedback_queue.get()
+            feedback, who = feedback_queue.get()
             if isinstance(feedback, Finished):
-                if feedback.reason:
-                    print(feedback.reason)
-                active_workers -= 1
+                process_finish(feedback, who)
                 continue
             if isinstance(feedback, NeedMoreWork):
                 # No result to process, just put a task in the queue.
                 pass
-            elif process_result(feedback):
+            elif process_result(feedback, who):
                 # Found score 0!
                 found_zero = True
                 if options.stop_on_zero:
@@ -409,13 +418,13 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         # Await final results.
         while active_workers > 0:
             heartbeat()
-            feedback = feedback_queue.get()
+            feedback, who = feedback_queue.get()
             if isinstance(feedback, Finished):
-                active_workers -= 1
+                process_finish(feedback, who)
             elif isinstance(feedback, NeedMoreWork):
                 pass
             elif not (options.stop_on_zero and found_zero):
-                if process_result(feedback):
+                if process_result(feedback, who):
                     found_zero = True
 
         # Wait for workers to finish.

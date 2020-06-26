@@ -38,12 +38,18 @@ class NeedMoreWork:
 
 
 @dataclass
+class WorkDone:
+    perm_index: int
+    result: EvalResult
+
+
+@dataclass
 class Finished:
     reason: Optional[str] = None
 
 
 Task = Union[Finished, Tuple[int, int]]
-Feedback = Union[NeedMoreWork, Finished, Tuple[int, EvalResult]]
+Feedback = Tuple[Union[NeedMoreWork, Finished, WorkDone], Optional[str]]
 
 
 class Permuter:

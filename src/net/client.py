@@ -20,6 +20,7 @@ from ..permuter import (
     NeedMoreWork,
     Permuter,
     Task,
+    WorkDone,
 )
 from ..profiler import Profiler
 from .common import (
@@ -208,17 +209,16 @@ class Connection:
             props = self._init(port)
             if self._priority < props.min_priority:
                 finish_reason = (
-                    f"[{self._server.nickname}] skipping due to priority requirement "
-                    + str(props.min_priority)
+                    f"skipping due to priority requirement {props.min_priority}"
                 )
                 return
             self._send_permuters(port)
             msg = port.receive_json()
             success = json_prop(msg, "success", bool)
             if not success:
-                finish_reason = f"[{self._server.nickname}] failed to compile"
+                finish_reason = f"failed to compile"
                 return
-            self._feedback_queue.put(NeedMoreWork())
+            self._feedback_queue.put((NeedMoreWork(), self._server.nickname))
             finished = False
 
             # Main loop: send messages from the queue on to the server, and
@@ -255,7 +255,7 @@ class Connection:
                     break
 
                 elif msg_type == "need_work":
-                    self._feedback_queue.put(NeedMoreWork())
+                    self._feedback_queue.put((NeedMoreWork(), self._server.nickname))
 
                 elif msg_type == "result":
                     permuter_index = json_prop(msg, "permuter", int)
@@ -266,16 +266,24 @@ class Connection:
                         compressed_source = port.receive()
                         source = zlib.decompress(compressed_source).decode("utf-8")
                     result = _result_from_json(msg, source)
-                    self._feedback_queue.put((permuter_index, result))
+                    self._feedback_queue.put(
+                        (WorkDone(permuter_index, result), self._server.nickname)
+                    )
 
                 else:
                     raise ValueError(f"Invalid message type {msg_type}")
 
+        except EOFError:
+            finish_reason = f"disconnected"
+
         except Exception as e:
-            finish_reason = f"[{self._server.nickname}] error: {e}"
+            errmsg = str(e) or e.__class__.__name__
+            finish_reason = f"error: {errmsg}"
 
         finally:
-            self._feedback_queue.put(Finished(reason=finish_reason))
+            self._feedback_queue.put(
+                (Finished(reason=finish_reason), self._server.nickname)
+            )
             if self._sock is not None:
                 self._sock.shutdown(socket.SHUT_RDWR)
                 self._sock.close()
