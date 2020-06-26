@@ -24,7 +24,6 @@ from ..scorer import Scorer
 from .common import (
     FilePort,
     Port,
-    file_read_fixed,
     json_prop,
     static_assert_unreachable,
 )
@@ -193,45 +192,61 @@ def multiprocess_worker(
 
 
 def read_loop(task_queue: "Queue[Task]", port: Port) -> None:
-    while True:
-        item = port.receive_json()
-        msg_type = json_prop(item, "type", str)
-        if msg_type == "add":
-            perm_id = json_prop(item, "id", str)
-            fn_name = json_prop(item, "fn_name", str)
-            filename = json_prop(item, "filename", str)
-            keep_prob = json_prop(item, "keep_prob", float)
-            stack_differences = json_prop(item, "stack_differences", bool)
-            compile_script = json_prop(item, "compile_script", str)
-            source = port.receive().decode("utf-8")
-            target_o_bin = port.receive()
-            task_queue.put(
-                AddPermuter(
-                    perm_id=perm_id,
-                    data=PermuterData(
+    try:
+        while True:
+            item = port.receive_json()
+            msg_type = json_prop(item, "type", str)
+            if msg_type == "add":
+                perm_id = json_prop(item, "id", str)
+                fn_name = json_prop(item, "fn_name", str)
+                filename = json_prop(item, "filename", str)
+                keep_prob = json_prop(item, "keep_prob", float)
+                stack_differences = json_prop(item, "stack_differences", bool)
+                compile_script = json_prop(item, "compile_script", str)
+                source = port.receive().decode("utf-8")
+                target_o_bin = port.receive()
+                task_queue.put(
+                    AddPermuter(
                         perm_id=perm_id,
-                        fn_name=fn_name,
-                        filename=filename,
-                        keep_prob=keep_prob,
-                        stack_differences=stack_differences,
-                        compile_script=compile_script,
-                        source=source,
-                        target_o_bin=target_o_bin,
-                    ),
+                        data=PermuterData(
+                            perm_id=perm_id,
+                            fn_name=fn_name,
+                            filename=filename,
+                            keep_prob=keep_prob,
+                            stack_differences=stack_differences,
+                            compile_script=compile_script,
+                            source=source,
+                            target_o_bin=target_o_bin,
+                        ),
+                    )
                 )
-            )
 
-        elif msg_type == "remove":
-            perm_id = json_prop(item, "id", str)
-            task_queue.put(RemovePermuter(perm_id=perm_id))
+            elif msg_type == "remove":
+                perm_id = json_prop(item, "id", str)
+                task_queue.put(RemovePermuter(perm_id=perm_id))
 
-        elif msg_type == "work":
-            perm_id = json_prop(item, "id", str)
-            seed = json_prop(item, "seed", int)
-            task_queue.put(Work(perm_id=perm_id, seed=seed))
+            elif msg_type == "work":
+                perm_id = json_prop(item, "id", str)
+                seed = json_prop(item, "seed", int)
+                task_queue.put(Work(perm_id=perm_id, seed=seed))
 
-        else:
-            raise Exception(f"Invalid message type {msg_type}")
+            else:
+                raise Exception(f"Invalid message type {msg_type}")
+
+    except EOFError:
+        # Port closed from the other side. Silently exit, to avoid ugly error
+        # messages and to ensure that the Docker container really stops and
+        # gets removed. (The parent server has a "finally:" that does that, but
+        # it's evidently not 100% trustworthy. I'm speculating that pystray
+        # might be to blame, by reverting the signal handler for SIGINTR to
+        # the default, making Ctrl+C kill the program directly without firing
+        # "finally"s. Either way, defense in depth here doesn't hurt, since
+        # leaking Docker containers is pretty bad.)
+        os._exit(1)
+
+    except Exception:
+        traceback.print_exc()
+        os._exit(1)
 
 
 def main() -> None:

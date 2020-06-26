@@ -99,14 +99,19 @@ def write_config(config: RawConfig) -> None:
 
 
 def file_read_fixed(inf: BinaryIO, n: int) -> bytes:
-    ret = []
-    while n > 0:
-        data = inf.read(n)
-        if not data:
+    try:
+        ret = []
+        while n > 0:
+            data = inf.read(n)
+            if not data:
+                raise EOFError
+            ret.append(data)
+            n -= len(data)
+        return b"".join(ret)
+    except ValueError as e:
+        if e.args == ("I/O operation on closed file.",):
             raise EOFError
-        ret.append(data)
-        n -= len(data)
-    return b"".join(ret)
+        raise
 
 
 def socket_read_fixed(sock: socket.socket, n: int) -> bytes:
