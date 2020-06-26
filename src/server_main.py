@@ -1,9 +1,12 @@
 import argparse
 import threading
 
+import os
+from PIL import Image
 import pystray
 import queue
 import threading
+from typing import Callable, List, Optional
 
 from .net.auth import fetch_docker_image_name, go_online, go_offline, setup
 from .net.common import static_assert_unreachable
@@ -20,12 +23,81 @@ from .net.server import (
 )
 
 
-def output_loop(output_queue: "queue.Queue[IoActivity]") -> None:
+def noop() -> None:
+    pass
+
+
+class SystrayState:
+    def connect(self, handle: str, nickname: str) -> None:
+        pass
+
+    def disconnect(self, handle: str) -> None:
+        pass
+
+    def work_done(self, handle: str) -> None:
+        pass
+
+    def will_sleep(self) -> None:
+        pass
+
+
+class RealSystrayState(SystrayState):
+    def __init__(self, update_menu: Callable[[List[pystray.MenuItem]], None]) -> None:
+        self._update_menu = update_menu
+
+    def _update(self) -> None:
+        self._update_menu([])
+
+    def initial_update(self) -> None:
+        self._update()
+
+    def connect(self, handle: str, nickname: str) -> None:
+        self._update()
+
+    def disconnect(self, handle: str) -> None:
+        self._update()
+
+    def work_done(self, handle: str) -> None:
+        pass
+
+    def will_sleep(self) -> None:
+        self._update()
+
+
+def run_with_systray(loop: Callable[[SystrayState], None]) -> None:
+    menu_items: List[pystray.MenuItem] = []
+    icon: Optional[pystray.Icon] = None
+
+    def update_menu(items: List[pystray.MenuItem]) -> None:
+        nonlocal menu_items
+        menu_items = items
+        if icon is not None:
+            icon.update_menu()
+
+    systray = RealSystrayState(update_menu)
+    systray.initial_update()
+
+    icon = pystray.Icon(
+        name="permuter@home",
+        title="permuter@home",
+        icon=Image.open(os.path.join(os.path.dirname(__file__), "..", "icon.png")),
+        menu=pystray.Menu(lambda: menu_items),
+    )
+
+    def inner(icon: pystray.Icon) -> None:
+        icon.visible = True
+        loop(systray)
+        icon.stop()
+
+    icon.run(inner)
+
+
+def output_loop(output_queue: "queue.Queue[IoActivity]", systray: SystrayState) -> None:
     while True:
         activity = output_queue.get()
         if isinstance(activity, IoGlobalMessage):
             if isinstance(activity, IoWillSleep):
-                pass
+                systray.will_sleep()
 
             else:
                 static_assert_unreachable(activity)
@@ -35,15 +107,17 @@ def output_loop(output_queue: "queue.Queue[IoActivity]") -> None:
             prefix = f"[{nickname}]"
 
             if isinstance(msg, IoConnect):
+                systray.connect(handle, nickname)
                 filenames = ", ".join(msg.filenames)
                 print(f"{prefix} connected ({filenames})")
 
             elif isinstance(msg, IoDisconnect):
+                systray.disconnect(handle)
                 print(f"{prefix} {msg.reason}")
 
             elif isinstance(msg, IoWorkDone):
                 # TODO: statistics
-                pass
+                systray.work_done(handle)
 
             else:
                 static_assert_unreachable(msg)
@@ -61,16 +135,27 @@ def run(options: ServerOptions) -> None:
         server = Server(config, options, port, output_queue)
         server.start()
 
-        output_thread = threading.Thread(target=output_loop, args=(output_queue,))
-        output_thread.daemon = True
-        output_thread.start()
-
         go_online(config)
 
         # TODO: print statistics, run systray, etc.
         # Also regularly check in with the auth server to maintain an up-to-date IP,
         # and to check version.
-        input("Press enter to stop the server.\n")
+        def cmdline_ui(systray: SystrayState) -> None:
+            output_thread = threading.Thread(
+                target=output_loop, args=(output_queue, systray)
+            )
+            output_thread.daemon = True
+            output_thread.start()
+
+            # TODO: print statistics, with ctrl+c for exit instead of enter
+            print("Press enter to stop the server.")
+            input()
+
+        if options.systray:
+            run_with_systray(cmdline_ui)
+        else:
+            cmdline_ui(SystrayState())
+
         go_offline(config)
         server.stop()
     finally:

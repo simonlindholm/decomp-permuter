@@ -62,7 +62,7 @@ already connected to a permuter network.
 To allow others to use your computer for permuter runs, do the following:
 
 - install Docker (used for sandboxing and to ensure a consistent environment)
-- `python3 -m pip install docker pystray`
+- `python3 -m pip install docker pystray Pillow`
 - pick a port number and modify your router settings to forward it to your machine
 - open a terminal, and run `./server.py` to start the server.
   There are a few required arguments (e.g. port number and how many cores to use), see `--help` for more details.
