@@ -164,7 +164,12 @@ class IoDisconnect:
     reason: str
 
 
-IoMessage = Union[IoConnect, IoDisconnect]
+@dataclass
+class IoWorkDone:
+    score: Optional[int]
+
+
+IoMessage = Union[IoConnect, IoDisconnect, IoWorkDone]
 IoActivity = Tuple[str, str, IoMessage]
 
 
@@ -569,6 +574,8 @@ class Server:
             state.active_work -= 1
             obj = msg.obj
             obj["permuter"] = perm_index
+            score = json_prop(obj, "score", int) if "score" in obj else None
+            self._send_io(state, IoWorkDone(score=score))
             state.output_queue.put(
                 OutputWork(obj=obj, compressed_source=msg.compressed_source,)
             )

@@ -29,6 +29,10 @@ def print_loop(print_queue: "queue.Queue[IoActivity]") -> None:
         elif isinstance(msg, IoDisconnect):
             print(f"{prefix} {msg.reason}")
 
+        elif isinstance(msg, IoWorkDone):
+            # TODO: statistics
+            pass
+
         else:
             static_assert_unreachable(msg)
 
