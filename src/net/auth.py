@@ -29,13 +29,6 @@ def _random_name() -> str:
     return "".join(random.choice(string.ascii_lowercase) for _ in range(5))
 
 
-def _decode_hex_key(sign: str) -> bytes:
-    ret: bytes = HexEncoder.decode(sign)
-    if len(ret) != 32:
-        raise BadSignatureError("Key has wrong length.")
-    return ret
-
-
 def _ask(msg: str, *, default: bool) -> bool:
     if default:
         msg += " (Y/n)? "
@@ -175,7 +168,9 @@ def fetch_servers_and_grant(config: Config) -> Tuple[List[RemoteServer], bytes]:
             ip=json_prop(obj, "ip", str),
             port=json_prop(obj, "port", int),
             nickname=json_prop(obj, "nickname", str),
-            ver_key=VerifyKey(_decode_hex_key(json_prop(obj, "verification_key", str))),
+            ver_key=VerifyKey(
+                HexEncoder.decode(json_prop(obj, "verification_key", str))
+            ),
         )
         ret.append(server)
 
