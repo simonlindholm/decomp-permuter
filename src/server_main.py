@@ -22,7 +22,7 @@ def run(options: ServerOptions) -> None:
         # TODO: print statistics, run systray, etc.
         # Also regularly check in with the auth server to maintain an up-to-date IP,
         # and to check version.
-        input("Press enter to stop the server.")
+        input("Press enter to stop the server.\n")
         go_offline(config)
         server.stop()
     finally:
