@@ -116,7 +116,11 @@ class Work:
     seed: int
 
 
-Activity = Union[AddClient, NoMoreWork, InputError, Work, PermInit, WorkDone]
+class Shutdown:
+    pass
+
+
+Activity = Union[AddClient, NoMoreWork, InputError, Work, PermInit, WorkDone, Shutdown]
 
 
 @dataclass
@@ -455,7 +459,11 @@ class Server:
         return id_parts[0], int(id_parts[1])
 
     def _handle_message(self, msg: Activity) -> None:
-        if isinstance(msg, Work):
+        if isinstance(msg, Shutdown):
+            # Handled by caller
+            pass
+
+        elif isinstance(msg, Work):
             state = self._states[msg.handle]
             assert not state.eof, "cannot be sent after EOF"
             state.work_queue.put(msg)
@@ -653,37 +661,46 @@ class Server:
         return False
 
     def _read_eval_loop(self) -> None:
-        while True:
-            msg = self._evaluator_port.receive_json()
-            msg_type = json_prop(msg, "type", str)
+        try:
+            while True:
+                msg = self._evaluator_port.receive_json()
+                msg_type = json_prop(msg, "type", str)
 
-            if msg_type == "init":
-                self._queue.put(
-                    PermInit(
-                        perm_id=json_prop(msg, "id", str),
-                        success=json_prop(msg, "success", bool),
+                if msg_type == "init":
+                    self._queue.put(
+                        PermInit(
+                            perm_id=json_prop(msg, "id", str),
+                            success=json_prop(msg, "success", bool),
+                        )
                     )
-                )
 
-            elif msg_type == "result":
-                compressed_source: Optional[bytes] = None
-                if msg.get("has_source") == True:
-                    compressed_source = self._evaluator_port.receive()
-                perm_id = json_prop(msg, "id", str)
-                del msg["id"]
-                self._queue.put(
-                    WorkDone(
-                        perm_id=perm_id, obj=msg, compressed_source=compressed_source,
+                elif msg_type == "result":
+                    compressed_source: Optional[bytes] = None
+                    if msg.get("has_source") == True:
+                        compressed_source = self._evaluator_port.receive()
+                    perm_id = json_prop(msg, "id", str)
+                    del msg["id"]
+                    self._queue.put(
+                        WorkDone(
+                            perm_id=perm_id,
+                            obj=msg,
+                            compressed_source=compressed_source,
+                        )
                     )
-                )
 
-            else:
-                raise Exception(f"Unknown message type from evaluator: {msg_type}")
+                else:
+                    raise Exception(f"Unknown message type from evaluator: {msg_type}")
+
+        except EOFError:
+            pass
 
     def _main_loop(self) -> None:
         max_work = int(self._options.num_cpus) * 2 + 4
         while True:
             msg = self._queue.get()
+            if isinstance(msg, Shutdown):
+                break
+
             self._handle_message(msg)
 
             while self._active_work < max_work:
@@ -714,6 +731,7 @@ class Server:
         assert self._state == "started"
         self._state = "finished"
         self._tcp_server.shutdown()
+        self._queue.put(Shutdown())
 
 
 class DockerPort(Port):
