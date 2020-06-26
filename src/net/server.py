@@ -350,6 +350,7 @@ class ServerHandler(socketserver.BaseRequestHandler):
                     port.shutdown()
 
             output_thread = threading.Thread(target=output_loop)
+            output_thread.daemon = True
             output_thread.start()
 
             handle: str = str(uuid.uuid4())
@@ -716,15 +717,18 @@ class Server:
         # Start a thread with the TCP server -- that thread will then start one
         # more thread for each request.
         server_thread = threading.Thread(target=self._tcp_server.serve_forever)
+        server_thread.daemon = True
         server_thread.start()
 
         # Start a thread for reading evaluator results and sending them on to
         # the main loop queue.
         read_eval_thread = threading.Thread(target=self._read_eval_loop)
+        read_eval_thread.daemon = True
         read_eval_thread.start()
 
         # Start a thread for the main loop.
         main_thread = threading.Thread(target=self._main_loop)
+        main_thread.daemon = True
         main_thread.start()
 
     def stop(self) -> None:

@@ -318,6 +318,7 @@ def connect_to_servers(
         )
 
         thread = threading.Thread(target=conn.run)
+        thread.daemon = True
         thread.start()
 
         threads.append(thread)
