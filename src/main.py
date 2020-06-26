@@ -131,20 +131,21 @@ def post_score(
         else:
             return False
 
-    profiler = result.profiler
-    score_value = result.score
-    score_hash = result.hash
-
     if context.options.print_diffs:
         assert result.source is not None, "_need_to_send_source is wrong"
         print()
         print(permuter.diff(result.source))
         input("Press any key to continue...")
 
+    profiler = result.profiler
+    score_value = result.score
+
     context.iteration += 1
-    if score_value is None:
+    if score_value == permuter.scorer.PENALTY_INF:
+        disp_score = "inf"
         context.errors += 1
-    disp_score = "inf" if score_value == permuter.scorer.PENALTY_INF else score_value
+    else:
+        disp_score = str(score_value)
     timings = ""
     if context.options.show_timings:
         for stattype in profiler.time_stats:
@@ -152,21 +153,13 @@ def post_score(
         timings = "  \t" + context.overall_profiler.get_str_stats()
     status_line = f"iteration {context.iteration}, {context.errors} errors, score = {disp_score}{timings}"
 
-    # Note: when updating this if condition, Permuter._need_to_send_source may
-    # also need to be updated, or else assertion failures will result.
-    if (
-        score_value is not None
-        and score_hash is not None
-        and score_value <= permuter.base_score
-        and score_hash not in permuter.hashes
-    ):
-        if score_value != 0:
-            permuter.hashes.add(score_hash)
-
-        if score_value < permuter.best_score:
+    if permuter.should_output(result):
+        former_best = permuter.best_score
+        permuter.record_result(result)
+        if score_value < former_best:
             color = "\u001b[32;1m"
             msg = f"found new best score! ({score_value} vs {permuter.base_score})"
-        elif score_value == permuter.best_score:
+        elif score_value == former_best:
             color = "\u001b[32;1m"
             msg = f"tied best score! ({score_value} vs {permuter.base_score})"
         elif score_value < permuter.base_score:
@@ -177,7 +170,6 @@ def post_score(
             msg = f"found different asm with same score ({score_value})"
         context.printer.print(msg, permuter, who, color=color)
 
-        permuter.best_score = min(permuter.best_score, score_value)
         write_candidate(permuter, result)
     context.printer.progress(status_line)
     return score_value == 0

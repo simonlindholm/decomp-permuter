@@ -121,13 +121,7 @@ class Permuter:
         return base_result.score, base_result.hash, base_cand.get_source()
 
     def _need_to_send_source(self, result: CandidateResult) -> bool:
-        if self._need_all_sources:
-            return True
-        if result.score < self.base_score:
-            return True
-        if result.score == self.base_score:
-            return result.hash != self.base_hash
-        return False
+        return self._need_all_sources or self.should_output(result)
 
     def _eval_candidate(self, seed: int) -> CandidateResult:
         t0 = time.time()
@@ -185,7 +179,22 @@ class Permuter:
 
         return result
 
+    def should_output(self, result: CandidateResult) -> bool:
+        """Check whether a result should be outputted. This must be more liberal
+        in child processes than in parent ones, or else sources will be missing."""
+        return result.score <= self.base_score and result.hash not in self.hashes
+
+    def record_result(self, result: CandidateResult) -> None:
+        """Record a new result, updating the best score and adding the hash to
+        the set of hashes we have already seen. No hash is recorded for score
+        0, since we are interested in all score 0's, not just the first."""
+        self.best_score = min(self.best_score, result.score)
+        if result.score != 0:
+            self.hashes.add(result.hash)
+
     def seed_iterator(self) -> Iterator[int]:
+        """Create an iterator over all seeds for this permuter. The iterator
+        will be infinite if we are randomizing."""
         if self._force_seed is None:
             return iter(perm_eval.perm_gen_all_seeds(self._permutations))
         if self._permutations.is_random():
@@ -193,13 +202,16 @@ class Permuter:
         return iter([self._force_seed])
 
     def try_eval_candidate(self, seed: int) -> EvalResult:
+        """Evaluate a seed for the permuter."""
         try:
             return self._eval_candidate(seed)
         except Exception:
             return EvalError(exc_str=traceback.format_exc(), seed=self._cur_seed)
 
     def diff(self, other_source: str) -> str:
-        # Return a unified white-space-ignoring diff
+        """Compute a unified white-space-ignoring diff from the (pretty-printed)
+        base source against another source generated from this permuter."""
+
         class Line(str):
             def __eq__(self, other: Any) -> bool:
                 return isinstance(other, str) and self.strip() == other.strip()
