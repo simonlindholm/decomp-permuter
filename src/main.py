@@ -234,8 +234,9 @@ def multiprocess_worker(
         # Don't clutter the output with stack traces; Ctrl+C is the expected
         # way to quit and sends KeyboardInterrupt to all processes.
         # A heartbeat thing here would be good but is too complex.
-        # Don't wait for queue flushes to happen, since the parent process
-        # might not be reading.
+        # Don't join the queue background thread -- thread joins in relation
+        # to KeyboardInterrupt usually result in deadlocks.
+        input_queue.cancel_join_thread()
         output_queue.cancel_join_thread()
 
 
