@@ -164,13 +164,18 @@ class IoDisconnect:
     reason: str
 
 
+class IoWillSleep:
+    pass
+
+
 @dataclass
 class IoWorkDone:
     score: Optional[int]
 
 
 IoMessage = Union[IoConnect, IoDisconnect, IoWorkDone]
-IoActivity = Tuple[str, str, IoMessage]
+IoGlobalMessage = Union[IoWillSleep]
+IoActivity = Union[Tuple[str, str, IoMessage], IoGlobalMessage]
 
 
 @dataclass
@@ -494,6 +499,9 @@ class Server:
     def _send_io(self, state: ClientState, io_msg: IoMessage) -> None:
         self._io_queue.put((state.handle, state.nickname, io_msg))
 
+    def _send_io_global(self, io_msg: IoGlobalMessage) -> None:
+        self._io_queue.put(io_msg)
+
     def _handle_message(self, msg: Activity) -> None:
         if isinstance(msg, Shutdown):
             # Handled by caller
@@ -758,6 +766,9 @@ class Server:
                     break
 
             self._prune_finished()
+
+            if not self._states and self._queue.empty():
+                self._send_io_global(IoWillSleep())
 
     def start(self) -> None:
         assert self._state == "notstarted"

@@ -11,47 +11,59 @@ from .net.server import (
     IoActivity,
     IoConnect,
     IoDisconnect,
+    IoGlobalMessage,
+    IoWillSleep,
+    IoWorkDone,
     Server,
     ServerOptions,
     start_evaluator,
 )
 
 
-def print_loop(print_queue: "queue.Queue[IoActivity]") -> None:
+def output_loop(output_queue: "queue.Queue[IoActivity]") -> None:
     while True:
-        handle, nickname, msg = print_queue.get()
-        prefix = f"[{nickname}]"
+        activity = output_queue.get()
+        if isinstance(activity, IoGlobalMessage):
+            if isinstance(activity, IoWillSleep):
+                pass
 
-        if isinstance(msg, IoConnect):
-            filenames = ", ".join(msg.filenames)
-            print(f"{prefix} connected ({filenames})")
-
-        elif isinstance(msg, IoDisconnect):
-            print(f"{prefix} {msg.reason}")
-
-        elif isinstance(msg, IoWorkDone):
-            # TODO: statistics
-            pass
+            else:
+                static_assert_unreachable(activity)
 
         else:
-            static_assert_unreachable(msg)
+            handle, nickname, msg = activity
+            prefix = f"[{nickname}]"
+
+            if isinstance(msg, IoConnect):
+                filenames = ", ".join(msg.filenames)
+                print(f"{prefix} connected ({filenames})")
+
+            elif isinstance(msg, IoDisconnect):
+                print(f"{prefix} {msg.reason}")
+
+            elif isinstance(msg, IoWorkDone):
+                # TODO: statistics
+                pass
+
+            else:
+                static_assert_unreachable(msg)
 
 
 def run(options: ServerOptions) -> None:
     config = setup()
     docker_image = fetch_docker_image_name(config)
 
-    print_queue: "queue.Queue[IoActivity]" = queue.Queue()
+    output_queue: "queue.Queue[IoActivity]" = queue.Queue()
 
     port = start_evaluator(docker_image, options)
 
     try:
-        server = Server(config, options, port, print_queue)
+        server = Server(config, options, port, output_queue)
         server.start()
 
-        print_thread = threading.Thread(target=print_loop, args=(print_queue,))
-        print_thread.daemon = True
-        print_thread.start()
+        output_thread = threading.Thread(target=output_loop, args=(output_queue,))
+        output_thread.daemon = True
+        output_thread.start()
 
         go_online(config)
 
