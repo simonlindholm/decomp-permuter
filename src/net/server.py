@@ -156,7 +156,7 @@ Output = Union[OutputInit, OutputFinished, OutputNeedMoreWork, OutputWork]
 
 @dataclass
 class IoConnect:
-    filenames: List[str]
+    fn_names: List[str]
 
 
 @dataclass
@@ -519,8 +519,8 @@ class Server:
             state = msg.state
             assert msg.handle not in self._states, "unique IDs"
             self._states[msg.handle] = state
-            filenames = [p.fn_name for p in state.initial_permuters]
-            self._send_io(state, IoConnect(filenames))
+            fn_names = sorted({p.fn_name for p in state.initial_permuters})
+            self._send_io(state, IoConnect(fn_names))
 
         elif isinstance(msg, RemoveClient):
             if msg.handle not in self._states:

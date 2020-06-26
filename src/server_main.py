@@ -1,12 +1,12 @@
 import argparse
-import threading
-
+from functools import partial
 import os
-from PIL import Image
-import pystray
 import queue
 import threading
-from typing import Callable, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple
+
+from PIL import Image
+import pystray
 
 from .net.auth import fetch_docker_image_name, go_online, go_offline, setup
 from .net.common import static_assert_unreachable
@@ -28,7 +28,7 @@ def noop() -> None:
 
 
 class SystrayState:
-    def connect(self, handle: str, nickname: str) -> None:
+    def connect(self, handle: str, nickname: str, fn_names: List[str]) -> None:
         pass
 
     def disconnect(self, handle: str) -> None:
@@ -42,19 +42,45 @@ class SystrayState:
 
 
 class RealSystrayState(SystrayState):
-    def __init__(self, update_menu: Callable[[List[pystray.MenuItem]], None]) -> None:
+    _clients: Dict[str, Tuple[str, str]]
+
+    def __init__(
+        self, server: Server, update_menu: Callable[[List[pystray.MenuItem]], None]
+    ) -> None:
+        self._server = server
         self._update_menu = update_menu
+        self._clients = {}
+
+    def _remove_client(self, handle: str, *_) -> None:
+        self._server.remove_client(handle)
 
     def _update(self) -> None:
-        self._update_menu([])
+        title = "Currently permuting:" if self._clients else "<not running>"
+        items: List[pystray.MenuItem] = [
+            pystray.MenuItem(title, noop, enabled=False),
+        ]
+
+        for handle, (nickname, fn_names) in self._clients.items():
+            items.append(
+                pystray.MenuItem(
+                    f"{fn_names} ({nickname})",
+                    pystray.Menu(
+                        pystray.MenuItem("Stop", partial(self._remove_client, handle)),
+                    ),
+                ),
+            )
+
+        self._update_menu(items)
 
     def initial_update(self) -> None:
         self._update()
 
-    def connect(self, handle: str, nickname: str) -> None:
+    def connect(self, handle: str, nickname: str, fn_names: List[str]) -> None:
+        self._clients[handle] = (nickname, ", ".join(fn_names))
         self._update()
 
     def disconnect(self, handle: str) -> None:
+        del self._clients[handle]
         self._update()
 
     def work_done(self, handle: str) -> None:
@@ -64,7 +90,7 @@ class RealSystrayState(SystrayState):
         self._update()
 
 
-def run_with_systray(loop: Callable[[SystrayState], None]) -> None:
+def run_with_systray(server: Server, loop: Callable[[SystrayState], None]) -> None:
     menu_items: List[pystray.MenuItem] = []
     icon: Optional[pystray.Icon] = None
 
@@ -74,7 +100,7 @@ def run_with_systray(loop: Callable[[SystrayState], None]) -> None:
         if icon is not None:
             icon.update_menu()
 
-    systray = RealSystrayState(update_menu)
+    systray = RealSystrayState(server, update_menu)
     systray.initial_update()
 
     icon = pystray.Icon(
@@ -107,9 +133,9 @@ def output_loop(output_queue: "queue.Queue[IoActivity]", systray: SystrayState) 
             prefix = f"[{nickname}]"
 
             if isinstance(msg, IoConnect):
-                systray.connect(handle, nickname)
-                filenames = ", ".join(msg.filenames)
-                print(f"{prefix} connected ({filenames})")
+                systray.connect(handle, nickname, msg.fn_names)
+                fn_names = ", ".join(msg.fn_names)
+                print(f"{prefix} connected ({fn_names})")
 
             elif isinstance(msg, IoDisconnect):
                 systray.disconnect(handle)
@@ -152,7 +178,7 @@ def run(options: ServerOptions) -> None:
             input()
 
         if options.systray:
-            run_with_systray(cmdline_ui)
+            run_with_systray(server, cmdline_ui)
         else:
             cmdline_ui(SystrayState())
 
