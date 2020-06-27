@@ -3,7 +3,7 @@ from functools import partial
 import os
 import queue
 import threading
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from PIL import Image
 import pystray
@@ -51,7 +51,7 @@ class RealSystrayState(SystrayState):
         self._update_menu = update_menu
         self._clients = {}
 
-    def _remove_client(self, handle: str, *_) -> None:
+    def _remove_client(self, handle: str, *_: Any) -> None:
         self._server.remove_client(handle)
 
     def _update(self) -> None:
