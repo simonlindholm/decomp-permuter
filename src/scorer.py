@@ -1,18 +1,17 @@
-from typing import Tuple, List, Optional
+from dataclasses import dataclass, field
+import difflib
+import hashlib
 import re
 import subprocess
-import hashlib
-import difflib
-
-import attr
+from typing import Tuple, List, Optional
 
 from .objdump import objdump, sp_offset
 
 
-@attr.s(init=False, hash=True)
+@dataclass(init=False, unsafe_hash=True)
 class DiffAsmLine:
-    line: str = attr.ib(cmp=False)
-    mnemonic: str = attr.ib()
+    line: str = field(compare=False)
+    mnemonic: str
 
     def __init__(self, line: str) -> None:
         self.line = line

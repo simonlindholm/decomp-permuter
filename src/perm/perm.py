@@ -1,13 +1,12 @@
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 import math
 import itertools
 
-import attr
 
-
-@attr.s
+@dataclass
 class EvalState:
-    vars: Dict[str, str] = attr.ib(factory=dict)
+    vars: Dict[str, str] = field(default_factory=dict)
 
 
 class Perm:
@@ -201,12 +200,13 @@ class LineSwapPerm(Perm):
             del texts[ind]
         return "\n".join(output)
 
+
 class IntPerm(Perm):
     def __init__(self, low: int, high: int) -> None:
         assert low <= high
         super().__init__()
         self.low = low
-        self.perm_count = (high - low + 1)
+        self.perm_count = high - low + 1
 
     def evaluate(self, seed: int, state: EvalState) -> str:
         return str(self.low + seed)

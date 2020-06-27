@@ -7,10 +7,10 @@ They make a number of simplifying assumptions:
 
 For the purposes of the randomizer these restrictions are acceptable."""
 
+from dataclasses import dataclass, field
 from typing import Union, Dict, Set, List
 import sys
 
-import attr
 from pycparser import c_ast
 from pycparser.c_ast import ArrayDecl, TypeDecl, PtrDecl, FuncDecl, IdentifierType
 
@@ -20,12 +20,12 @@ SimpleType = Union[PtrDecl, TypeDecl]
 StructUnion = Union[c_ast.Struct, c_ast.Union]
 
 
-@attr.s
+@dataclass
 class TypeMap:
-    typedefs: Dict[str, Type] = attr.ib(factory=dict)
-    fn_ret_types: Dict[str, Type] = attr.ib(factory=dict)
-    var_types: Dict[str, Type] = attr.ib(factory=dict)
-    struct_defs: Dict[str, StructUnion] = attr.ib(factory=dict)
+    typedefs: Dict[str, Type] = field(default_factory=dict)
+    fn_ret_types: Dict[str, Type] = field(default_factory=dict)
+    var_types: Dict[str, Type] = field(default_factory=dict)
+    struct_defs: Dict[str, StructUnion] = field(default_factory=dict)
 
 
 def basic_type(name: Union[str, List[str]]) -> TypeDecl:

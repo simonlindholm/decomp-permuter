@@ -1,6 +1,6 @@
-import attr
+from dataclasses import dataclass
 
 
-@attr.s
+@dataclass
 class CandidateConstructionFailure(Exception):
-    message: str = attr.ib()
+    message: str

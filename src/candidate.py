@@ -1,9 +1,9 @@
-from typing import List, Dict, Optional, Callable, Optional, Tuple, Iterable
 import copy
+from dataclasses import dataclass, field
 import functools
 import os
+from typing import List, Dict, Optional, Callable, Optional, Tuple, Iterable
 
-import attr
 from pycparser import CParser, c_ast as ca
 
 from .compiler import Compiler
@@ -16,35 +16,35 @@ from . import perm
 from . import ast_util
 
 
-@attr.s
+@dataclass
 class CandidateResult:
     """
     Represents the result of scoring a candidate, and is sent from child to
     parent processes.
     """
 
-    score: int = attr.ib()
-    hash: str = attr.ib()
-    source: Optional[str] = attr.ib()
-    profiler: Profiler = attr.ib(factory=Profiler)
+    score: int
+    hash: str
+    source: Optional[str]
+    profiler: Profiler = field(default_factory=Profiler)
 
 
-@attr.s
+@dataclass
 class Candidate:
     """
     Represents a AST candidate created from a source which can be randomized
     (possibly multiple times), compiled, and scored.
     """
 
-    ast: ca.FileAST = attr.ib()
+    ast: ca.FileAST
 
-    orig_fn: ca.FuncDef = attr.ib()
-    fn_index: int = attr.ib()
-    rng_seed: int = attr.ib()
-    randomizer: Randomizer = attr.ib()
-    score_value: Optional[int] = attr.ib(init=False, default=None)
-    score_hash: Optional[str] = attr.ib(init=False, default=None)
-    _cache_source: Optional[str] = attr.ib(init=False, default=None)
+    orig_fn: ca.FuncDef
+    fn_index: int
+    rng_seed: int
+    randomizer: Randomizer
+    score_value: Optional[int] = field(init=False, default=None)
+    score_hash: Optional[str] = field(init=False, default=None)
+    _cache_source: Optional[str] = field(init=False, default=None)
 
     @staticmethod
     @functools.lru_cache(maxsize=16)

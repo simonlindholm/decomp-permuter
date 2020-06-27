@@ -1,7 +1,7 @@
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
-import attr
 import bisect
 import copy
+from dataclasses import dataclass, field
 import sys
 import time
 import typing
@@ -70,11 +70,11 @@ def ensure(condition: Any) -> None:
         raise RandomizationFailure
 
 
-@attr.s
+@dataclass
 class Region:
-    start: int = attr.ib()
-    end: int = attr.ib()
-    indices: Optional[Indices] = attr.ib(cmp=False)
+    start: int
+    end: int
+    indices: Optional[Indices] = field(compare=False)
 
     @staticmethod
     def unbounded() -> "Region":

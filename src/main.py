@@ -1,4 +1,5 @@
 import argparse
+from dataclasses import dataclass, field
 import itertools
 import multiprocessing
 import os
@@ -18,8 +19,6 @@ from typing import (
     Tuple,
     Union,
 )
-
-import attr
 
 from .candidate import CandidateResult
 from .compiler import Compiler
@@ -47,20 +46,20 @@ from .scorer import Scorer
 DEFAULT_RAND_KEEP_PROB = 0.6
 
 
-@attr.s
+@dataclass
 class Options:
-    directories: List[str] = attr.ib()
-    show_errors: bool = attr.ib(default=False)
-    show_timings: bool = attr.ib(default=False)
-    print_diffs: bool = attr.ib(default=False)
-    stack_differences: bool = attr.ib(default=False)
-    abort_exceptions: bool = attr.ib(default=False)
-    stop_on_zero: bool = attr.ib(default=False)
-    keep_prob: float = attr.ib(default=DEFAULT_RAND_KEEP_PROB)
-    force_seed: Optional[str] = attr.ib(default=None)
-    threads: int = attr.ib(default=1)
-    use_network: bool = attr.ib(default=False)
-    network_priority: float = attr.ib(default=1.0)
+    directories: List[str]
+    show_errors: bool = False
+    show_timings: bool = False
+    print_diffs: bool = False
+    stack_differences: bool = False
+    abort_exceptions: bool = False
+    stop_on_zero: bool = False
+    keep_prob: float = DEFAULT_RAND_KEEP_PROB
+    force_seed: Optional[str] = None
+    threads: int = 1
+    use_network: bool = False
+    network_priority: float = 1.0
 
 
 def restricted_float(lo: float, hi: float) -> Callable[[str], float]:
@@ -79,14 +78,14 @@ def restricted_float(lo: float, hi: float) -> Callable[[str], float]:
     return convert
 
 
-@attr.s
+@dataclass
 class EvalContext:
-    options: Options = attr.ib()
-    printer: Printer = attr.ib(factory=Printer)
-    iteration: int = attr.ib(default=0)
-    errors: int = attr.ib(default=0)
-    overall_profiler: Profiler = attr.ib(factory=Profiler)
-    permuters: List[Permuter] = attr.ib(factory=list)
+    options: Options
+    printer: Printer = field(default_factory=Printer)
+    iteration: int = 0
+    errors: int = 0
+    overall_profiler: Profiler = field(default_factory=Profiler)
+    permuters: List[Permuter] = field(default_factory=list)
 
 
 def write_candidate(perm: Permuter, result: CandidateResult) -> None:

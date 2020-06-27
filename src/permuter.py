@@ -14,8 +14,6 @@ from typing import (
     Union,
 )
 
-import attr
-
 from .candidate import Candidate, CandidateResult
 from .compiler import Compiler
 from .perm import perm_eval, perm_gen
@@ -24,10 +22,10 @@ from .profiler import Profiler
 from .scorer import Scorer
 
 
-@attr.s
+@dataclass
 class EvalError:
-    exc_str: str = attr.ib()
-    seed: Optional[Tuple[int, int]] = attr.ib()
+    exc_str: str
+    seed: Optional[Tuple[int, int]]
 
 
 EvalResult = Union[CandidateResult, EvalError]
