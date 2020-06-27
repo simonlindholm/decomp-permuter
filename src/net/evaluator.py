@@ -10,7 +10,7 @@ import sys
 from tempfile import mkstemp
 import threading
 import traceback
-from typing import BinaryIO, Counter, Dict, List, Optional, Set, Union
+from typing import BinaryIO, Counter, Dict, List, Optional, Set, Tuple, Union
 import zlib
 
 from nacl.secret import SecretBox
@@ -149,22 +149,25 @@ class Work:
     seed: int
 
 
-LocalWork = Union[AddPermuterLocal, RemovePermuter]
+LocalWork = Tuple[Union[AddPermuterLocal, RemovePermuter], int]
+GlobalWork = Tuple[Work, int]
 Task = Union[AddPermuter, RemovePermuter, Work, WorkDone]
 
 
 def multiprocess_worker(
-    worker_queue: "Queue[Work]",
-    local_worker_queue: "Queue[LocalWork]",
+    worker_queue: "Queue[GlobalWork]",
+    local_queue: "Queue[LocalWork]",
     task_queue: "Queue[Task]",
 ) -> None:
     permuters: Dict[str, Permuter] = {}
+    timestamp = 0
 
     while True:
-        work = worker_queue.get()
+        work, required_timestamp = worker_queue.get()
         while True:
             try:
-                task = local_worker_queue.get_nowait()
+                block = timestamp < required_timestamp
+                task, timestamp = local_queue.get(block=block)
             except queue.Empty:
                 break
             if isinstance(task, AddPermuterLocal):
@@ -257,7 +260,7 @@ def main() -> None:
 
     port = _setup_port(secret)
 
-    worker_queue: "Queue[Work]" = Queue()
+    worker_queue: "Queue[GlobalWork]" = Queue()
     task_queue: "Queue[Task]" = Queue()
     local_queues: "List[Queue[LocalWork]]" = []
 
@@ -275,15 +278,18 @@ def main() -> None:
     remaining_work: Counter[str] = Counter()
     should_remove: Set[str] = set()
     permuters: Dict[str, Permuter] = {}
+    timestamp = 0
 
     def try_remove(perm_id: str) -> None:
+        nonlocal timestamp
         assert perm_id in permuters
         if perm_id not in should_remove or remaining_work[perm_id] != 0:
             return
         del remaining_work[perm_id]
         should_remove.remove(perm_id)
+        timestamp += 1
         for queue in local_queues:
-            queue.put(RemovePermuter(perm_id=perm_id))
+            queue.put((RemovePermuter(perm_id=perm_id), timestamp))
         _remove_permuter(permuters[perm_id])
         del permuters[perm_id]
 
@@ -301,8 +307,14 @@ def main() -> None:
                 permuters[item.perm_id] = permuter
 
                 # Tell all the workers about the new permuter.
+                timestamp += 1
                 for queue in local_queues:
-                    queue.put(AddPermuterLocal(perm_id=item.perm_id, permuter=permuter))
+                    queue.put(
+                        (
+                            AddPermuterLocal(perm_id=item.perm_id, permuter=permuter),
+                            timestamp,
+                        )
+                    )
             except Exception as e:
                 # This shouldn't practically happen, since the client compiled
                 # the code successfully. Print a message if it does.
@@ -330,7 +342,7 @@ def main() -> None:
 
         elif isinstance(item, Work):
             remaining_work[item.perm_id] += 1
-            worker_queue.put(item)
+            worker_queue.put((item, timestamp))
 
         else:
             static_assert_unreachable(item)
