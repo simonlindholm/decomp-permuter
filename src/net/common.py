@@ -131,6 +131,15 @@ def socket_read_fixed(sock: socket.socket, n: int) -> bytes:
         raise
 
 
+def socket_shutdown(sock: socket.socket, how: int) -> None:
+    try:
+        sock.shutdown(how)
+    except OSError as e:
+        # Ignore ENOTCONN
+        if e.errno != 107:
+            raise
+
+
 def json_prop(obj: dict, prop: str, t: Type[T]) -> T:
     ret = obj.get(prop)
     if not isinstance(ret, t):
@@ -214,12 +223,7 @@ class SocketPort(Port):
         return socket_read_fixed(self._sock, length)
 
     def shutdown(self, how: int = socket.SHUT_RDWR) -> None:
-        try:
-            self._sock.shutdown(how)
-        except OSError as e:
-            # Ignore ENOTCONN
-            if e.errno != 107:
-                raise
+        socket_shutdown(self._sock, how)
 
     def close(self) -> None:
         self._sock.close()

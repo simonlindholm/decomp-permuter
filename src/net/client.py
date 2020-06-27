@@ -32,6 +32,7 @@ from .common import (
     json_prop,
     sign_with_magic,
     socket_read_fixed,
+    socket_shutdown,
     verify_with_magic,
 )
 
@@ -285,7 +286,7 @@ class Connection:
                 (Finished(reason=finish_reason), self._server.nickname)
             )
             if self._sock is not None:
-                self._sock.shutdown(socket.SHUT_RDWR)
+                socket_shutdown(self._sock, socket.SHUT_RDWR)
                 self._sock.close()
 
 
