@@ -23,10 +23,6 @@ from .net.server import (
 )
 
 
-def noop() -> None:
-    pass
-
-
 class SystrayState:
     def connect(self, handle: str, nickname: str, fn_names: List[str]) -> None:
         pass
@@ -57,7 +53,7 @@ class RealSystrayState(SystrayState):
     def _update(self) -> None:
         title = "Currently permuting:" if self._clients else "<not running>"
         items: List[pystray.MenuItem] = [
-            pystray.MenuItem(title, noop, enabled=False),
+            pystray.MenuItem(title, None, enabled=False),
         ]
 
         for handle, (nickname, fn_names) in self._clients.items():
