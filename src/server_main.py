@@ -15,6 +15,7 @@ from .net.server import (
     IoConnect,
     IoDisconnect,
     IoGlobalMessage,
+    IoShutdown,
     IoWillSleep,
     IoWorkDone,
     Server,
@@ -41,14 +42,21 @@ class RealSystrayState(SystrayState):
     _clients: Dict[str, Tuple[str, str]]
 
     def __init__(
-        self, server: Server, update_menu: Callable[[List[pystray.MenuItem]], None]
+        self,
+        server: Server,
+        output_queue: "queue.Queue[IoActivity]",
+        update_menu: Callable[[List[pystray.MenuItem]], None],
     ) -> None:
         self._server = server
+        self._output_queue = output_queue
         self._update_menu = update_menu
         self._clients = {}
 
     def _remove_client(self, handle: str, *_: Any) -> None:
         self._server.remove_client(handle)
+
+    def _quit(self) -> None:
+        self._output_queue.put(IoShutdown())
 
     def _update(self) -> None:
         title = "Currently permuting:" if self._clients else "<not running>"
@@ -65,6 +73,8 @@ class RealSystrayState(SystrayState):
                     ),
                 ),
             )
+
+        items.append(pystray.MenuItem("Quit", self._quit))
 
         self._update_menu(items)
 
@@ -86,18 +96,12 @@ class RealSystrayState(SystrayState):
         self._update()
 
 
-def run_with_systray(server: Server, loop: Callable[[SystrayState], None]) -> None:
+def run_with_systray(
+    server: Server,
+    output_queue: "queue.Queue[IoActivity]",
+    loop: Callable[[SystrayState], None],
+) -> None:
     menu_items: List[pystray.MenuItem] = []
-    icon: Optional[pystray.Icon] = None
-
-    def update_menu(items: List[pystray.MenuItem]) -> None:
-        nonlocal menu_items
-        menu_items = items
-        if icon is not None:
-            icon.update_menu()
-
-    systray = RealSystrayState(server, update_menu)
-    systray.initial_update()
 
     icon = pystray.Icon(
         name="permuter@home",
@@ -105,6 +109,14 @@ def run_with_systray(server: Server, loop: Callable[[SystrayState], None]) -> No
         icon=Image.open(os.path.join(os.path.dirname(__file__), "..", "icon.png")),
         menu=pystray.Menu(lambda: menu_items),
     )
+
+    def update_menu(items: List[pystray.MenuItem]) -> None:
+        nonlocal menu_items
+        menu_items = items
+        icon.update_menu()
+
+    systray = RealSystrayState(server, output_queue, update_menu)
+    systray.initial_update()
 
     def inner(icon: pystray.Icon) -> None:
         icon.visible = True
@@ -117,9 +129,12 @@ def run_with_systray(server: Server, loop: Callable[[SystrayState], None]) -> No
 def output_loop(output_queue: "queue.Queue[IoActivity]", systray: SystrayState) -> None:
     while True:
         activity = output_queue.get()
-        if isinstance(activity, IoGlobalMessage):
+        if not isinstance(activity, tuple):
             if isinstance(activity, IoWillSleep):
                 systray.will_sleep()
+
+            elif isinstance(activity, IoShutdown):
+                break
 
             else:
                 static_assert_unreachable(activity)
@@ -159,8 +174,7 @@ def run(options: ServerOptions) -> None:
 
         go_online(config)
 
-        # TODO: print statistics, run systray, etc.
-        # Also regularly check in with the auth server to maintain an up-to-date IP,
+        # TODO: regularly check in with the auth server to maintain an up-to-date IP,
         # and to check version.
         def cmdline_ui(systray: SystrayState) -> None:
             output_thread = threading.Thread(
@@ -168,13 +182,10 @@ def run(options: ServerOptions) -> None:
             )
             output_thread.daemon = True
             output_thread.start()
-
-            # TODO: print statistics, with ctrl+c for exit instead of enter
-            print("Press enter to stop the server.")
-            input()
+            output_thread.join()
 
         if options.systray:
-            run_with_systray(server, cmdline_ui)
+            run_with_systray(server, output_queue, cmdline_ui)
         else:
             cmdline_ui(SystrayState())
 

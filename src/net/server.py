@@ -164,6 +164,10 @@ class IoDisconnect:
     reason: str
 
 
+class IoShutdown:
+    pass
+
+
 class IoWillSleep:
     pass
 
@@ -174,7 +178,7 @@ class IoWorkDone:
 
 
 IoMessage = Union[IoConnect, IoDisconnect, IoWorkDone]
-IoGlobalMessage = Union[IoWillSleep]
+IoGlobalMessage = Union[IoShutdown, IoWillSleep]
 IoActivity = Union[Tuple[str, str, IoMessage], IoGlobalMessage]
 
 
