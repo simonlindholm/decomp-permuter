@@ -1,7 +1,9 @@
 import argparse
+from dataclasses import dataclass
 from functools import partial
 import os
 import queue
+import time
 import threading
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -31,15 +33,24 @@ class SystrayState:
     def disconnect(self, handle: str) -> None:
         pass
 
-    def work_done(self, handle: str) -> None:
+    def work_done(self, handle: str, is_improvement: bool) -> None:
         pass
 
     def will_sleep(self) -> None:
         pass
 
 
+@dataclass
+class Client:
+    nickname: str
+    fn_names: List[str]
+    iterations: int = 0
+    improvements: int = 0
+    last_systray_update: float = 0.0
+
+
 class RealSystrayState(SystrayState):
-    _clients: Dict[str, Tuple[str, str]]
+    _clients: Dict[str, Client]
 
     def __init__(
         self,
@@ -64,11 +75,20 @@ class RealSystrayState(SystrayState):
             pystray.MenuItem(title, None, enabled=False),
         ]
 
-        for handle, (nickname, fn_names) in self._clients.items():
+        for handle, client in self._clients.items():
+            fn_names = ", ".join(client.fn_names)
             items.append(
                 pystray.MenuItem(
-                    f"{fn_names} ({nickname})",
+                    f"{fn_names} ({client.nickname})",
                     pystray.Menu(
+                        pystray.MenuItem(
+                            f"Iterations: {client.iterations}", None, enabled=False
+                        ),
+                        pystray.MenuItem(
+                            f"Improvements found: {client.improvements}",
+                            None,
+                            enabled=False,
+                        ),
                         pystray.MenuItem("Stop", partial(self._remove_client, handle)),
                     ),
                 ),
@@ -82,15 +102,20 @@ class RealSystrayState(SystrayState):
         self._update()
 
     def connect(self, handle: str, nickname: str, fn_names: List[str]) -> None:
-        self._clients[handle] = (nickname, ", ".join(fn_names))
+        self._clients[handle] = Client(nickname, fn_names)
         self._update()
 
     def disconnect(self, handle: str) -> None:
         del self._clients[handle]
         self._update()
 
-    def work_done(self, handle: str) -> None:
-        pass
+    def work_done(self, handle: str, is_improvement: bool) -> None:
+        client = self._clients[handle]
+        client.iterations += 1
+        client.improvements += 1
+        if time.time() > client.last_systray_update + 5.0:
+            client.last_systray_update = time.time()
+            self._update()
 
     def will_sleep(self) -> None:
         self._update()
@@ -154,7 +179,7 @@ def output_loop(output_queue: "queue.Queue[IoActivity]", systray: SystrayState) 
 
             elif isinstance(msg, IoWorkDone):
                 # TODO: statistics
-                systray.work_done(handle)
+                systray.work_done(handle, msg.is_improvement)
 
             else:
                 static_assert_unreachable(msg)

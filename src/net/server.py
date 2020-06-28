@@ -175,6 +175,7 @@ class IoWillSleep:
 @dataclass
 class IoWorkDone:
     score: Optional[int]
+    is_improvement: bool
 
 
 IoMessage = Union[IoConnect, IoDisconnect, IoWorkDone]
@@ -587,7 +588,12 @@ class Server:
             obj = msg.obj
             obj["permuter"] = perm_index
             score = json_prop(obj, "score", int) if "score" in obj else None
-            self._send_io(state, IoWorkDone(score=score))
+            self._send_io(
+                state,
+                IoWorkDone(
+                    score=score, is_improvement=(msg.compressed_source is not None)
+                ),
+            )
             state.output_queue.put(
                 OutputWork(obj=obj, compressed_source=msg.compressed_source,)
             )
