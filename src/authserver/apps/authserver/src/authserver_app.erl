@@ -14,7 +14,8 @@ start(_StartType, _StartArgs) ->
     Dispatch = cowboy_router:compile([{
         '_',
         [
-            {"/", route_root, []}
+            {"/", route_root, []},
+            {"/docker", route_docker, []}
         ]
     }]),
 
