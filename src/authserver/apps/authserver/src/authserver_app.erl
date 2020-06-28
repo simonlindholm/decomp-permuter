@@ -15,6 +15,7 @@ start(_StartType, _StartArgs) ->
         '_',
         [
             {"/", route_root, []},
+            {"/pubkey", route_pubkey, []},
             {"/docker", route_docker, []}
         ]
     }]),
