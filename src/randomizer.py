@@ -1434,13 +1434,12 @@ def perm_split_assignment(
     var = assign.lvalue
 
     ins_cands = get_insertion_points(fn, region)
-    ensure(ins_cands)
 
     for ins_block, ins_index, node in ins_cands:
         if node is assign:
             break
     else:
-        assert False, "original assign should always be found in insertion points"
+        raise RandomizationFailure
 
     binops = []
 
