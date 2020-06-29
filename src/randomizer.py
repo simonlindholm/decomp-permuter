@@ -1420,7 +1420,11 @@ def perm_split_assignment(
     # Look for assignments of the form 'var = binaryOp' (ignores op=)
     class Visitor(ca.NodeVisitor):
         def visit_Assignment(self, node: ca.Assignment) -> None:
-            if node.op == '=' and isinstance(node.rvalue, ca.BinaryOp) and region.contains_node(node):
+            if (
+                node.op == "="
+                and isinstance(node.rvalue, ca.BinaryOp)
+                and region.contains_node(node)
+            ):
                 cands.append(node)
 
     Visitor().visit(fn.body)
@@ -1429,10 +1433,18 @@ def perm_split_assignment(
     assign = random.choice(cands)
     var = assign.lvalue
 
+    ins_cands = get_insertion_points(fn, region)
+    ensure(ins_cands)
+
+    for ins_block, ins_index, node in ins_cands:
+        if node is assign:
+            break
+    else:
+        assert False, "original assign should always be found in insertion points"
+
     binops = []
 
     def collect_binops(node: ca.BinaryOp) -> None:
-        nonlocal binops
         if isinstance(node.left, ca.BinaryOp):
             collect_binops(node.left)
         binops.append(node)
@@ -1451,16 +1463,9 @@ def perm_split_assignment(
         side = split.right
         split.right = copy.deepcopy(var)
 
-    new_assign = ca.Assignment("=", copy.deepcopy(var), side)
-
-    ins_cands = get_insertion_points(fn, region)
-    ensure(ins_cands)
-
     # The assignment is always inserted before the original
-    for block, index, node in ins_cands:
-        if node is assign:
-            ast_util.insert_statement(block, index, new_assign)
-            return
+    new_assign = ca.Assignment("=", copy.deepcopy(var), side)
+    ast_util.insert_statement(ins_block, ins_index, new_assign)
 
 
 class Randomizer:
