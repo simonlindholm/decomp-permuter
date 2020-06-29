@@ -1414,7 +1414,7 @@ def perm_struct_ref(
 
 def perm_split_assignment(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
-) -> bool:
+) -> None:
     """Split assignments of the form a = b . c . d ...; into a = b; a = a . c . d ...;, a = c . d ...; a = b . a;, etc."""
     cands = []
     # Look for assignments of the form 'var = binaryOp' (ignores op=)
@@ -1439,7 +1439,7 @@ def perm_split_assignment(
         if isinstance(node.right, ca.BinaryOp):
             collect_binops(node.right)
 
-    collect_binops(assign.rvalue)
+    collect_binops(typing.cast(ca.BinaryOp, assign.rvalue))
 
     split = random.choice(binops)
 
