@@ -1412,6 +1412,61 @@ def perm_struct_ref(
     ensure(changed)
 
 
+def perm_split_assignment(
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
+) -> None:
+    """Split assignments of the form a = b . c . d ...; into a = b; a = a . c . d ...;, a = c . d ...; a = b . a;, etc."""
+    cands = []
+    # Look for assignments of the form 'var = binaryOp' (ignores op=)
+    class Visitor(ca.NodeVisitor):
+        def visit_Assignment(self, node: ca.Assignment) -> None:
+            if (
+                node.op == "="
+                and isinstance(node.rvalue, ca.BinaryOp)
+                and region.contains_node(node)
+            ):
+                cands.append(node)
+
+    Visitor().visit(fn.body)
+    ensure(cands)
+
+    assign = random.choice(cands)
+    var = assign.lvalue
+
+    ins_cands = get_insertion_points(fn, region)
+
+    for ins_block, ins_index, node in ins_cands:
+        if node is assign:
+            break
+    else:
+        raise RandomizationFailure
+
+    binops = []
+
+    def collect_binops(node: ca.BinaryOp) -> None:
+        if isinstance(node.left, ca.BinaryOp):
+            collect_binops(node.left)
+        binops.append(node)
+        if isinstance(node.right, ca.BinaryOp):
+            collect_binops(node.right)
+
+    collect_binops(typing.cast(ca.BinaryOp, assign.rvalue))
+
+    split = random.choice(binops)
+
+    # Choose which side to move to a new assignment
+    if random.choice([True, False]):
+        side = split.left
+        split.left = copy.deepcopy(var)
+    else:
+        side = split.right
+        split.right = copy.deepcopy(var)
+
+    # The assignment is always inserted before the original
+    new_assign = ca.Assignment("=", copy.deepcopy(var), side)
+    ast_util.insert_statement(ins_block, ins_index, new_assign)
+
+
 class Randomizer:
     def __init__(self, rng_seed: int) -> None:
         self.random = Random(rng_seed)
@@ -1430,6 +1485,7 @@ class Randomizer:
             (perm_randomize_internal_type, 10),
             (perm_randomize_external_type, 5),
             (perm_randomize_function_type, 5),
+            (perm_split_assignment, 10),
             (perm_sameline, 10),
             (perm_ins_block, 10),
             (perm_struct_ref, 10),
