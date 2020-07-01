@@ -41,15 +41,20 @@ class PermuterData:
     target_o_bin: bytes
 
 
+def _fix_stdout() -> None:
+    # Since we use sys.stdout for our own purposes, redirect it to stdout to
+    # make print() debugging work. Also, set it to flush on newlines, which
+    # does not happen by default when stderr is piped. (Requires Python 3.7,
+    # which we know is available inside the sandbox.)
+    sys.stdout = sys.stderr
+    sys.stdout.reconfigure(line_buffering=True)  # type: ignore
+
+
 def _setup_port(secret: bytes) -> Port:
     """Set up communication with the outside world."""
     port = FilePort(
         sys.stdin.buffer, sys.stdout.buffer, SecretBox(secret), is_client=False
     )
-
-    # Since we use sys.stdout for our own purposes, redirect it to stdout to
-    # make print() debugging work.
-    sys.stdout = sys.stderr
 
     # Follow the controlling process's sanity check protocol.
     magic = port.receive()
@@ -159,6 +164,8 @@ def multiprocess_worker(
     local_queue: "Queue[LocalWork]",
     task_queue: "Queue[Task]",
 ) -> None:
+    _fix_stdout()
+
     permuters: Dict[str, Permuter] = {}
     timestamp = 0
 
@@ -259,6 +266,7 @@ def main() -> None:
     os.environ["PERMUTER_IS_REMOTE"] = "1"
 
     port = _setup_port(secret)
+    _fix_stdout()
 
     worker_queue: "Queue[GlobalWork]" = Queue()
     task_queue: "Queue[Task]" = Queue()
