@@ -108,10 +108,8 @@ def file_read_fixed(inf: BinaryIO, n: int) -> bytes:
             ret.append(data)
             n -= len(data)
         return b"".join(ret)
-    except ValueError as e:
-        if e.args == ("I/O operation on closed file.",):
-            raise EOFError
-        raise
+    except Exception:
+        raise EOFError
 
 
 def socket_read_fixed(sock: socket.socket, n: int) -> bytes:
@@ -124,20 +122,15 @@ def socket_read_fixed(sock: socket.socket, n: int) -> bytes:
             ret.append(data)
             n -= len(data)
         return b"".join(ret)
-    except OSError as e:
-        if e.errno == 107:
-            # Ignore ENOTCONN
-            raise EOFError
-        raise
+    except Exception:
+        raise EOFError
 
 
 def socket_shutdown(sock: socket.socket, how: int) -> None:
     try:
         sock.shutdown(how)
-    except OSError as e:
-        # Ignore ENOTCONN
-        if e.errno != 107:
-            raise
+    except Exception:
+        pass
 
 
 def json_prop(obj: dict, prop: str, t: Type[T]) -> T:
