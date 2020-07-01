@@ -112,7 +112,8 @@ class RealSystrayState(SystrayState):
     def work_done(self, handle: str, is_improvement: bool) -> None:
         client = self._clients[handle]
         client.iterations += 1
-        client.improvements += 1
+        if is_improvement:
+            client.improvements += 1
         if time.time() > client.last_systray_update + 5.0:
             client.last_systray_update = time.time()
             self._update()
