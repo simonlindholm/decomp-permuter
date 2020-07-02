@@ -306,13 +306,21 @@ def main() -> None:
 
         if isinstance(item, AddPermuter):
             assert item.perm_id not in permuters
-            success = True
+
+            msg: Dict[str, object] = {
+                "type": "init",
+                "id": item.perm_id,
+            }
 
             try:
                 # Construct a permuter. This involves a compilation on the main
                 # thread, which isn't great but we can live with it for now.
                 permuter = _create_permuter(item.data)
                 permuters[item.perm_id] = permuter
+
+                msg["success"] = True
+                msg["base_score"] = permuter.base_score
+                msg["bash_hash"] = permuter.base_hash
 
                 # Tell all the workers about the new permuter.
                 timestamp += 1
@@ -326,15 +334,14 @@ def main() -> None:
             except Exception as e:
                 # This shouldn't practically happen, since the client compiled
                 # the code successfully. Print a message if it does.
-                success = False
+                msg["success"] = False
+                msg["error"] = str(e)
                 if isinstance(e, CandidateConstructionFailure):
                     print(e.message)
                 else:
                     traceback.print_exc()
 
-            port.send_json(
-                {"type": "init", "id": item.perm_id, "success": success,}
-            )
+            port.send_json(msg)
 
         elif isinstance(item, RemovePermuter):
             # Silently ignore requests to remove permuters that have already

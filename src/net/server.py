@@ -76,6 +76,7 @@ class ClientState:
     eof: bool = False
     init_state: InitState = InitState.UNINIT
     waiting_perms: int = 0
+    perm_bases: List[Optional[Tuple[int, str]]] = []
     cooldown: float = 0.0
 
 
@@ -102,9 +103,16 @@ class InputError:
 
 
 @dataclass
-class PermInit:
+class PermInitFail:
     perm_id: str
-    success: bool
+    error: str
+
+
+@dataclass
+class PermInitSuccess:
+    perm_id: str
+    base_score: int
+    base_hash: str
 
 
 @dataclass
@@ -126,13 +134,26 @@ class Shutdown:
 
 
 Activity = Union[
-    AddClient, RemoveClient, NoMoreWork, InputError, Work, PermInit, WorkDone, Shutdown
+    AddClient,
+    RemoveClient,
+    NoMoreWork,
+    InputError,
+    Work,
+    PermInitFail,
+    PermInitSuccess,
+    WorkDone,
+    Shutdown,
 ]
 
 
 @dataclass
-class OutputInit:
-    success: bool
+class OutputInitFail:
+    error: str
+
+
+@dataclass
+class OutputInitSuccess:
+    perm_bases: List[Tuple[int, str]]
 
 
 @dataclass
@@ -151,7 +172,9 @@ class OutputWork:
     compressed_source: Optional[bytes]
 
 
-Output = Union[OutputInit, OutputFinished, OutputNeedMoreWork, OutputWork]
+Output = Union[
+    OutputInitFail, OutputInitSuccess, OutputFinished, OutputNeedMoreWork, OutputWork
+]
 
 
 @dataclass
@@ -353,13 +376,17 @@ class ServerHandler(socketserver.BaseRequestHandler):
                     while True:
                         item = output_queue.get()
 
-                        if isinstance(item, OutputInit):
+                        if isinstance(item, OutputInitFail):
                             assert not init_done.is_set()
-                            port.send_json({"success": item.success})
-                            if item.success:
-                                init_done.set()
-                            else:
-                                break
+                            port.send_json({"success": False, "error": item.error})
+                            break
+
+                        if isinstance(item, OutputInitSuccess):
+                            assert not init_done.is_set()
+                            port.send_json(
+                                {"success": True, "perm_bases": item.perm_bases}
+                            )
+                            init_done.set()
 
                         elif isinstance(item, OutputFinished):
                             if item.graceful:
@@ -555,7 +582,7 @@ class Server:
                 text += f" with error:\n{msg.errmsg}"
             self._send_io(state, IoDisconnect(text))
 
-        elif isinstance(msg, PermInit):
+        elif isinstance(msg, (PermInitFail, PermInitSuccess)):
             self._active_work -= 1
 
             handle, perm_index = self._from_permid(msg.perm_id)
@@ -564,16 +591,24 @@ class Server:
 
             state = self._states[handle]
             assert state.init_state == InitState.WAITING
-            state.waiting_perms -= 1
 
-            if not msg.success:
+            if isinstance(msg, PermInitFail):
                 self._remove(state)
                 self._send_io(state, IoDisconnect("failed to compile"))
-                state.output_queue.put(OutputInit(success=False))
+                state.output_queue.put(OutputInitFail(error=msg.error,))
 
-            elif state.waiting_perms == 0:
-                state.init_state = InitState.READY
-                state.output_queue.put(OutputInit(success=True))
+            else:
+                state.perm_bases[perm_index] = (msg.base_score, msg.base_hash)
+
+                state.waiting_perms -= 1
+                if state.waiting_perms == 0:
+                    perm_bases: List[Tuple[int, str]] = []
+                    for i in range(state.num_permuters):
+                        perm_base = state.perm_bases[i]
+                        assert perm_base is not None
+                        perm_bases.append(perm_base)
+                    state.init_state = InitState.READY
+                    state.output_queue.put(OutputInitSuccess(perm_bases=perm_bases))
 
         elif isinstance(msg, WorkDone):
             self._active_work -= 1
@@ -698,6 +733,7 @@ class Server:
         if state.init_state == InitState.UNINIT:
             state.init_state = InitState.WAITING
             state.waiting_perms = state.num_permuters
+            state.perm_bases = [None for _ in range(state.num_permuters)]
             for i, p in enumerate(state.initial_permuters):
                 self._send_permuter(self._to_permid(state, i), p)
             state.initial_permuters = []
@@ -735,12 +771,19 @@ class Server:
                 msg_type = json_prop(msg, "type", str)
 
                 if msg_type == "init":
-                    self._queue.put(
-                        PermInit(
-                            perm_id=json_prop(msg, "id", str),
-                            success=json_prop(msg, "success", bool),
+                    perm_id = json_prop(msg, "id", str)
+                    resp: Activity
+                    if json_prop(msg, "success", bool):
+                        resp = PermInitSuccess(
+                            perm_id=perm_id,
+                            base_score=json_prop(msg, "base_score", int),
+                            base_hash=json_prop(msg, "base_hash", str),
                         )
-                    )
+                    else:
+                        resp = PermInitFail(
+                            perm_id=perm_id, error=json_prop(msg, "error", str),
+                        )
+                    self._queue.put(resp)
 
                 elif msg_type == "result":
                     compressed_source: Optional[bytes] = None

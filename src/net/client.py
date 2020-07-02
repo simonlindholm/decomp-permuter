@@ -217,7 +217,8 @@ class Connection:
             msg = port.receive_json()
             success = json_prop(msg, "success", bool)
             if not success:
-                finish_reason = f"failed to compile"
+                error = json_prop(msg, "error", str)
+                finish_reason = f"failed to compile: {error}"
                 return
             self._feedback_queue.put((NeedMoreWork(), self._server.nickname))
             finished = False
