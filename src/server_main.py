@@ -26,6 +26,9 @@ from .net.server import (
 )
 
 
+SYSTRAY_UPDATE_INTERVAL = 20.0
+
+
 class SystrayState:
     def connect(self, handle: str, nickname: str, fn_names: List[str]) -> None:
         pass
@@ -56,7 +59,7 @@ class RealSystrayState(SystrayState):
         self,
         server: Server,
         output_queue: "queue.Queue[IoActivity]",
-        update_menu: Callable[[List[pystray.MenuItem]], None],
+        update_menu: Callable[[List[pystray.MenuItem], bool], None],
     ) -> None:
         self._server = server
         self._output_queue = output_queue
@@ -69,7 +72,7 @@ class RealSystrayState(SystrayState):
     def _quit(self) -> None:
         self._output_queue.put(IoShutdown())
 
-    def _update(self) -> None:
+    def _update(self, flush: bool = True) -> None:
         title = "Currently permuting:" if self._clients else "<not running>"
         items: List[pystray.MenuItem] = [
             pystray.MenuItem(title, None, enabled=False),
@@ -96,7 +99,7 @@ class RealSystrayState(SystrayState):
 
         items.append(pystray.MenuItem("Quit", self._quit))
 
-        self._update_menu(items)
+        self._update_menu(items, flush)
 
     def initial_update(self) -> None:
         self._update()
@@ -114,9 +117,10 @@ class RealSystrayState(SystrayState):
         client.iterations += 1
         if is_improvement:
             client.improvements += 1
-        if time.time() > client.last_systray_update + 5.0:
+        flush = time.time() > client.last_systray_update + SYSTRAY_UPDATE_INTERVAL
+        if flush:
             client.last_systray_update = time.time()
-            self._update()
+        self._update(flush)
 
     def will_sleep(self) -> None:
         self._update()
@@ -136,10 +140,11 @@ def run_with_systray(
         menu=pystray.Menu(lambda: menu_items),
     )
 
-    def update_menu(items: List[pystray.MenuItem]) -> None:
+    def update_menu(items: List[pystray.MenuItem], flush: bool) -> None:
         nonlocal menu_items
         menu_items = items
-        icon.update_menu()
+        if flush:
+            icon.update_menu()
 
     systray = RealSystrayState(server, output_queue, update_menu)
     systray.initial_update()
