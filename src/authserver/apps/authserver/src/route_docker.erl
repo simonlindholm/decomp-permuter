@@ -13,8 +13,10 @@ init(Req, Opts) ->
         maps:get(secret, KeyMap)
     ),
 
-    Req2 = cowboy_req:reply(200,
+    Req2 = cowboy_req:reply(
+        200,
         #{<<"content-type">> => <<"text/plain">>},
         SignedMessage,
-        Req),
+        Req
+    ),
     {ok, Req2, Opts}.
