@@ -383,9 +383,11 @@ class ServerHandler(socketserver.BaseRequestHandler):
 
                         if isinstance(item, OutputInitSuccess):
                             assert not init_done.is_set()
-                            port.send_json(
-                                {"success": True, "perm_bases": item.perm_bases}
-                            )
+                            perm_bases = [
+                                {"perm_score": p[0], "perm_hash": p[1]}
+                                for p in item.perm_bases
+                            ]
+                            port.send_json({"success": True, "perm_bases": perm_bases})
                             init_done.set()
 
                         elif isinstance(item, OutputFinished):

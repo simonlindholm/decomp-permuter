@@ -24,6 +24,7 @@ from ..scorer import Scorer
 from .common import (
     FilePort,
     Port,
+    exception_to_string,
     json_prop,
     static_assert_unreachable,
 )
@@ -335,7 +336,7 @@ def main() -> None:
                 # This shouldn't practically happen, since the client compiled
                 # the code successfully. Print a message if it does.
                 msg["success"] = False
-                msg["error"] = str(e)
+                msg["error"] = exception_to_string(e)
                 if isinstance(e, CandidateConstructionFailure):
                     print(e.message)
                 else:

@@ -31,6 +31,7 @@ from .permuter import (
     EvalResult,
     Feedback,
     Finished,
+    Message,
     NeedMoreWork,
     Permuter,
     Task,
@@ -392,7 +393,9 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             if isinstance(feedback, Finished):
                 process_finish(feedback, who)
                 continue
-            if isinstance(feedback, NeedMoreWork):
+            if isinstance(feedback, Message):
+                context.printer.print(feedback.text, None, who, keep_progress=True)
+            elif isinstance(feedback, NeedMoreWork):
                 # No result to process, just put a task in the queue.
                 pass
             elif process_result(feedback, who):
@@ -415,6 +418,8 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             feedback, who = feedback_queue.get()
             if isinstance(feedback, Finished):
                 process_finish(feedback, who)
+            elif isinstance(feedback, Message):
+                context.printer.print(feedback.text, None, who, keep_progress=True)
             elif isinstance(feedback, NeedMoreWork):
                 pass
             elif not (options.stop_on_zero and found_zero):

@@ -31,6 +31,16 @@ class EvalError:
 EvalResult = Union[CandidateResult, EvalError]
 
 
+@dataclass
+class Finished:
+    reason: Optional[str] = None
+
+
+@dataclass
+class Message:
+    text: str
+
+
 class NeedMoreWork:
     pass
 
@@ -41,13 +51,8 @@ class WorkDone:
     result: EvalResult
 
 
-@dataclass
-class Finished:
-    reason: Optional[str] = None
-
-
 Task = Union[Finished, Tuple[int, int]]
-Feedback = Tuple[Union[NeedMoreWork, Finished, WorkDone], Optional[str]]
+Feedback = Tuple[Union[Finished, Message, NeedMoreWork, WorkDone], Optional[str]]
 
 
 class Permuter:

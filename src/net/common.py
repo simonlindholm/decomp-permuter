@@ -5,7 +5,7 @@ import socket
 import struct
 import sys
 import toml
-from typing import BinaryIO, NoReturn, Optional, Type, TypeVar, Union
+from typing import BinaryIO, List, NoReturn, Optional, Type, TypeVar, Union
 
 from nacl.encoding import HexEncoder
 from nacl.public import Box, PrivateKey, PublicKey, SealedBox
@@ -48,6 +48,10 @@ class Config:
 
 def static_assert_unreachable(x: NoReturn) -> NoReturn:
     raise Exception("Unreachable! " + repr(x))
+
+
+def exception_to_string(e: object) -> str:
+    return str(e) or e.__class__.__name__
 
 
 def read_config() -> RawConfig:
@@ -139,6 +143,16 @@ def json_prop(obj: dict, prop: str, t: Type[T]) -> T:
         found_type = type(ret).__name__
         raise ValueError(f"Member {prop} must have type {t.__name__}; got {found_type}")
     return ret
+
+
+def json_array(obj: list, t: Type[T]) -> List[T]:
+    for elem in obj:
+        if not isinstance(elem, t):
+            found_type = type(elem).__name__
+            raise ValueError(
+                f"Array elements must have type {t.__name__}; got {found_type}"
+            )
+    return obj
 
 
 def sign_with_magic(magic: bytes, signing_key: SigningKey, data: bytes) -> bytes:

@@ -17,6 +17,7 @@ from ..permuter import (
     EvalResult,
     Feedback,
     Finished,
+    Message,
     NeedMoreWork,
     Permuter,
     Task,
@@ -29,6 +30,8 @@ from .common import (
     Port,
     RemoteServer,
     SocketPort,
+    exception_to_string,
+    json_array,
     json_prop,
     sign_with_magic,
     socket_read_fixed,
@@ -101,6 +104,8 @@ class PortablePermuter:
         self.keep_prob = permuter.keep_prob
         self.stack_differences = permuter.scorer.stack_differences
         self.compressed_source = zlib.compress(permuter.source.encode("utf-8"))
+        self.base_score = permuter.base_score
+        self.base_hash = permuter.base_hash
 
         with open(permuter.scorer.target_o, "rb") as f:
             self.target_o_bin = f.read()
@@ -220,6 +225,24 @@ class Connection:
                 error = json_prop(msg, "error", str)
                 finish_reason = f"failed to compile: {error}"
                 return
+            bases = json_array(json_prop(msg, "perm_bases", list), dict)
+            if len(bases) != len(self._permuters):
+                raise ValueError("perm_bases has wrong size")
+            for i, base in enumerate(bases):
+                base_score = json_prop(base, "base_score", int)
+                base_hash = json_prop(base, "base_hash", str)
+                my_base_score = self._permuters[i].base_score
+                my_base_hash = self._permuters[i].base_hash
+                if base_score != my_base_score:
+                    raise ValueError(
+                        "mismatching base score! "
+                        f"({base_score} instead of {my_base_score})"
+                    )
+                if base_hash != my_base_hash:
+                    self._feedback_queue.put(
+                        (Message("note: mismatching hash"), self._server.nickname)
+                    )
+
             self._feedback_queue.put((NeedMoreWork(), self._server.nickname))
             finished = False
 
@@ -279,7 +302,7 @@ class Connection:
             finish_reason = f"disconnected"
 
         except Exception as e:
-            errmsg = str(e) or e.__class__.__name__
+            errmsg = exception_to_string(e)
             finish_reason = f"error: {errmsg}"
 
         finally:
