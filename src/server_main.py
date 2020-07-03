@@ -203,7 +203,7 @@ def run(options: ServerOptions) -> None:
         server = Server(config, options, port, output_queue)
         server.start()
 
-        go_online(config)
+        go_online(config, options.port)
 
         # TODO: regularly check in with the auth server to maintain an up-to-date IP,
         # and to check version.

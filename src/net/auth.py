@@ -7,6 +7,8 @@ import string
 import sys
 import time
 from typing import List, Optional, Tuple
+import urllib.parse
+import urllib.request
 
 from nacl.encoding import HexEncoder
 from nacl.exceptions import BadSignatureError
@@ -179,13 +181,16 @@ def fetch_servers_and_grant(config: Config) -> Tuple[List[RemoteServer], bytes]:
 
 def fetch_docker_image_name(config: Config) -> str:
     print("Connecting to permuter@home...")
-    # TODO
-    return "ido"
+    with urllib.request.urlopen(config.auth_server + "/docker") as f:
+        ret = f.read()
+        docker_image = verify_with_magic(b"DOCKER", config.auth_verify_key, ret)
+        return docker_image.decode("utf-8")
 
 
-def go_online(config: Config) -> None:
-    # TODO
-    pass
+def go_online(config: Config, port: int) -> None:
+    data = urllib.parse.urlencode({"port": port, "pubkey": config.signing_key.verify_key.encode(),})
+    with urllib.request.urlopen(config.auth_server + "/go-online", data.encode("utf-8")) as f:
+        f.read().decode("utf-8")
 
 
 def go_offline(config: Config) -> None:

@@ -76,7 +76,7 @@ class ClientState:
     eof: bool = False
     init_state: InitState = InitState.UNINIT
     waiting_perms: int = 0
-    perm_bases: List[Optional[Tuple[int, str]]] = []
+    perm_bases: List[Optional[Tuple[int, str]]] = field(default_factory=list)
     cooldown: float = 0.0
 
 
@@ -238,10 +238,10 @@ class ServerHandler(socketserver.BaseRequestHandler):
         msg = socket_read_fixed(sock, 4)
         version = struct.unpack(">I", msg)[0]
 
-        if version == -1:
+        if version == 2**32 - 1:
             # Auth server ping.
             msg = socket_read_fixed(sock, 9 + 32 + 64)
-            magic = verify_with_magic(b"AUTHPING", auth_ver_key, msg[32:])
+            magic = verify_with_magic(b"AUTHPING", auth_ver_key, msg)
             sock.sendall(sign_with_magic(b"AUTHPONG", signing_key, magic))
 
             # Close the connection and raise an exception that the caller will
