@@ -1,5 +1,5 @@
 %%%-------------------------------------------------------------------
-%% @doc authserver public API
+%% @doc authserver main function
 %% @end
 %%%-------------------------------------------------------------------
 
@@ -21,6 +21,7 @@ start(_StartType, _StartArgs) ->
                     {"/", route_root, []},
                     {"/docker", route_docker, []},
                     {"/pubkey", route_pubkey, []},
+                    {"/setup", route_setup, []},
                     {"/go-online", route_go_online, []}
                 ]
             }
@@ -35,5 +36,3 @@ start(_StartType, _StartArgs) ->
 
 stop(_State) ->
     ok.
-
-%% internal functions
