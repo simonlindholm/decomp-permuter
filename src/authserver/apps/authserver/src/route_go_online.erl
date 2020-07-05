@@ -34,7 +34,7 @@ init(Req = #{method := <<"POST">>}, State) ->
         ),
     Message = ReceivedMessage,
 
-    % TODO: Tell in-memory DB about (IP, Port, Pubkey).
+    online_users:put(Pubkey, IP, Port),
 
     Req3 = cowboy_req:reply(
         200,

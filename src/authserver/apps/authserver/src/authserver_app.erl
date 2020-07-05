@@ -11,6 +11,8 @@
 
 start(_StartType, _StartArgs) ->
     {ok, Pid} = authserver_sup:start_link(),
+    online_users:start(),
+
     Dispatch =
         cowboy_router:compile([
             {
