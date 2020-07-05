@@ -22,7 +22,8 @@ start(_StartType, _StartArgs) ->
                     {"/docker", route_docker, []},
                     {"/pubkey", route_pubkey, []},
                     {"/setup", route_setup, []},
-                    {"/go-online", route_go_online, []}
+                    {"/go-online", route_go_online, []},
+                    {"/go-offline", route_go_offline, []}
                 ]
             }
         ]),
