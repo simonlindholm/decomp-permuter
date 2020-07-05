@@ -10,7 +10,10 @@ init(Req, Opts) ->
     Req2 = cowboy_req:reply(
         200,
         #{<<"content-type">> => <<"text/plain">>},
-        maps:get(public, KeyMap),
+        to_hex(maps:get(public, KeyMap)),
         Req
     ),
     {ok, Req2, Opts}.
+
+to_hex(Binary) ->
+    [io_lib:format("~2.16.0B",[X]) || <<X:8>> <= Binary ].
