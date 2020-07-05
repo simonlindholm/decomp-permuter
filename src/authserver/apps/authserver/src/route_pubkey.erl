@@ -16,4 +16,4 @@ init(Req, Opts) ->
     {ok, Req2, Opts}.
 
 to_hex(Binary) ->
-    [io_lib:format("~2.16.0B", [X]) || <<X:8>> <= Binary].
+    [io_lib:format("~2.16.0b", [X]) || <<X:8>> <= Binary].
