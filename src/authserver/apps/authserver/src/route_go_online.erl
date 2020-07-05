@@ -5,17 +5,19 @@
 -export([init/2]).
 
 init(Req = #{method := <<"POST">>}, State) ->
-    % try
-    {IP, _} = cowboy_req:peer(Req),
+    {IPAddr, _} = cowboy_req:peer(Req),
+    IP = inet:ntoa(IPAddr),
 
-    {ok, KeyValues, Req2} = cowboy_req:read_urlencoded_body(Req),
-    Port = proplists:get_value(<<"port">>, KeyValues),
-    Pubkey = proplists:get_value(<<"pubkey">>, KeyValues),
+    {ok, #{port := Port, pubkey := Pubkey}, Req2} =
+        cowboy_req:read_and_match_urlencoded_body(
+            [{port, int}, pubkey],
+            Req
+        ),
 
     {ok, PeerSocket} =
         gen_tcp:connect(
-            inet:ntoa(IP),
-            binary_to_integer(Port),
+            IP,
+            Port,
             [binary, {packet, 0}]
         ),
 
@@ -42,14 +44,7 @@ init(Req = #{method := <<"POST">>}, State) ->
         <<"">>,
         Req2
     ),
-    {ok, Req3, State}
-
-    % catch
-    %     _:_:Stacktrace ->
-    %         erlang:display(Stacktrace)
-    % end
-    ;
-
+    {ok, Req3, State};
 init(Req, State) ->
     Req2 = cowboy_req:reply(
         405,
