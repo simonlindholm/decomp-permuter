@@ -286,8 +286,8 @@ class ServerHandler(socketserver.BaseRequestHandler):
         its request is valid. (We could also ask the central server itself, but
         this saves some complexity and network traffic.)"""
         msg = port.receive()
-        granted_request = auth_ver_key.verify(msg)
-        if granted_request[:32] != client_ver_key:
+        granted_request = verify_with_magic(b"GRANT", auth_ver_key, msg)
+        if granted_request[:32] != client_ver_key.encode():
             raise ValueError("Grant is for another client")
         request = json.loads(granted_request[32:])
         if not isinstance(request, dict):
@@ -299,6 +299,7 @@ class ServerHandler(socketserver.BaseRequestHandler):
         if not valid_from <= time.time() <= valid_until:
             raise ValueError("Grant is no longer valid")
 
+        return "whatever"
         # Read client nickname from the server, signed by the client during
         # registration. (Don't let the client spoof this.)
         signed_nickname = base64.b64decode(request["signed_nickname"])

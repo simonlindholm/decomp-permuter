@@ -34,7 +34,11 @@ handle_call({delete, Pubkey}, _From, State) ->
     NewState = dict:erase(Pubkey, State),
     {reply, ok, NewState};
 handle_call(ls, _From, State) ->
-    {reply, dict:to_list(State), State}.
+    Ret = [
+        #{pubkey => Pubkey, ip => IP, port => Port}
+        || {Pubkey, {IP, Port}} <- dict:to_list(State)
+    ],
+    {reply, Ret, State}.
 
 handle_cast(_Request, State) ->
     {noreply, State}.

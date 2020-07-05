@@ -148,16 +148,16 @@ def fetch_servers_and_grant(config: Config) -> Tuple[List[RemoteServer], bytes]:
         {"pubkey": config.signing_key.verify_key.encode(), "version": "1",}
     )
     with urllib.request.urlopen(
-        config.auth_server + "/list-server", data.encode("utf-8")
+        config.auth_server + "/list-servers", data.encode("utf-8")
     ) as f:
-        raw_resp = f.read().decode("utf-8")
+        raw_resp = f.read()
 
-    raw_resp = config.auth_verify_key.verify(raw_resp)
+    raw_resp = verify_with_magic(b"SERVERLIST", config.auth_verify_key, raw_resp)
     resp = json.loads(raw_resp)
     version = json_prop(resp, "version", int)
     assert version == 1
     grant = base64.b64decode(json_prop(resp, "grant", str))
-    granted_request = config.auth_verify_key.verify(grant)
+    granted_request = verify_with_magic(b"GRANT", config.auth_verify_key, grant)
     assert granted_request[:32] == config.signing_key.verify_key.encode()
 
     server_list = json_prop(resp, "server_list", list)

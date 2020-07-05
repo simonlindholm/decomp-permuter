@@ -13,20 +13,16 @@ start(_StartType, _StartArgs) ->
     {ok, Pid} = authserver_sup:start_link(),
     online_users:start(),
 
-    Dispatch =
-        cowboy_router:compile([
-            {
-                '_',
-                [
-                    {"/", route_root, []},
-                    {"/docker", route_docker, []},
-                    {"/pubkey", route_pubkey, []},
-                    {"/setup", route_setup, []},
-                    {"/go-online", route_go_online, []},
-                    {"/go-offline", route_go_offline, []}
-                ]
-            }
-        ]),
+    Endpoints = [
+        {"/", route_root, []},
+        {"/docker", route_docker, []},
+        {"/go-online", route_go_online, []},
+        {"/go-offline", route_go_offline, []},
+        {"/list-servers", route_list_servers, []},
+        {"/pubkey", route_pubkey, []},
+        {"/setup", route_setup, []}
+    ],
+    Dispatch = cowboy_router:compile([{'_', Endpoints}]),
 
     TransOpts = [{ip, {0, 0, 0, 0}}, {port, 2938}],
     ProtoOpts = #{env => #{dispatch => Dispatch}},
