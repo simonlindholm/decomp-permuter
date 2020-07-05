@@ -8,7 +8,7 @@
 
 % public functions
 start() ->
-  gen_server:start({local, kv_db_server}, ?MODULE, [], []).
+  gen_server:start({local, online_users}, ?MODULE, [], []).
 
 put(Pubkey, IP, Port) ->
   gen_server:call(?MODULE, {put, Pubkey, IP, Port}).

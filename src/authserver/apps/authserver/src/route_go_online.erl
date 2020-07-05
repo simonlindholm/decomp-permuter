@@ -61,7 +61,6 @@ init(Req, State) ->
     {ok, Req2, State}.
 
 receive_data(Socket, SoFar) ->
-    io:format("~p~n", [SoFar]),
     receive
         {tcp, Socket, Bin} ->
             receive_data(Socket, [Bin | SoFar]);
