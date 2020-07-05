@@ -144,15 +144,14 @@ def run_vouch(vouch_text: str) -> None:
 
 def fetch_servers_and_grant(config: Config) -> Tuple[List[RemoteServer], bytes]:
     print("Connecting to permuter@home...")
-    request_obj = {
-        "version": 1,
-    }
-    request = json.dumps(request_obj).encode("utf-8")
-    data = config.signing_key.sign(request)
+    data = urllib.parse.urlencode(
+        {"pubkey": config.signing_key.verify_key.encode(), "version": "1",}
+    )
+    with urllib.request.urlopen(
+        config.auth_server + "/list-server", data.encode("utf-8")
+    ) as f:
+        raw_resp = f.read().decode("utf-8")
 
-    # TODO: send 'data' to auth server, receive 'resp'
-
-    raw_resp = b""
     raw_resp = config.auth_verify_key.verify(raw_resp)
     resp = json.loads(raw_resp)
     version = json_prop(resp, "version", int)
@@ -188,8 +187,12 @@ def fetch_docker_image_name(config: Config) -> str:
 
 
 def go_online(config: Config, port: int) -> None:
-    data = urllib.parse.urlencode({"port": port, "pubkey": config.signing_key.verify_key.encode(),})
-    with urllib.request.urlopen(config.auth_server + "/go-online", data.encode("utf-8")) as f:
+    data = urllib.parse.urlencode(
+        {"port": port, "pubkey": config.signing_key.verify_key.encode(),}
+    )
+    with urllib.request.urlopen(
+        config.auth_server + "/go-online", data.encode("utf-8")
+    ) as f:
         f.read().decode("utf-8")
 
 
