@@ -10,14 +10,15 @@
 -export([start_link/0]).
 -export([init/1]).
 
--define(SERVER, ?MODULE).
-
 start_link() ->
-    supervisor:start_link({local, ?SERVER}, ?MODULE, []).
+    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    SupFlags = #{strategy => one_for_all, intensity => 0, period => 1},
-    ChildSpecs = [],
+    SupFlags = #{},
+    ChildSpecs = [
+        #{
+            id => online_users,
+            start => {online_users, start_link, []}
+        }
+    ],
     {ok, {SupFlags, ChildSpecs}}.
-
-%% internal functions

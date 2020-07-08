@@ -11,7 +11,6 @@
 
 start(_StartType, _StartArgs) ->
     {ok, Pid} = authserver_sup:start_link(),
-    online_users:start(),
 
     Endpoints = [
         {"/", route_root, []},

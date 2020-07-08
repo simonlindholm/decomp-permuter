@@ -3,11 +3,11 @@
 -behaviour(gen_server).
 
 -export([init/1, handle_call/3, handle_cast/2]).
--export([start/0, put/3, get/1, delete/1, ls/0]).
+-export([start_link/0, put/3, get/1, delete/1, ls/0]).
 
 % public functions
-start() ->
-    gen_server:start({local, online_users}, ?MODULE, [], []).
+start_link() ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 put(Pubkey, IP, Port) ->
     gen_server:call(?MODULE, {put, Pubkey, IP, Port}).
