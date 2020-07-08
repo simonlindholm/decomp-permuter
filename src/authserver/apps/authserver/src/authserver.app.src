@@ -1,5 +1,5 @@
 {application, authserver,
- [{description, "An OTP application"},
+ [{description, "permuter@home auth server"},
   {vsn, "0.1.0"},
   {registered, []},
   {mod, {authserver_app, []}},
@@ -11,8 +11,5 @@
     jsone
    ]},
   {env,[]},
-  {modules, []},
-
-  {licenses, ["Apache 2.0"]},
-  {links, []}
+  {modules, []}
  ]}.
