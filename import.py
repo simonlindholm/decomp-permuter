@@ -376,7 +376,7 @@ def try_strip_other_fns_and_write(source, func_name, base_c_file):
     try:
         strip_other_fns_and_write(source, func_name, base_c_file)
     except Exception:
-        trackback.print_exc()
+        traceback.print_exc()
         print(
             "Warning: failed to remove other functions. Edit {base_c_file} and remove them manually."
         )
