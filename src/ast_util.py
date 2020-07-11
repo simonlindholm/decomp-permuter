@@ -37,6 +37,8 @@ def to_c(node: ca.Node) -> str:
     lines = source.split("\n")
     out = []
     same_line = 0
+    in_late_defines = False
+    late_defines = []
     for line in lines:
         stripped = line.strip()
         if stripped.startswith("#pragma"):
@@ -46,10 +48,21 @@ def to_c(node: ca.Node) -> str:
                 same_line -= 1
                 if same_line == 0:
                     out.append("\n")
+            elif stripped == "#pragma _permuter latedefine start":
+                assert not in_late_defines
+                in_late_defines = True
+            elif stripped == "#pragma _permuter latedefine end":
+                assert in_late_defines
+                in_late_defines = False
+            elif stripped.startswith("#pragma _permuter define "):
+                assert in_late_defines
+                out.append("#" + stripped.split(" ", 2)[2] + "\n")
 
             # Ignore permuter pragmas, but leave actual pragmas in (like intrinsics)
             if stripped.startswith("#pragma _permuter"):
                 continue
+        if in_late_defines:
+            continue
         if not same_line:
             line += "\n"
         elif out and not out[-1].endswith("\n"):

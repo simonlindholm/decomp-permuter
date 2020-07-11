@@ -7,6 +7,7 @@ import subprocess
 import shutil
 import argparse
 import shlex
+from collections import defaultdict
 
 from strip_other_fns import strip_other_fns_and_write
 
@@ -21,7 +22,16 @@ ASM_PRELUDE = """
     \label:
 .endm
 """
+
 DEFAULT_AS_CMDLINE = ["mips-linux-gnu-as", "-march=vr4300", "-mabi=32"]
+
+CPP = ["cpp", "-P", "-undef"]
+
+STUB_FN_MACROS = [
+    "-D_Static_assert(x, y)=",
+    "-D__attribute__(x)=",
+    "-DGLOBAL_ASM(...)=",
+]
 
 
 def formatcmd(cmdline):
@@ -189,10 +199,97 @@ def find_build_command_line(c_file, make_flags):
     return output[0], assembler, makefile_dir
 
 
-def import_c_file(compiler, cwd, in_file):
+def preprocess_c_with_macros(cpp_command, cwd):
+    """Import C file, preserving function macros. Subroutine of import_c_file."""
+
+    # Start by running 'cpp' in a mode that just processes ifdefs and includes.
+    source = subprocess.check_output(
+        cpp_command + ["-dD", "-fdirectives-only"], cwd=cwd, encoding="utf-8"
+    )
+
+    # Determine which function macros to preserve. We don't want to preserve
+    # calls that occur in a global context, since function calls would be
+    # invalid there. As a very lazy proxy for this, we check which calls occur
+    # unindented.
+    expand_macros = set()
+    for m in re.finditer(r"^([a-zA-Z0-9_]+)\(", source, flags=re.MULTILINE):
+        expand_macros.add(m.group(1))
+
+    # Modify function macros that match these names so the preprocessor
+    # doesn't touch them. Some of these instances may be in comments, but
+    # that's fine.
+    def repl(match):
+        name = match.group(1)
+        if name in expand_macros:
+            return f"#define {name}("
+        else:
+            return f"_permuter define {name}("
+
+    source = re.sub(r"^#define ([a-zA-Z0-9_]+)\(", repl, source, flags=re.MULTILINE)
+
+    # Get rid of auto-inserted macros which the second cpp invocation will
+    # warn about.
+    source = re.sub(r"^#define __STDC_.*\n", "", source, flags=re.MULTILINE)
+
+    # Now, run the preprocessor again for real.
+    source = subprocess.check_output(
+        CPP + STUB_FN_MACROS, cwd=cwd, encoding="utf-8", input=source
+    )
+
+    # Finally, find all function-like defines that we hid (some might have
+    # been comments, so we couldn't do this before), and construct fake
+    # function declarations for them in a specially demarcated section of
+    # the file. When the compiler runs, this section will be replaced by
+    # the real defines and the preprocessor invoked once more.
+    late_defines = []
+    lines = []
+    graph = defaultdict(list)
+    reg_calls = re.compile(r"([a-zA-Z0-9_]+)\(")
+    for line in source.splitlines():
+        if line.startswith("_permuter define "):
+            before, after = line.split("(", 1)
+            name = before.split()[2]
+            late_defines.append((name, after))
+        else:
+            lines.append(line)
+            name = ""
+        for m in reg_calls.finditer(line):
+            name2 = m.group(1)
+            graph[name].append(name2)
+
+    # Prune away (recursively) unused function macros, for cleanliness.
+    used_anywhere = set()
+    used_by_nonmacro = set(graph[""])
+    queue = [""]
+    while queue:
+        name = queue.pop()
+        if name not in used_anywhere:
+            used_anywhere.add(name)
+            queue.extend(graph[name])
+
+    return "\n".join(
+        ["#pragma _permuter latedefine start"]
+        + [
+            f"#pragma _permuter define {name}({after}"
+            for (name, after) in late_defines
+            if name in used_anywhere
+        ]
+        + [
+            f"int {name}();"
+            for (name, after) in late_defines
+            if name in used_by_nonmacro
+        ]
+        + ["#pragma _permuter latedefine end"]
+        + lines
+        + [""]
+    )
+
+
+def import_c_file(compiler, cwd, in_file, preserve_macros):
     in_file = os.path.relpath(in_file, cwd)
     include_next = 0
-    cpp_command = ["cpp", "-P"]
+    cpp_command = CPP + [in_file, "-D__sgi", "-D_LANGUAGE_C", "-DNON_MATCHING"]
+
     for arg in compiler:
         if include_next > 0:
             include_next -= 1
@@ -210,25 +307,18 @@ def import_c_file(compiler, cwd, in_file):
         ):
             cpp_command.append(arg)
 
-    cpp_command.extend(
-        [
-            "-undef",
-            "-D__sgi",
-            "-D_LANGUAGE_C",
-            "-DNON_MATCHING",
-            "-D_Static_assert(x, y)=",
-            "-D__attribute__(x)=",
-            "-DGLOBAL_ASM(...)=",
-        ]
-    )
-    cpp_command.append(in_file)
-
     try:
-        return subprocess.check_output(cpp_command, cwd=cwd, encoding="utf-8")
-    except subprocess.CalledProcessError:
+        if preserve_macros:
+            return preprocess_c_with_macros(cpp_command, cwd)
+
+        return subprocess.check_output(
+            cpp_command + STUB_FN_MACROS, cwd=cwd, encoding="utf-8"
+        )
+
+    except subprocess.CalledProcessError as e:
         print(
             "Failed to preprocess input file, when running command:\n"
-            + formatcmd(cpp_command),
+            + formatcmd(e.cmd),
             file=sys.stderr,
         )
         sys.exit(1)
@@ -317,6 +407,11 @@ def main():
     parser.add_argument(
         "--keep", action="store_true", help="Keep the directory on error."
     )
+    parser.add_argument(
+        "--preserve-macros",
+        action="store_true",
+        help="Don't expand function-like macros.",
+    )
     args = parser.parse_args()
 
     make_flags = args.make_flags + ["PERMUTER=1"]
@@ -328,7 +423,7 @@ def main():
     print(f"Compiler: {formatcmd(compiler)} {{input}} -o {{output}}")
     print(f"Assembler: {formatcmd(assembler)} {{input}} -o {{output}}")
 
-    source = import_c_file(compiler, cwd, args.c_file)
+    source = import_c_file(compiler, cwd, args.c_file, args.preserve_macros)
 
     dirname = create_directory(func_name)
     base_c_file = f"{dirname}/base.c"
