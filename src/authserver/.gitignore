@@ -17,4 +17,4 @@ _build
 *.iml
 rebar3.crashdump
 *~
-priv.config
+sys.config
