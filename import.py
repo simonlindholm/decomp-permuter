@@ -7,7 +7,8 @@ import subprocess
 import shutil
 import argparse
 import shlex
-from typing import Dict, List, Match, Optional, Set, Tuple
+import toml
+from typing import Callable, Dict, List, Match, Mapping, Optional, Pattern, Set, Tuple
 from collections import defaultdict
 
 from strip_other_fns import strip_other_fns_and_write
@@ -33,6 +34,8 @@ STUB_FN_MACROS: List[str] = [
     "-D__attribute__(x)=",
     "-DGLOBAL_ASM(...)=",
 ]
+
+SETTINGS_FILES = ["permuter_settings.toml", "tools/permuter_settings.toml"]
 
 
 def formatcmd(cmdline: List[str]) -> str:
@@ -204,33 +207,74 @@ def find_build_command_line(
     return output[0], assembler, makefile_dir
 
 
-def preprocess_c_with_macros(cpp_command: List[str], cwd: str) -> str:
+PreserveMacros = Tuple[Pattern[str], Callable[[str], str]]
+
+
+def build_preserve_macros(
+    cwd: str, preserve_regex: Optional[str]
+) -> Optional[PreserveMacros]:
+    data: Mapping[str, object] = {}
+    for filename in SETTINGS_FILES:
+        filename = os.path.join(cwd, filename)
+        if os.path.exists(filename):
+            with open(filename) as f:
+                data = toml.load(f)
+            break
+
+    subdata = data.get("preserve_macros", {})
+    assert isinstance(subdata, dict)
+    regexes = []
+    for regex, value in subdata.items():
+        assert isinstance(value, str)
+        regexes.append((re.compile(f"^(?:{regex})$"), value))
+
+    if preserve_regex == "" or (preserve_regex is None and not regexes):
+        return None
+
+    if preserve_regex is None:
+        global_regex_text = "(?:" + ")|(?:".join(subdata.keys()) + ")"
+    else:
+        global_regex_text = preserve_regex
+    global_regex = re.compile(f"^(?:{global_regex_text})$")
+
+    def type_fn(macro: str) -> str:
+        for regex, value in regexes:
+            if regex.match(macro):
+                return value
+        return "int"
+
+    return global_regex, type_fn
+
+
+def preprocess_c_with_macros(
+    cpp_command: List[str], cwd: str, preserve_macros: PreserveMacros
+) -> Tuple[str, List[str]]:
     """Import C file, preserving function macros. Subroutine of import_c_file."""
+
+    preserve_regex, preserve_type_fn = preserve_macros
 
     # Start by running 'cpp' in a mode that just processes ifdefs and includes.
     source = subprocess.check_output(
         cpp_command + ["-dD", "-fdirectives-only"], cwd=cwd, encoding="utf-8"
     )
 
-    # Determine which function macros to preserve. We don't want to preserve
-    # calls that occur in a global context, since function calls would be
-    # invalid there. As a very lazy proxy for this, we check which calls occur
-    # unindented.
-    expand_macros = set()
-    for m in re.finditer(r"^([a-zA-Z0-9_]+)\(", source, flags=re.MULTILINE):
-        expand_macros.add(m.group(1))
-
-    # Modify function macros that match these names so the preprocessor
-    # doesn't touch them. Some of these instances may be in comments, but
-    # that's fine.
+    # Modify function macros that match preserved names so the preprocessor
+    # doesn't touch them, and at the same time normalize their syntax. Some
+    # of these instances may be in comments, but that's fine.
     def repl(match: Match[str]) -> str:
         name = match.group(1)
-        if name in expand_macros:
-            return f"#define {name}("
+        after = "(" if match.group(2) == "(" else " "
+        if preserve_regex.match(name):
+            return f"_permuter define {name}{after}"
         else:
-            return f"_permuter define {name}("
+            return f"#define {name}{after}"
 
-    source = re.sub(r"^#define ([a-zA-Z0-9_]+)\(", repl, source, flags=re.MULTILINE)
+    source = re.sub(
+        r"^\s*#\s*define\s+([a-zA-Z0-9_]+)([ \t\(]|$)",
+        repl,
+        source,
+        flags=re.MULTILINE,
+    )
 
     # Get rid of auto-inserted macros which the second cpp invocation will
     # warn about.
@@ -248,23 +292,29 @@ def preprocess_c_with_macros(cpp_command: List[str], cwd: str) -> str:
     # the real defines and the preprocessor invoked once more.
     late_defines = []
     lines = []
-    graph = defaultdict(list)
-    reg_calls = re.compile(r"([a-zA-Z0-9_]+)\(")
+    graph = defaultdict(set)
+    reg_token = re.compile(r"([a-zA-Z0-9_]+)")
     for line in source.splitlines():
         if line.startswith("_permuter define "):
-            before, after = line.split("(", 1)
+            ind1 = line.find("(")
+            ind2 = line.find(" ", len("_permuter define "))
+            ind = min(ind1, ind2)
+            if ind == -1:
+                ind = len(line) if ind1 == ind2 == -1 else max(ind1, ind2)
+            before = line[:ind]
+            after = line[ind:]
             name = before.split()[2]
             late_defines.append((name, after))
         else:
             lines.append(line)
             name = ""
-        for m in reg_calls.finditer(line):
+        for m in reg_token.finditer(line):
             name2 = m.group(1)
-            graph[name].append(name2)
+            graph[name].add(name2)
 
-    # Prune away (recursively) unused function macros, for cleanliness.
+    # Prune away (recursively) unused macros, for cleanliness.
     used_anywhere = set()
-    used_by_nonmacro = set(graph[""])
+    used_by_nonmacro = graph[""]
     queue = [""]
     while queue:
         name = queue.pop()
@@ -272,27 +322,42 @@ def preprocess_c_with_macros(cpp_command: List[str], cwd: str) -> str:
             used_anywhere.add(name)
             queue.extend(graph[name])
 
-    return "\n".join(
-        ["#pragma _permuter latedefine start"]
-        + [
-            f"#pragma _permuter define {name}({after}"
-            for (name, after) in late_defines
-            if name in used_anywhere
-        ]
-        + [
-            f"int {name}();"
-            for (name, after) in late_defines
-            if name in used_by_nonmacro
-        ]
-        + ["#pragma _permuter latedefine end"]
-        + lines
-        + [""]
+    def get_decl(name: str, after: str) -> str:
+        typ = preserve_type_fn(name)
+        if after.startswith("("):
+            return f"{typ} {name}();"
+        else:
+            return f"extern {typ} {name};"
+
+    used_macros = [name for (name, after) in late_defines if name in used_by_nonmacro]
+
+    return (
+        "\n".join(
+            ["#pragma _permuter latedefine start"]
+            + [
+                f"#pragma _permuter define {name}{after}"
+                for (name, after) in late_defines
+                if name in used_anywhere
+            ]
+            + [
+                get_decl(name, after)
+                for (name, after) in late_defines
+                if name in used_by_nonmacro
+            ]
+            + ["#pragma _permuter latedefine end"]
+            + lines
+            + [""]
+        ),
+        used_macros,
     )
 
 
 def import_c_file(
-    compiler: List[str], cwd: str, in_file: str, preserve_macros: bool
-) -> str:
+    compiler: List[str],
+    cwd: str,
+    in_file: str,
+    preserve_macros: Optional[PreserveMacros],
+) -> Tuple[str, List[str]]:
     in_file = os.path.relpath(in_file, cwd)
     include_next = 0
     cpp_command = CPP + [in_file, "-D__sgi", "-D_LANGUAGE_C", "-DNON_MATCHING"]
@@ -315,12 +380,16 @@ def import_c_file(
             cpp_command.append(arg)
 
     try:
-        if preserve_macros:
-            return preprocess_c_with_macros(cpp_command, cwd)
+        if preserve_macros is None:
+            # Simple codepath, should work even if the more complex one breaks.
+            return (
+                subprocess.check_output(
+                    cpp_command + STUB_FN_MACROS, cwd=cwd, encoding="utf-8"
+                ),
+                [],
+            )
 
-        return subprocess.check_output(
-            cpp_command + STUB_FN_MACROS, cwd=cwd, encoding="utf-8"
-        )
+        return preprocess_c_with_macros(cpp_command, cwd, preserve_macros)
 
     except subprocess.CalledProcessError as e:
         print(
@@ -418,10 +487,14 @@ def main() -> None:
     parser.add_argument(
         "--keep", action="store_true", help="Keep the directory on error."
     )
+    settings_files = ", ".join(SETTINGS_FILES[:-1]) + " or " + SETTINGS_FILES[-1]
     parser.add_argument(
         "--preserve-macros",
-        action="store_true",
-        help="Don't expand function-like macros.",
+        metavar="REGEX",
+        dest="preserve_macros_regex",
+        help="Regex for which macros to preserve, or empty string for no macros. "
+        f"By default, this is read from {settings_files} in the imported "
+        "file's Makefile's directory. Type information is also read from this file.",
     )
     args = parser.parse_args()
 
@@ -434,7 +507,8 @@ def main() -> None:
     print(f"Compiler: {formatcmd(compiler)} {{input}} -o {{output}}")
     print(f"Assembler: {formatcmd(assembler)} {{input}} -o {{output}}")
 
-    source = import_c_file(compiler, cwd, args.c_file, args.preserve_macros)
+    preserve_macros = build_preserve_macros(cwd, args.preserve_macros_regex)
+    source, macros = import_c_file(compiler, cwd, args.c_file, preserve_macros)
 
     dirname = create_directory(func_name)
     base_c_file = f"{dirname}/base.c"
@@ -458,6 +532,11 @@ def main() -> None:
             shutil.rmtree(dirname)
         raise
 
+    if macros:
+        macro_str = "macros: " + ", ".join(macros)
+    else:
+        macro_str = "no macros"
+    print(f"Preserving {macro_str}. Use --preserve-macros='<regex>' to override.")
     print(f"\nDone. Imported into {dirname}")
 
 
