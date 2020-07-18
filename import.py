@@ -7,12 +7,13 @@ import subprocess
 import shutil
 import argparse
 import shlex
+from typing import Dict, List, Match, Optional, Set, Tuple
 from collections import defaultdict
 
 from strip_other_fns import strip_other_fns_and_write
 
 
-ASM_PRELUDE = """
+ASM_PRELUDE: str = """
 .set noat
 .set noreorder
 .set gp=64
@@ -23,22 +24,22 @@ ASM_PRELUDE = """
 .endm
 """
 
-DEFAULT_AS_CMDLINE = ["mips-linux-gnu-as", "-march=vr4300", "-mabi=32"]
+DEFAULT_AS_CMDLINE: List[str] = ["mips-linux-gnu-as", "-march=vr4300", "-mabi=32"]
 
-CPP = ["cpp", "-P", "-undef"]
+CPP: List[str] = ["cpp", "-P", "-undef"]
 
-STUB_FN_MACROS = [
+STUB_FN_MACROS: List[str] = [
     "-D_Static_assert(x, y)=",
     "-D__attribute__(x)=",
     "-DGLOBAL_ASM(...)=",
 ]
 
 
-def formatcmd(cmdline):
+def formatcmd(cmdline: List[str]) -> str:
     return " ".join(shlex.quote(arg) for arg in cmdline)
 
 
-def parse_asm(asm_file):
+def parse_asm(asm_file: str) -> Tuple[str, str]:
     func_name = None
     asm_lines = []
     try:
@@ -78,7 +79,7 @@ def parse_asm(asm_file):
     return func_name, "".join(asm_lines)
 
 
-def create_directory(func_name):
+def create_directory(func_name: str) -> str:
     os.makedirs(f"nonmatchings/", exist_ok=True)
     ctr = 0
     while True:
@@ -92,7 +93,7 @@ def create_directory(func_name):
             pass
 
 
-def find_makefile_dir(filename):
+def find_makefile_dir(filename: str) -> str:
     old_dirname = None
     dirname = os.path.abspath(os.path.dirname(filename))
     while dirname and (not old_dirname or len(dirname) < len(old_dirname)):
@@ -106,7 +107,9 @@ def find_makefile_dir(filename):
     sys.exit(1)
 
 
-def fixup_build_command(parts, ignore_part):
+def fixup_build_command(
+    parts: List[str], ignore_part: str
+) -> Tuple[List[str], Optional[List[str]]]:
     res = []
     skip_count = 0
     assembler = None
@@ -140,7 +143,9 @@ def fixup_build_command(parts, ignore_part):
     return res, assembler
 
 
-def find_build_command_line(c_file, make_flags):
+def find_build_command_line(
+    c_file: str, make_flags: List[str]
+) -> Tuple[List[str], List[str], str]:
     makefile_dir = find_makefile_dir(os.path.abspath(os.path.dirname(c_file)))
     rel_c_file = os.path.relpath(c_file, makefile_dir)
     make_cmd = ["make", "--always-make", "--dry-run", "--debug=j"] + make_flags
@@ -187,7 +192,7 @@ def find_build_command_line(c_file, make_flags):
         sys.exit(1)
 
     if len(output) > 1:
-        output_lines = "\n".join(output)
+        output_lines = "\n".join(map(formatcmd, output))
         print(
             f"Error: found multiple compile commands for {rel_c_file}:\n{output_lines}\n"
             "Please modify the makefile such that if PERMUTER = 1, "
@@ -199,7 +204,7 @@ def find_build_command_line(c_file, make_flags):
     return output[0], assembler, makefile_dir
 
 
-def preprocess_c_with_macros(cpp_command, cwd):
+def preprocess_c_with_macros(cpp_command: List[str], cwd: str) -> str:
     """Import C file, preserving function macros. Subroutine of import_c_file."""
 
     # Start by running 'cpp' in a mode that just processes ifdefs and includes.
@@ -218,7 +223,7 @@ def preprocess_c_with_macros(cpp_command, cwd):
     # Modify function macros that match these names so the preprocessor
     # doesn't touch them. Some of these instances may be in comments, but
     # that's fine.
-    def repl(match):
+    def repl(match: Match[str]) -> str:
         name = match.group(1)
         if name in expand_macros:
             return f"#define {name}("
@@ -285,7 +290,9 @@ def preprocess_c_with_macros(cpp_command, cwd):
     )
 
 
-def import_c_file(compiler, cwd, in_file, preserve_macros):
+def import_c_file(
+    compiler: List[str], cwd: str, in_file: str, preserve_macros: bool
+) -> str:
     in_file = os.path.relpath(in_file, cwd)
     include_next = 0
     cpp_command = CPP + [in_file, "-D__sgi", "-D_LANGUAGE_C", "-DNON_MATCHING"]
@@ -324,7 +331,7 @@ def import_c_file(compiler, cwd, in_file, preserve_macros):
         sys.exit(1)
 
 
-def write_compile_command(compiler, cwd, out_file):
+def write_compile_command(compiler: List[str], cwd: str, out_file: str) -> None:
     with open(out_file, "w", encoding="utf-8") as f:
         f.write("#!/usr/bin/env bash\n")
         f.write('INPUT="$(readlink -f "$1")"\n')
@@ -334,13 +341,13 @@ def write_compile_command(compiler, cwd, out_file):
     os.chmod(out_file, 0o755)
 
 
-def write_asm(asm_cont, out_file):
+def write_asm(asm_cont: str, out_file: str) -> None:
     with open(out_file, "w", encoding="utf-8") as f:
         f.write(ASM_PRELUDE)
         f.write(asm_cont)
 
 
-def compile_asm(assembler, cwd, in_file, out_file):
+def compile_asm(assembler: List[str], cwd: str, in_file: str, out_file: str) -> None:
     in_file = os.path.abspath(in_file)
     out_file = os.path.abspath(out_file)
     cmdline = assembler + [in_file, "-o", out_file]
@@ -354,7 +361,7 @@ def compile_asm(assembler, cwd, in_file, out_file):
         sys.exit(1)
 
 
-def compile_base(compile_script, in_file, out_file):
+def compile_base(compile_script: str, in_file: str, out_file: str) -> None:
     in_file = os.path.abspath(in_file)
     out_file = os.path.abspath(out_file)
     compile_cmd = [compile_script, in_file, "-o", out_file]
@@ -367,15 +374,19 @@ def compile_base(compile_script, in_file, out_file):
         )
 
 
-def write_to_file(cont, filename):
+def write_to_file(cont: str, filename: str) -> None:
     with open(filename, "w", encoding="utf-8") as f:
         f.write(cont)
 
 
-def try_strip_other_fns_and_write(source, func_name, base_c_file):
+def try_strip_other_fns_and_write(
+    source: str, func_name: str, base_c_file: str
+) -> None:
     try:
         strip_other_fns_and_write(source, func_name, base_c_file)
     except Exception:
+        import traceback
+
         traceback.print_exc()
         print(
             "Warning: failed to remove other functions. Edit {base_c_file} and remove them manually."
@@ -384,7 +395,7 @@ def try_strip_other_fns_and_write(source, func_name, base_c_file):
             f.write(source)
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Import a function for use with the permuter. "
         "Will create a new directory nonmatchings/<funcname>-<id>/."
