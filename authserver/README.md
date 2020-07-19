@@ -14,8 +14,8 @@ To setup your own copy of the auth server:
 - Make a request to `http://localhost:<port>/setup` and follow the instructions there.
   This will set the `priv_seed` part of sys.config, and set up an initial trusted client.
 - Stop the server with `q().`.
-- Set up a reverse proxy that forwards HTTPS traffic from an external port to HTTP for
-  the port in sys.config, e.g. using Nginx or Traefik.
-  If applicable, configure your firewall to let this port through.
+- Set up a reverse proxy that forwards HTTPS traffic from an external port or route
+  to HTTP for the port in sys.config, e.g. using Nginx or Traefik.
+  If applicable, configure your firewall to let the external port through.
 - Start the server with `./run.sh -daemon`, and configure the system to run this at startup.
-  (To get an interactive shell, use `to_erl`.)
+  To get an interactive shell at this point, use `to_erl`.
