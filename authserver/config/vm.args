@@ -1,6 +1,2 @@
--sname authserver
-
--setcookie authserver_cookie
-
 +K true
-+A30
++A5

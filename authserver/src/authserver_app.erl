@@ -7,7 +7,7 @@
 
 -behaviour(application).
 
--export([start/2, stop/1]).
+-export([start/0, start/2, stop/1]).
 
 start(_StartType, _StartArgs) ->
     {ok, Pid} = authserver_sup:start_link(),
@@ -32,3 +32,6 @@ start(_StartType, _StartArgs) ->
 
 stop(_State) ->
     ok.
+
+start() ->
+    {ok, _} = application:ensure_all_started(authserver).
