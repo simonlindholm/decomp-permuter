@@ -1454,12 +1454,19 @@ def perm_split_assignment(
 
     split = random.choice(binops)
 
+    typemap = build_typemap(ast)
+    vartype = decayed_expr_type(var, typemap)
+
     # Choose which side to move to a new assignment
     if random.choice([True, False]):
         side = split.left
+        sidetype = decayed_expr_type(side, typemap)
+        ensure(same_type(vartype, sidetype, typemap, allow_similar=True))
         split.left = copy.deepcopy(var)
     else:
         side = split.right
+        sidetype = decayed_expr_type(side, typemap)
+        ensure(same_type(vartype, sidetype, typemap, allow_similar=True))
         split.right = copy.deepcopy(var)
 
     # The assignment is always inserted before the original
