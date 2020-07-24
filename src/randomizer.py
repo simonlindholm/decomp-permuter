@@ -357,7 +357,10 @@ def random_type(random: Random) -> SimpleType:
         new_names.append("unsigned")
     new_names.append(random.choice(["char", "short", "int", "int"]))
     idtype = ca.IdentifierType(names=new_names)
-    return ca.TypeDecl(declname=None, quals=[], type=idtype)
+    quals = []
+    if random.choice([True, False]):
+        quals = ['volatile']
+    return ca.TypeDecl(declname=None, quals=quals, type=idtype)
 
 
 def randomize_type(
