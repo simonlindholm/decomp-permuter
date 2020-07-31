@@ -52,6 +52,7 @@ class Options:
     print_diffs: bool = attr.ib(default=False)
     stack_differences: bool = attr.ib(default=False)
     abort_exceptions: bool = attr.ib(default=False)
+    better_only: bool = attr.ib(default=False)
     stop_on_zero: bool = attr.ib(default=False)
     keep_prob: float = attr.ib(default=DEFAULT_RAND_KEEP_PROB)
     force_seed: Optional[str] = attr.ib(default=None)
@@ -308,7 +309,10 @@ def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> 
     if (
         score_value is not None
         and score_hash is not None
-        and score_value <= permuter.base_score
+        and (
+            score_value < permuter.base_score
+            or (score_value == permuter.base_score and not context.options.better_only)
+        )
         and score_hash not in permuter.hashes
     ):
         if score_value != 0:
@@ -596,6 +600,12 @@ def main() -> None:
         help="Stop execution when an internal permuter exception occurs.",
     )
     parser.add_argument(
+        "--better-only",
+        dest="better_only",
+        action="store_true",
+        help="Only report scores better than the base.",
+    )
+    parser.add_argument(
         "--stop-on-zero",
         dest="stop_on_zero",
         action="store_true",
@@ -632,6 +642,7 @@ def main() -> None:
         show_timings=args.show_timings,
         print_diffs=args.print_diffs,
         abort_exceptions=args.abort_exceptions,
+        better_only=args.better_only,
         stack_differences=args.stack_differences,
         stop_on_zero=args.stop_on_zero,
         keep_prob=args.keep_prob,
