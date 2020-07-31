@@ -36,12 +36,12 @@ from .preprocess import preprocess
 from .compiler import Compiler
 from .scorer import Scorer
 from .perm.perm import EvalState
-from .candidate import Candidate
+from .candidate import Candidate, CandidateResult
 from .profiler import Profiler
 
 # The probability that the randomizer continues transforming the output it
 # generated last time.
-RANDOMIZER_KEEP_PROB = 0.6
+DEFAULT_RAND_KEEP_PROB = 0.6
 
 
 @attr.s
@@ -50,8 +50,11 @@ class Options:
     show_errors: bool = attr.ib(default=False)
     show_timings: bool = attr.ib(default=False)
     print_diffs: bool = attr.ib(default=False)
+    stack_differences: bool = attr.ib(default=False)
     abort_exceptions: bool = attr.ib(default=False)
     better_only: bool = attr.ib(default=False)
+    stop_on_zero: bool = attr.ib(default=False)
+    keep_prob: float = attr.ib(default=DEFAULT_RAND_KEEP_PROB)
     force_seed: Optional[str] = attr.ib(default=None)
     threads: int = attr.ib(default=1)
 
@@ -71,7 +74,7 @@ class EvalError:
     seed: Optional[Tuple[int, int]] = attr.ib()
 
 
-EvalResult = Union[Tuple[Candidate, Profiler], EvalError]
+EvalResult = Union[CandidateResult, EvalError]
 
 
 class Permuter:
@@ -88,7 +91,10 @@ class Permuter:
         scorer: Scorer,
         source_file: str,
         source: str,
+        *,
         force_rng_seed: Optional[int],
+        keep_prob: float,
+        need_all_sources: bool,
     ) -> None:
         self.dir = dir
         self.random = Random()
@@ -116,11 +122,15 @@ class Permuter:
         self.force_rng_seed = force_rng_seed
         self.cur_seed: Optional[Tuple[int, int]] = None
 
-        self.base, base_score, base_hash = self.create_and_score_base()
-        self.hashes = {base_hash}
+        self.keep_prob = keep_prob
+        self.need_all_sources = need_all_sources
+
+        self.base, base_score, self.base_hash = self.create_and_score_base()
+        self.hashes = {self.base_hash}
         self.cand: Optional[Candidate] = None
         self.base_score: int = base_score
         self.best_score: int = base_score
+        self._last_score: Optional[int] = None
 
     def reseed_random(self) -> None:
         self.random = Random()
@@ -133,17 +143,30 @@ class Permuter:
         o_file = base_cand.compile(self.compiler, show_errors=True)
         if not o_file:
             raise Exception(f"Unable to compile {self.source_file}")
-        base_score, base_hash = base_cand.score(self.scorer, o_file)
-        return base_cand, base_score, base_hash
+        base_result = base_cand.score(self.scorer, o_file)
+        return base_cand, base_result.score, base_result.hash
 
-    def eval_candidate(self, seed: int) -> Tuple[Candidate, Profiler]:
+    def need_to_send_source(self, result: CandidateResult) -> bool:
+        if self.need_all_sources:
+            return True
+        if result.score < self.base_score:
+            return True
+        if result.score == self.base_score:
+            return result.hash != self.base_hash
+        return False
+
+    def eval_candidate(self, seed: int) -> CandidateResult:
         t0 = time.time()
 
-        # Determine if we should keep the last candidate
+        # Determine if we should keep the last candidate.
+        # Don't keep 0-score candidates; we'll only create new, worse, zeroes.
         keep = (
             self.permutations.is_random()
-            and self.random.uniform(0, 1) < RANDOMIZER_KEEP_PROB
+            and self.random.uniform(0, 1) < self.keep_prob
+            and self._last_score != 0
         ) or self.force_rng_seed
+
+        self._last_score = None
 
         # Create a new candidate if we didn't keep the last one (or if the last one didn't exist)
         # N.B. if we decide to keep the previous candidate, we will skip over the provided seed.
@@ -163,32 +186,41 @@ class Permuter:
 
         t1 = time.time()
 
-        o_file = self.cand.compile(self.compiler)
+        self.cand.get_source()
 
         t2 = time.time()
 
-        self.cand.score(self.scorer, o_file)
+        o_file = self.cand.compile(self.compiler)
 
         t3 = time.time()
 
-        profiler: Profiler = Profiler()
-        profiler.add_stat(Profiler.StatType.perm, t1 - t0)
-        profiler.add_stat(Profiler.StatType.compile, t2 - t1)
-        profiler.add_stat(Profiler.StatType.score, t3 - t2)
+        result = self.cand.score(self.scorer, o_file)
 
-        return self.cand, profiler
+        t4 = time.time()
+
+        profiler: Profiler = result.profiler
+        profiler.add_stat(Profiler.StatType.perm, t1 - t0)
+        profiler.add_stat(Profiler.StatType.stringify, t2 - t1)
+        profiler.add_stat(Profiler.StatType.compile, t3 - t2)
+        profiler.add_stat(Profiler.StatType.score, t4 - t3)
+
+        self._last_score = result.score
+
+        if not self.need_to_send_source(result):
+            result.source = None
+
+        return result
 
     def try_eval_candidate(self, seed: int) -> EvalResult:
         try:
-            cand, profiler = self.eval_candidate(seed)
-            return cand, profiler
+            return self.eval_candidate(seed)
         except Exception:
             return EvalError(exc_str=traceback.format_exc(), seed=self.cur_seed)
 
     def base_source(self) -> str:
         return self.base.get_source()
 
-    def diff(self, cand: Candidate) -> str:
+    def diff(self, other_source: str) -> str:
         # Return a unified white-space-ignoring diff
         class Line(str):
             def __eq__(self, other: Any) -> bool:
@@ -198,7 +230,7 @@ class Permuter:
                 return hash(self.strip())
 
         a = list(map(Line, self.base_source().split("\n")))
-        b = list(map(Line, cand.get_source().split("\n")))
+        b = list(map(Line, other_source.split("\n")))
         return "\n".join(
             difflib.unified_diff(a, b, fromfile="before", tofile="after", lineterm="")
         )
@@ -213,29 +245,31 @@ class EvalContext:
     permuters: List[Permuter] = attr.ib(factory=list)
 
 
-def write_candidate(perm: Permuter, cand: Candidate) -> None:
+def write_candidate(perm: Permuter, result: CandidateResult) -> None:
     """Write the candidate's C source and score to the next output directory"""
     ctr = 0
     while True:
         ctr += 1
         try:
-            output_dir = os.path.join(perm.dir, f"output-{ctr}")
+            output_dir = os.path.join(perm.dir, f"output-{result.score}-{ctr}")
             os.mkdir(output_dir)
             break
         except FileExistsError:
             pass
-    with open(os.path.join(output_dir, "source.c"), "x") as f:
-        f.write(cand.get_source())
-    with open(os.path.join(output_dir, "base.c"), "x") as f:
+    source = result.source
+    assert source is not None, "need_to_send_source is wrong!"
+    with open(os.path.join(output_dir, "source.c"), "x", encoding="utf-8") as f:
+        f.write(source)
+    with open(os.path.join(output_dir, "base.c"), "x", encoding="utf-8") as f:
         f.write(perm.base_source())
-    with open(os.path.join(output_dir, "score.txt"), "x") as f:
-        f.write(f"{cand.score_value}\n")
-    with open(os.path.join(output_dir, "diff.txt"), "x") as f:
-        f.write(perm.diff(cand) + "\n")
+    with open(os.path.join(output_dir, "score.txt"), "x", encoding="utf-8") as f:
+        f.write(f"{result.score}\n")
+    with open(os.path.join(output_dir, "diff.txt"), "x", encoding="utf-8") as f:
+        f.write(perm.diff(source) + "\n")
     print(f"wrote to {output_dir}")
 
 
-def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> None:
+def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> bool:
     if isinstance(result, EvalError):
         print(f"\n[{permuter.unique_name}] internal permuter failure.")
         print(result.exc_str)
@@ -247,14 +281,16 @@ def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> 
         if context.options.abort_exceptions:
             sys.exit(1)
         else:
-            return
+            return False
 
-    cand, profiler = result
-    score_value = cand.score_value
-    score_hash = cand.score_hash
+    profiler = result.profiler
+    score_value = result.score
+    score_hash = result.hash
 
     if context.options.print_diffs:
-        print(permuter.diff(cand))
+        assert result.source is not None, "need_to_send_source is wrong"
+        print()
+        print(permuter.diff(result.source))
         input("Press any key to continue...")
 
     context.iteration += 1
@@ -265,9 +301,11 @@ def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> 
     if context.options.show_timings:
         for stattype in profiler.time_stats:
             context.overall_profiler.add_stat(stattype, profiler.time_stats[stattype])
-        timings = "\t" + context.overall_profiler.get_str_stats()
+        timings = "  \t" + context.overall_profiler.get_str_stats()
     status_line = f"iteration {context.iteration}, {context.errors} errors, score = {disp_score}{timings}"
 
+    # Note: when updating this if condition, need_to_send_source may also need
+    # to be updated, or else assertion failures will result.
     if (
         score_value is not None
         and score_hash is not None
@@ -277,19 +315,29 @@ def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> 
         )
         and score_hash not in permuter.hashes
     ):
-        permuter.hashes.add(score_hash)
-        permuter.best_score = min(permuter.best_score, score_value)
+        if score_value != 0:
+            permuter.hashes.add(score_hash)
         print("\r" + " " * (len(status_line) + 10) + "\r", end="")
-        if score_value < permuter.base_score:
+        if score_value < permuter.best_score:
             print(
-                f"[{permuter.unique_name}] found a better score! ({score_value} vs {permuter.base_score})"
+                f"\u001b[32;1m[{permuter.unique_name}] found new best score! ({score_value} vs {permuter.base_score})\u001b[0m"
             )
-        elif not context.options.better_only:
-            print(f"[{permuter.unique_name}] found different asm with same score")
-
-        source = cand.get_source()
-        write_candidate(permuter, cand)
+        elif score_value == permuter.best_score:
+            print(
+                f"\u001b[32;1m[{permuter.unique_name}] tied best score! ({score_value} vs {permuter.base_score})\u001b[0m"
+            )
+        elif score_value < permuter.base_score:
+            print(
+                f"\u001b[33m[{permuter.unique_name}] found a better score! ({score_value} vs {permuter.base_score})\u001b[0m"
+            )
+        else:
+            print(
+                f"\u001b[33m[{permuter.unique_name}] found different asm with same score ({score_value})\u001b[0m"
+            )
+        permuter.best_score = min(permuter.best_score, score_value)
+        write_candidate(permuter, result)
     print("\b" * 10 + " " * 10 + "\r" + status_line, end="", flush=True)
+    return score_value == 0
 
 
 def cycle_seeds(
@@ -405,7 +453,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
 
         fn_name: Optional[str] = None
         try:
-            with open(os.path.join(d, "function.txt")) as f:
+            with open(os.path.join(d, "function.txt"), encoding="utf-8") as f:
                 fn_name = f.read().strip()
         except FileNotFoundError:
             pass
@@ -416,7 +464,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             print(base_c)
 
         compiler = Compiler(compile_cmd, options.show_errors)
-        scorer = Scorer(target_o)
+        scorer = Scorer(target_o, stack_differences=options.stack_differences)
         c_source = preprocess(base_c)
 
         try:
@@ -428,6 +476,8 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
                 base_c,
                 c_source,
                 force_rng_seed=force_rng_seed,
+                keep_prob=options.keep_prob,
+                need_all_sources=options.print_diffs,
             )
         except CandidateConstructionFailure as e:
             print(e.message, file=sys.stderr)
@@ -442,13 +492,17 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             permuter.unique_name += f" ({permuter.dir})"
         print(f"[{permuter.unique_name}] base score = {permuter.best_score}")
 
+    found_zero = False
     perm_seed_iter = cycle_seeds(context.permuters, force_seed)
     if options.threads == 1:
         for permuter_index, seed in perm_seed_iter:
             heartbeat()
             permuter = context.permuters[permuter_index]
             result = permuter.try_eval_candidate(seed)
-            post_score(context, permuter, result)
+            if post_score(context, permuter, result):
+                found_zero = True
+                if options.stop_on_zero:
+                    break
     else:
         # Create queues
         task_queue: "multiprocessing.Queue[Optional[Tuple[int, int]]]" = multiprocessing.Queue()
@@ -456,11 +510,11 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         task_queue.cancel_join_thread()
         results_queue.cancel_join_thread()
 
-        def wait_for_result() -> None:
+        def wait_for_result() -> bool:
             heartbeat()
             permuter_index, result = results_queue.get()
             permuter = context.permuters[permuter_index]
-            post_score(context, permuter, result)
+            return post_score(context, permuter, result)
 
         # Begin workers
         processes: List[multiprocessing.Process] = []
@@ -476,8 +530,12 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         active_tasks = 0
         for perm_seed in perm_seed_iter:
             if active_tasks >= options.threads + 2:
-                wait_for_result()
                 active_tasks -= 1
+                if wait_for_result():
+                    # Found score 0!
+                    found_zero = True
+                    if options.stop_on_zero:
+                        break
             task_queue.put(perm_seed)
             active_tasks += 1
 
@@ -491,6 +549,8 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         for p in processes:
             p.join()
 
+    if found_zero:
+        print("\nFound zero score! Exiting.")
     return [permuter.best_score for permuter in context.permuters]
 
 
@@ -545,6 +605,27 @@ def main() -> None:
         action="store_true",
         help="Only report scores better than the base.",
     )
+    parser.add_argument(
+        "--stop-on-zero",
+        dest="stop_on_zero",
+        action="store_true",
+        help="Stop after producing an output with score 0.",
+    )
+    parser.add_argument(
+        "--stack-diffs",
+        dest="stack_differences",
+        action="store_true",
+        help="Take stack differences into account when computing the score.",
+    )
+    parser.add_argument(
+        "--keep-prob",
+        dest="keep_prob",
+        metavar="PROB",
+        type=float,
+        default=DEFAULT_RAND_KEEP_PROB,
+        help="Continue randomizing the previous output with the given probability "
+        f"(float in 0..1, default {DEFAULT_RAND_KEEP_PROB}).",
+    )
     parser.add_argument("--seed", dest="force_seed", type=str, help=argparse.SUPPRESS)
     parser.add_argument(
         "-j",
@@ -562,6 +643,9 @@ def main() -> None:
         print_diffs=args.print_diffs,
         abort_exceptions=args.abort_exceptions,
         better_only=args.better_only,
+        stack_differences=args.stack_differences,
+        stop_on_zero=args.stop_on_zero,
+        keep_prob=args.keep_prob,
         force_seed=args.force_seed,
         threads=args.threads,
     )

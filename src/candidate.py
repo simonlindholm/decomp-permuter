@@ -11,8 +11,22 @@ from .randomizer import Randomizer
 from .scorer import Scorer
 from .perm.perm import EvalState, Perm
 from .helpers import try_remove
+from .profiler import Profiler
 from . import perm
 from . import ast_util
+
+
+@attr.s
+class CandidateResult:
+    """
+    Represents the result of scoring a candidate, and is sent from child to
+    parent processes.
+    """
+
+    score: int = attr.ib()
+    hash: str = attr.ib()
+    source: Optional[str] = attr.ib()
+    profiler: Profiler = attr.ib(factory=Profiler)
 
 
 @attr.s
@@ -76,7 +90,7 @@ class Candidate:
         source: str = self.get_source()
         return compiler.compile(source, show_errors=show_errors)
 
-    def score(self, scorer: Scorer, o_file: Optional[str]) -> Tuple[int, str]:
+    def score(self, scorer: Scorer, o_file: Optional[str]) -> CandidateResult:
         self.score_value = None
         self.score_hash = None
         try:
@@ -84,4 +98,6 @@ class Candidate:
         finally:
             if o_file:
                 try_remove(o_file)
-        return self.score_value, self.score_hash
+        return CandidateResult(
+            score=self.score_value, hash=self.score_hash, source=self.get_source()
+        )

@@ -17,7 +17,7 @@ https://github.com/laqieer/decomp-permuter-arm has an ARM port.
 `./permuter.py directory/` runs the permuter; see below for the meaning of the directory.
 Pass `-h` to see possible flags.
 
-You'll first need to install a couple of prerequisites: `python3 -m pip install attrs pycparser`
+You'll first need to install a couple of prerequisites: `python3 -m pip install attrs pycparser pynacl toml` (also `dataclasses` if on Python 3.6 or below)
 
 The permuter expects as input one or more directory containing:
   - a .c file with a single function,
@@ -40,6 +40,7 @@ The .c file may be modified with any of the following macros which affect manual
 - `PERM_RANDOMIZE(code)` expands to `code`, but allows randomization within that region.
 - `PERM_LINESWAP(lines)` expands to a permutation of the ordered set of non-whitespace lines (split by `\n`).
 - `PERM_CONDNEZ(cond)` expands to either `cond` or `(cond) != 0`.
+- `PERM_INT(lo, hi)` expands to an integer between `lo` and `hi` (which must be constants).
 
 Arguments are split by a commas, exluding commas inside parenthesis. `(,)` is a special escape sequence that resolves to `,`. 
 
@@ -55,8 +56,8 @@ is a valid pattern for emitting a statement either at one point or later.
 ## FAQ
 
 **What do the scores mean?** The scores are computed by taking diffs of objdump'd .o files, and giving different penalties for lines
-that are the same/use the same instruction/are reordered/don't match at all. See scorer.py. It's far from a perfect system, and
-should probably be tweaked to look at e.g. the register diff graph.
+that are the same/use the same instruction/are reordered/don't match at all. Stack positions are ignored. For more details, see scorer.py.
+It's far from a perfect system, and should probably be tweaked to look at e.g. the register diff graph.
 
 **What sort of non-matchings are the permuter good at?** It's generally best towards the end, when mostly regalloc changes remain.
 If there are reorderings or functional changes, it's often easy to resolve those by hand, and neither the scorer nor the
@@ -73,4 +74,10 @@ There's tons of room for helping out with the permuter!
 Many more randomization passes could be added, the scoring function is far from optimal,
 the permuter could be made easier to use, etc. etc. The GitHub Issues list has some ideas.
 
-Ideally, `mypy permuter.py` and `./run-tests.sh` should succeed with no errors.
+Ideally, `mypy permuter.py` and `./run-tests.sh` should succeed with no errors, and files
+formatted with `black`. To setup a pre-commit hook for black, run:
+```
+pip install pre-commit black
+pre-commit install
+```
+PRs that skip this are still welcome, however.

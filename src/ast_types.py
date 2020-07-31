@@ -28,8 +28,9 @@ class TypeMap:
     struct_defs: Dict[str, StructUnion] = attr.ib(factory=dict)
 
 
-def basic_type(name: str) -> TypeDecl:
-    idtype = IdentifierType(names=[name])
+def basic_type(name: Union[str, List[str]]) -> TypeDecl:
+    names = [name] if isinstance(name, str) else name
+    idtype = IdentifierType(names=names)
     return TypeDecl(declname=None, quals=[], type=idtype)
 
 
@@ -111,13 +112,7 @@ def expr_type(node: c_ast.Node, typemap: TypeMap) -> Type:
             return pointer(basic_type("char"))
         if node.type == "char":
             return basic_type("int")
-        if node.type == "int":
-            return basic_type("int")
-        if node.type == "float":
-            return basic_type("float")
-        if node.type == "double":
-            return basic_type("double")
-        assert False, f"unknown constant type {node.type}"
+        return basic_type(node.type.split(" "))
     if isinstance(node, c_ast.ID):
         return typemap.var_types[node.name]
     if isinstance(node, c_ast.UnaryOp):
@@ -166,6 +161,8 @@ def expr_type(node: c_ast.Node, typemap: TypeMap) -> Type:
     if isinstance(node, c_ast.FuncCall):
         expr = node.name
         if isinstance(expr, c_ast.ID):
+            if expr.name not in typemap.fn_ret_types:
+                raise Exception(f"Called function {expr.name} is missing a prototype")
             return typemap.fn_ret_types[expr.name]
         else:
             fptr_type = resolve_typedefs(rec(expr), typemap)
@@ -223,9 +220,11 @@ def same_type(
         return False
 
 
-def allowed_simple_type(
+def allowed_basic_type(
     type: SimpleType, typemap: TypeMap, allowed_types: List[str]
 ) -> bool:
+    """Check if a type resolves to a basic type with one of the allowed_types
+    keywords in it."""
     base_type = resolve_typedefs(type, typemap)
     if not isinstance(base_type, c_ast.TypeDecl):
         return False

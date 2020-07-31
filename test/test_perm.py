@@ -19,6 +19,7 @@ c_files_list = [
     ['test_type.c', 'test_type1'],
     ['test_type.c', 'test_type2'],
     ['test_type.c', 'test_type3'],
+    ['test_randomizer.c', 'test_randomizer'],
 ]
 
 class TestStringMethods(unittest.TestCase):
@@ -40,7 +41,8 @@ class TestStringMethods(unittest.TestCase):
             strip_other_fns_and_write(base_preprocessed, test_fn, file_base)
 
             actual_source = Path(file_actual).read_text()
-            target_o = compiler.compile(actual_source)
+            target_o = compiler.compile(actual_source, show_errors=True)
+            assert target_o is not None
             shutil.copy2(target_o, file_target)
             os.remove(target_o)
 
@@ -52,9 +54,9 @@ class TestStringMethods(unittest.TestCase):
         for d in cls.tmp_dirs.values():
             d.cleanup()
 
-    def go(self, filename, fn_name) -> int:
+    def go(self, filename, fn_name, **kwargs) -> int:
         d = self.tmp_dirs[(filename, fn_name)].name
-        score, = main.run(main.Options(directories=[d]))
+        score, = main.run(main.Options(directories=[d], stop_on_zero=True, **kwargs))
         return score
 
     def test_general(self):
@@ -88,6 +90,19 @@ class TestStringMethods(unittest.TestCase):
     def test_type3(self):
         score = self.go('test_type.c', 'test_type3')
         self.assertEqual(score, 0)
+
+    def test_type3_threaded(self):
+        score = self.go('test_type.c', 'test_type3', threads=2)
+        self.assertEqual(score, 0)
+
+    def test_randomizer(self):
+        score = self.go('test_randomizer.c', 'test_randomizer')
+        self.assertEqual(score, 0)
+
+    def test_randomizer_threaded(self):
+        score = self.go('test_randomizer.c', 'test_randomizer', threads=2)
+        self.assertEqual(score, 0)
+
 
 if __name__ == '__main__':
     unittest.main()

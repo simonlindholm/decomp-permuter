@@ -23,8 +23,8 @@ skip_bl_delay_slots = True
 num_re = re.compile(r"[0-9]+")
 full_num_re = re.compile(r"\b[0-9]+\b")
 comments = re.compile(r"<.*?>")
-regs = re.compile(r"\b(a[0-3]|t[0-9]|s[0-7]|at|v[01])\b")
-sprel = re.compile(r",([1-9][0-9]*|0x[1-9a-f][0-9a-f]*)\((sp|s8)\)")
+regs = re.compile(r"\$?\b(a[0-3]|t[0-9]|s[0-8]|at|v[01]|f[12]?[0-9]|f3[01]|fp|ra)\b")
+sp_offset = re.compile(r",([1-9][0-9]*|0x[1-9a-f][0-9a-f]*)\((sp|s8)\)")
 includes_sp = re.compile(r"\b(sp|s8)\b")
 forbidden = set(string.ascii_letters + "_")
 skip_lines = 1
@@ -72,7 +72,7 @@ def parse_relocated_line(line: str) -> Tuple[str, str, str]:
     return before, imm, after
 
 
-def simplify_objdump(input_lines: List[str]) -> List[str]:
+def simplify_objdump(input_lines: List[str], *, stack_differences: bool) -> List[str]:
     output_lines: List[str] = []
     nops = 0
     skip_next = False
@@ -120,8 +120,9 @@ def simplify_objdump(input_lines: List[str]) -> List[str]:
         if len(row_parts) == 1:
             row_parts.append("")
         mnemonic, instr_args = row_parts
-        if mnemonic == "addiu" and includes_sp.search(instr_args):
-            row = re.sub(full_num_re, "imm", row)
+        if not stack_differences:
+            if mnemonic == "addiu" and includes_sp.search(instr_args):
+                row = re.sub(full_num_re, "imm", row)
         if mnemonic in branch_instructions:
             if ign_branch_targets:
                 instr_parts = instr_args.split(",")
@@ -145,7 +146,8 @@ def simplify_objdump(input_lines: List[str]) -> List[str]:
             row = re.sub(num_re, fn, row)
         if mnemonic in branch_likely_instructions and skip_bl_delay_slots:
             skip_next = True
-        row = re.sub(sprel, ",addr(sp)", row)
+        if not stack_differences:
+            row = re.sub(sp_offset, ",addr(sp)", row)
         # row = row.replace(',', ', ')
         if row == "nop":
             # strip trailing nops; padding is irrelevant to us
@@ -158,10 +160,10 @@ def simplify_objdump(input_lines: List[str]) -> List[str]:
     return output_lines
 
 
-def objdump(o_filename: str) -> List[str]:
+def objdump(o_filename: str, *, stack_differences: bool = False) -> List[str]:
     output = subprocess.check_output(OBJDUMP + [o_filename])
     lines = output.decode("utf-8").splitlines()
-    return simplify_objdump(lines)
+    return simplify_objdump(lines, stack_differences=stack_differences)
 
 
 if __name__ == "__main__":

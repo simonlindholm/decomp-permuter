@@ -51,7 +51,7 @@ def strip_other_fns_and_write(source: str, fn_name: str, out_filename=None) -> N
     if out_filename is None:
         print(stripped)
     else:
-        with open(out_filename, "w") as f:
+        with open(out_filename, "w", encoding="utf-8") as f:
             f.write(stripped)
 
 
