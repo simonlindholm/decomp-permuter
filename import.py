@@ -400,13 +400,19 @@ def import_c_file(
         sys.exit(1)
 
 
+def finalize_compile_command(cmdline):
+    quoted = [arg if arg == "|" else shlex.quote(arg) for arg in cmdline]
+    ind = (quoted + ["|"]).index("|")
+    return " ".join(quoted[:ind] + ['"$INPUT"'] + quoted[ind:] + ["-o", '"$OUTPUT"'])
+
+
 def write_compile_command(compiler: List[str], cwd: str, out_file: str) -> None:
     with open(out_file, "w", encoding="utf-8") as f:
         f.write("#!/usr/bin/env bash\n")
         f.write('INPUT="$(readlink -f "$1")"\n')
         f.write('OUTPUT="$(readlink -f "$3")"\n')
         f.write(f"cd {shlex.quote(cwd)}\n")
-        f.write(formatcmd(compiler) + ' "$INPUT" -o "$OUTPUT"\n')
+        f.write(finalize_compile_command(compiler))
     os.chmod(out_file, 0o755)
 
 
