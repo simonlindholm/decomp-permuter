@@ -42,6 +42,7 @@ branch_likely_instructions = [
 ]
 branch_instructions = [
     "b",
+    "j",
     "beq",
     "bne",
     "beqz",
@@ -93,6 +94,8 @@ def simplify_objdump(input_lines: List[str], *, stack_differences: bool) -> List
             # since it's rare and applies consistently. But we do need to handle it
             # here to avoid a crash, by pretending that lost imms are zero for
             # relocations.
+            if imm == "<target>":
+                continue
             if imm != "0" and imm != "imm":
                 repl += "+" + imm if int(imm, 0) > 0 else imm
             if "R_MIPS_LO16" in row:
