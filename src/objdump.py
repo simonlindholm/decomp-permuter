@@ -6,7 +6,7 @@ import string
 import subprocess
 from typing import List, Tuple, Match
 
-OBJDUMP = ["mips-linux-gnu-objdump", "-drz"]
+OBJDUMP = ["mips-linux-gnu-objdump", "-m", "mips:4300", "-drz"]
 
 # Ignore registers, for cleaner output. (We don't do this right now, but it can
 # be useful for debugging.)
