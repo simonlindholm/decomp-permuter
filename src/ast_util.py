@@ -38,7 +38,6 @@ def to_c(node: ca.Node) -> str:
     out = []
     same_line = 0
     in_late_defines = False
-    late_defines = []
     for line in lines:
         stripped = line.strip()
         if stripped.startswith("#pragma"):

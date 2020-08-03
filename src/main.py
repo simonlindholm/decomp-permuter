@@ -217,9 +217,6 @@ class Permuter:
         except Exception:
             return EvalError(exc_str=traceback.format_exc(), seed=self.cur_seed)
 
-    def base_source(self) -> str:
-        return self.base.get_source()
-
     def diff(self, other_source: str) -> str:
         # Return a unified white-space-ignoring diff
         class Line(str):
@@ -229,7 +226,7 @@ class Permuter:
             def __hash__(self) -> int:
                 return hash(self.strip())
 
-        a = list(map(Line, self.base_source().split("\n")))
+        a = list(map(Line, self.base.get_source().split("\n")))
         b = list(map(Line, other_source.split("\n")))
         return "\n".join(
             difflib.unified_diff(a, b, fromfile="before", tofile="after", lineterm="")
@@ -260,8 +257,6 @@ def write_candidate(perm: Permuter, result: CandidateResult) -> None:
     assert source is not None, "need_to_send_source is wrong!"
     with open(os.path.join(output_dir, "source.c"), "x", encoding="utf-8") as f:
         f.write(source)
-    with open(os.path.join(output_dir, "base.c"), "x", encoding="utf-8") as f:
-        f.write(perm.base_source())
     with open(os.path.join(output_dir, "score.txt"), "x", encoding="utf-8") as f:
         f.write(f"{result.score}\n")
     with open(os.path.join(output_dir, "diff.txt"), "x", encoding="utf-8") as f:
