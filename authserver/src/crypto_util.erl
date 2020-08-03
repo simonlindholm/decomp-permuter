@@ -1,15 +1,11 @@
 -module(crypto_util).
 
--define(APPLICATION, authserver).
+-export([sign_message/3, verify_message/3]).
 
--export([sign_message/2, verify_message/3]).
-
-sign_message(Prefix, Message) ->
-    {ok, Seed} = application:get_env(?APPLICATION, priv_seed),
-    KeyMap = enacl:sign_seed_keypair(Seed),
+sign_message(Prefix, Message, Key) ->
     SignedMessage = enacl:sign(
         [Prefix, ":", Message],
-        maps:get(secret, KeyMap)
+        Key
     ),
     SignedMessage.
 

@@ -1,14 +1,13 @@
 -module(route_go_online).
 
--define(APPLICATION, authserver).
-
 -export([init/2]).
 
-init(Req = #{method := <<"POST">>}, State) ->
+init(Req = #{method := <<"POST">>}, Config) ->
+    #{privkey := PrivKey} = Config,
     {IPAddr, _} = cowboy_req:peer(Req),
     IP = inet:ntoa(IPAddr),
 
-    {ok, #{port := Port, pubkey := Pubkey}, Req2} =
+    {ok, #{port := Port, pubkey := PubKey}, Req2} =
         cowboy_req:read_and_match_urlencoded_body(
             [{port, int}, pubkey],
             Req
@@ -22,7 +21,7 @@ init(Req = #{method := <<"POST">>}, State) ->
         ),
 
     Message = enacl:randombytes(32),
-    SignedMessage = crypto_util:sign_message(<<"AUTHPING">>, Message),
+    SignedMessage = crypto_util:sign_message(<<"AUTHPING">>, Message, PrivKey),
 
     ok = gen_tcp:send(PeerSocket, ["\xFF\xFF\xFF\xFF", SignedMessage]),
 
@@ -32,11 +31,11 @@ init(Req = #{method := <<"POST">>}, State) ->
         crypto_util:verify_message(
             <<"AUTHPONG">>,
             SignedReceivedMessage,
-            Pubkey
+            PubKey
         ),
     Message = ReceivedMessage,
 
-    online_users:put(Pubkey, IP, Port),
+    online_users:put(PubKey, IP, Port),
 
     Req3 = cowboy_req:reply(
         200,
@@ -44,8 +43,8 @@ init(Req = #{method := <<"POST">>}, State) ->
         <<"">>,
         Req2
     ),
-    {ok, Req3, State};
-init(Req, State) ->
+    {ok, Req3, Config};
+init(Req, Config) ->
     Req2 = cowboy_req:reply(
         405,
         #{
@@ -53,7 +52,7 @@ init(Req, State) ->
         },
         Req
     ),
-    {ok, Req2, State}.
+    {ok, Req2, Config}.
 
 receive_data(Socket, SoFar) ->
     receive

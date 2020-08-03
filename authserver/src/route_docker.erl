@@ -4,9 +4,9 @@
 
 -export([init/2]).
 
-init(Req, Opts) ->
-    {ok, Docker} = application:get_env(?APPLICATION, docker_image),
-    SignedMessage = crypto_util:sign_message("DOCKER", Docker),
+init(Req, Config) ->
+    #{privkey := PrivKey, docker_image := Docker} = Config,
+    SignedMessage = crypto_util:sign_message("DOCKER", Docker, PrivKey),
 
     Req2 = cowboy_req:reply(
         200,
@@ -14,4 +14,4 @@ init(Req, Opts) ->
         SignedMessage,
         Req
     ),
-    {ok, Req2, Opts}.
+    {ok, Req2, Config}.

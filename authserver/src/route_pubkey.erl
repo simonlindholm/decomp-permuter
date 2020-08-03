@@ -1,19 +1,16 @@
 -module(route_pubkey).
 
--define(APPLICATION, authserver).
-
 -export([init/2]).
 
-init(Req, Opts) ->
-    {ok, Seed} = application:get_env(?APPLICATION, priv_seed),
-    KeyMap = enacl:sign_seed_keypair(Seed),
+init(Req, Config) ->
+    #{pubkey := PubKey} = Config,
     Req2 = cowboy_req:reply(
         200,
         #{<<"content-type">> => <<"text/plain">>},
-        to_hex(maps:get(public, KeyMap)),
+        to_hex(PubKey),
         Req
     ),
-    {ok, Req2, Opts}.
+    {ok, Req2, Config}.
 
 to_hex(Binary) ->
     [io_lib:format("~2.16.0b", [X]) || <<X:8>> <= Binary].
