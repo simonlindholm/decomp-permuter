@@ -1,0 +1,1 @@
+-record(user, {pubkey, signed_nickname, trusted_by}).

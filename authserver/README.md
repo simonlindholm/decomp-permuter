@@ -10,10 +10,9 @@ To setup your own copy of the auth server:
 - Install Erlang and rebar3 (https://www.rebar3.org/docs/getting-started).
 - Copy `config/sys-example.config` to `config/sys.config`, changing it appropriately.
   `docker_image` should probably point to an image on Docker Hub instead of a local image.
-- Run `./run.sh` to start the server interactively.
-- Make a request to `http://localhost:<port>/setup` and follow the instructions there.
+- Run `rebar3 compile`.
+- Run `./setup.erl` and follow the instructions there.
   This will set the `priv_seed` part of sys.config, and set up an initial trusted client.
-- Stop the server with `q().`.
 - Set up a reverse proxy that forwards HTTPS traffic from an external port or route
   to HTTP for the port in sys.config, e.g. using Nginx or Traefik.
   If applicable, configure your firewall to let the external port through.
