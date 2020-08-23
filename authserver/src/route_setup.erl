@@ -6,7 +6,7 @@ init(Req, Config) ->
     AuthSeed = enacl:randombytes(32),
     ClientSeed = enacl:randombytes(32),
     AuthPubKey = maps:get(public, enacl:sign_seed_keypair(AuthSeed)),
-    ClientPubKey = maps:get(public, enacl:sign_seed_keypair(AuthSeed)),
+    ClientPubKey = maps:get(public, enacl:sign_seed_keypair(ClientSeed)),
     Output = [
         <<"Put the following in the auth server's priv.config:\n\n">>,
         <<"{priv_seed, ">>,
