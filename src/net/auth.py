@@ -214,5 +214,6 @@ def go_online(config: Config, port: int) -> None:
 
 
 def go_offline(config: Config) -> None:
-    # TODO
-    pass
+    _post_request(
+        config, "/go-offline", {"pubkey": config.signing_key.verify_key.encode(),},
+    )
