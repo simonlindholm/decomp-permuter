@@ -8,10 +8,12 @@
 
 init(Req, Config) ->
     #{privkey := PrivKey} = Config,
-    {ok, #{pubkey := ClientPubKey}, Req2} =
+    {ok, #{pubkey := ClientPubKey, auth := Auth}, Req2} =
         cowboy_req:read_and_match_urlencoded_body([pubkey], Req),
 
     {ok, User} = db:find_user(ClientPubKey),
+    crypto_util:verify_message(<<"AUTH">>, Auth, ClientPubKey),
+
     SignedNickname = User#user.signed_nickname,
 
     Servers = online_users:ls(),

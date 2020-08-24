@@ -9,12 +9,14 @@ init(Req = #{method := <<"POST">>}, Config) ->
     {IPAddr, _} = cowboy_req:peer(Req),
     IP = inet:ntoa(IPAddr),
 
-    {ok, #{port := Port, pubkey := PubKey}, Req2} =
+    {ok, #{port := Port, pubkey := PubKey, auth := Auth}, Req2} =
         cowboy_req:read_and_match_urlencoded_body(
             [{port, int}, pubkey],
             Req
         ),
+
     {ok, User} = db:find_user(PubKey),
+    crypto_util:verify_message(<<"AUTH">>, Auth, PubKey),
 
     {ok, PeerSocket} =
         gen_tcp:connect(

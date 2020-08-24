@@ -45,6 +45,18 @@ def _ask(msg: str, *, default: bool) -> bool:
     sys.exit(1)
 
 
+def _post_request(config: Config, path: str, params: Dict[str, bytes]) -> bytes:
+    params["auth"] = sign_with_magic(b"AUTH", config.signing_key, b"")
+    data = urllib.parse.urlencode(params).encode("utf-8")
+    with urllib.request.urlopen(config.auth_server + path, data) as f:
+        return f.read()
+
+
+def _get_request(config: Config, path: str) -> bytes:
+    with urllib.request.urlopen(config.auth_server + path) as f:
+        return f.read()
+
+
 def _initial_setup(config: RawConfig) -> None:
     print(
         "Using permuter@home requires someone to give you access to a central -J server."
@@ -133,17 +145,15 @@ def run_vouch(vouch_text: str) -> None:
     if not _ask(f"Grant permuter server access to {nickname}", default=True):
         return
 
-    data = urllib.parse.urlencode(
+    _post_request(
+        config,
+        "/vouch",
         {
             "pubkey": config.signing_key.verify_key.encode(),
             "vouched_pubkey": verify_key.encode(),
             "signed_nickname": signed_nickname,
-        }
+        },
     )
-    with urllib.request.urlopen(
-        config.auth_server + "/vouch", data.encode("utf-8")
-    ) as f:
-        f.read().decode("utf-8")
 
     data = config.auth_verify_key.encode() + config.auth_server.encode("utf-8")
     token = SealedBox(verify_key.to_curve25519_public_key()).encrypt(data)
@@ -155,14 +165,12 @@ def run_vouch(vouch_text: str) -> None:
 
 def fetch_servers_and_grant(config: Config) -> Tuple[List[RemoteServer], bytes]:
     print("Connecting to permuter@home...")
-    data = urllib.parse.urlencode({"pubkey": config.signing_key.verify_key.encode()})
-    with urllib.request.urlopen(
-        config.auth_server + "/list-servers", data.encode("utf-8")
-    ) as f:
-        raw_resp = f.read()
-
+    raw_resp = _post_request(
+        config, "/list-servers", {"pubkey": config.signing_key.verify_key.encode(),}
+    )
     raw_resp = verify_with_magic(b"SERVERLIST", config.auth_verify_key, raw_resp)
     resp = json.loads(raw_resp)
+
     version = json_prop(resp, "version", int)
     if version != 1:
         print("Permuter version too old; update to use -J.")
@@ -192,20 +200,17 @@ def fetch_servers_and_grant(config: Config) -> Tuple[List[RemoteServer], bytes]:
 
 def fetch_docker_image_name(config: Config) -> str:
     print("Connecting to permuter@home...")
-    with urllib.request.urlopen(config.auth_server + "/docker") as f:
-        ret = f.read()
-        docker_image = verify_with_magic(b"DOCKER", config.auth_verify_key, ret)
-        return docker_image.decode("utf-8")
+    resp = _get_request(config, "/docker")
+    docker_image = verify_with_magic(b"DOCKER", config.auth_verify_key, resp)
+    return docker_image.decode("utf-8")
 
 
 def go_online(config: Config, port: int) -> None:
-    data = urllib.parse.urlencode(
-        {"port": port, "pubkey": config.signing_key.verify_key.encode(),}
+    _post_request(
+        config,
+        "/go-online",
+        {"port": port, "pubkey": config.signing_key.verify_key.encode(),},
     )
-    with urllib.request.urlopen(
-        config.auth_server + "/go-online", data.encode("utf-8")
-    ) as f:
-        f.read().decode("utf-8")
 
 
 def go_offline(config: Config) -> None:
