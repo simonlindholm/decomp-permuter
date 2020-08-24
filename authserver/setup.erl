@@ -6,7 +6,7 @@
 
 -include("src/db_records.hrl").
 
-main() ->
+main(_) ->
     AuthSeed = enacl:randombytes(32),
     ClientSeed = enacl:randombytes(32),
     #{public := AuthPubKey} = enacl:sign_seed_keypair(AuthSeed),
@@ -45,8 +45,6 @@ main() ->
         to_hex(ClientSeed),
         to_hex(AuthPubKey)
     ]).
-
-main(_) -> main().
 
 to_hex(Binary) ->
     [io_lib:format("~2.16.0b", [X]) || <<X:8>> <= Binary].

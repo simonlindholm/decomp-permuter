@@ -1,5 +1,7 @@
 -module(route_list_servers).
 
+-include("db_records.hrl").
+
 -define(APPLICATION, authserver).
 
 -export([init/2]).
@@ -8,6 +10,9 @@ init(Req, Config) ->
     #{privkey := PrivKey} = Config,
     {ok, #{pubkey := ClientPubKey}, Req2} =
         cowboy_req:read_and_match_urlencoded_body([pubkey], Req),
+
+    {ok, User} = db:find_user(ClientPubKey),
+    SignedNickname = User#user.signed_nickname,
 
     Servers = online_users:ls(),
     ServerList = [
@@ -21,14 +26,14 @@ init(Req, Config) ->
     ],
 
     {MegaSecs, Secs, _} = os:timestamp(),
-    ValidFrom = MegaSecs * 1000000 + Secs - 30,
+    ValidFrom = MegaSecs * 1000000 + Secs - 60,
     ValidUntil = ValidFrom + 60,
 
     GrantInfo = jsone:encode(
         #{
             valid_from => ValidFrom,
             valid_until => ValidUntil,
-            signed_nickname => <<>>
+            signed_nickname => SignedNickname
         }
     ),
     SignedMessage =

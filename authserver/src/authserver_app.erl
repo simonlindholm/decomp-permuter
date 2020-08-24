@@ -18,9 +18,9 @@ start(_StartType, _StartArgs) ->
     {ok, DockerImage} = application:get_env(?APPLICATION, docker_image),
     KeyMap = enacl:sign_seed_keypair(Seed),
     Config = #{
-      docker_image => DockerImage,
-      pubkey => maps:get(public, KeyMap),
-      privkey => maps:get(secret, KeyMap)
+        docker_image => DockerImage,
+        pubkey => maps:get(public, KeyMap),
+        privkey => maps:get(secret, KeyMap)
     },
 
     Endpoints = [
