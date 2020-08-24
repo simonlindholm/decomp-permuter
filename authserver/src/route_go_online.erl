@@ -1,5 +1,7 @@
 -module(route_go_online).
 
+-include("db_records.hrl").
+
 -export([init/2]).
 
 init(Req = #{method := <<"POST">>}, Config) ->
@@ -12,6 +14,7 @@ init(Req = #{method := <<"POST">>}, Config) ->
             [{port, int}, pubkey],
             Req
         ),
+    {ok, User} = db:find_user(PubKey),
 
     {ok, PeerSocket} =
         gen_tcp:connect(
@@ -35,7 +38,7 @@ init(Req = #{method := <<"POST">>}, Config) ->
         ),
     Message = ReceivedMessage,
 
-    online_users:put(PubKey, IP, Port),
+    online_users:put(PubKey, IP, Port, User#user.signed_nickname),
 
     Req3 = cowboy_req:reply(
         200,

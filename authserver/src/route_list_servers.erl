@@ -20,9 +20,9 @@ init(Req, Config) ->
             ip => list_to_binary(IP),
             port => Port,
             verification_key => iolist_to_binary(to_hex(PubKey)),
-            nickname => list_to_binary(IP)
+            nickname => ServerSignedNickname
         }
-        || #{ip := IP, port := Port, pubkey := PubKey} <- Servers
+        || #{ip := IP, port := Port, pubkey := PubKey, signed_nickname := ServerSignedNickname} <- Servers
     ],
 
     {MegaSecs, Secs, _} = os:timestamp(),
