@@ -38,8 +38,8 @@ main(_) ->
         "{priv_seed, ~p}~n~n"
         "Put the following in the root client's pah.conf:~n~n"
         "secret_key = \"~s\"~n"
-        "auth_server = \"https://server.example:port\"~n"
         "auth_public_key = \"~s\"~n"
+        "auth_server = \"https://server.example:port\"~n"
     >>, [
         AuthSeed,
         to_hex(ClientSeed),

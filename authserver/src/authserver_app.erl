@@ -16,11 +16,12 @@ start(_StartType, _StartArgs) ->
 
     {ok, Seed} = application:get_env(?APPLICATION, priv_seed),
     {ok, DockerImage} = application:get_env(?APPLICATION, docker_image),
+    {ok, Port} = application:get_env(?APPLICATION, port),
     KeyMap = enacl:sign_seed_keypair(Seed),
     Config = #{
-        docker_image => DockerImage,
-        pubkey => maps:get(public, KeyMap),
-        privkey => maps:get(secret, KeyMap)
+      docker_image => DockerImage,
+      pubkey => maps:get(public, KeyMap),
+      privkey => maps:get(secret, KeyMap)
     },
 
     Endpoints = [
@@ -34,7 +35,7 @@ start(_StartType, _StartArgs) ->
     ],
     Dispatch = cowboy_router:compile([{'_', Endpoints}]),
 
-    TransOpts = [{ip, {0, 0, 0, 0}}, {port, 2938}],
+    TransOpts = [{ip, {0, 0, 0, 0}}, {port, Port}],
     ProtoOpts = #{env => #{dispatch => Dispatch}},
 
     {ok, _} = cowboy:start_clear(my_http_listener, TransOpts, ProtoOpts),
