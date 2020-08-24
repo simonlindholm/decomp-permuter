@@ -22,7 +22,12 @@ init(Req, Config) ->
             verification_key => iolist_to_binary(to_hex(PubKey)),
             nickname => ServerSignedNickname
         }
-        || #{ip := IP, port := Port, pubkey := PubKey, signed_nickname := ServerSignedNickname} <- Servers
+        || #{
+               ip := IP,
+               port := Port,
+               pubkey := PubKey,
+               signed_nickname := ServerSignedNickname
+           } <- Servers
     ],
 
     {MegaSecs, Secs, _} = os:timestamp(),
@@ -37,14 +42,14 @@ init(Req, Config) ->
         }
     ),
     SignedMessage =
-        crypto_util:sign_message("GRANT", [ClientPubKey, GrantInfo], PrivKey),
+        crypto_util:sign_message(<<"GRANT">>, [ClientPubKey, GrantInfo], PrivKey),
     Grant = base64:encode(SignedMessage),
 
     Response = jsone:encode(
         #{server_list => ServerList, grant => Grant, version => 1}
     ),
     SignedResponse =
-        crypto_util:sign_message("SERVERLIST", Response, PrivKey),
+        crypto_util:sign_message(<<"SERVERLIST">>, Response, PrivKey),
 
     Req3 = cowboy_req:reply(
         200,

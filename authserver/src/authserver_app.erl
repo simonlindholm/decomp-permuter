@@ -29,7 +29,8 @@ start(_StartType, _StartArgs) ->
         {"/go-online", route_go_online, Config},
         {"/go-offline", route_go_offline, Config},
         {"/list-servers", route_list_servers, Config},
-        {"/pubkey", route_pubkey, Config}
+        {"/pubkey", route_pubkey, Config},
+        {"/vouch", route_vouch, Config}
     ],
     Dispatch = cowboy_router:compile([{'_', Endpoints}]),
 

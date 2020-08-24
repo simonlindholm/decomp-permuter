@@ -41,7 +41,7 @@ def _ask(msg: str, *, default: bool) -> bool:
         return default
     if res in ["y", "yes", "n", "no"]:
         return res[0] == "y"
-    print("Bad response!", file=sys.stderr)
+    print("Bad response!")
     sys.exit(1)
 
 
@@ -123,7 +123,8 @@ def run_vouch(vouch_text: str) -> None:
     try:
         vouch_data = base64.b64decode(vouch_text.encode("utf-8"))
         verify_key = VerifyKey(vouch_data[:32])
-        msg = verify_with_magic(b"NICK", verify_key, vouch_data[32:])
+        signed_nickname = vouch_data[32:]
+        msg = verify_with_magic(b"NICK", verify_key, signed_nickname)
         nickname = msg.decode("utf-8")
     except Exception:
         print("Could not parse data!")
@@ -132,7 +133,17 @@ def run_vouch(vouch_text: str) -> None:
     if not _ask(f"Grant permuter server access to {nickname}", default=True):
         return
 
-    # TODO: send signature and signed nickname to central server
+    data = urllib.parse.urlencode(
+        {
+            "pubkey": config.signing_key.verify_key.encode(),
+            "vouched_pubkey": verify_key.encode(),
+            "signed_nickname": signed_nickname,
+        }
+    )
+    with urllib.request.urlopen(
+        config.auth_server + "/vouch", data.encode("utf-8")
+    ) as f:
+        f.read().decode("utf-8")
 
     data = config.auth_verify_key.encode() + config.auth_server.encode("utf-8")
     token = SealedBox(verify_key.to_curve25519_public_key()).encrypt(data)
@@ -144,9 +155,7 @@ def run_vouch(vouch_text: str) -> None:
 
 def fetch_servers_and_grant(config: Config) -> Tuple[List[RemoteServer], bytes]:
     print("Connecting to permuter@home...")
-    data = urllib.parse.urlencode(
-        {"pubkey": config.signing_key.verify_key.encode(), "version": "1",}
-    )
+    data = urllib.parse.urlencode({"pubkey": config.signing_key.verify_key.encode()})
     with urllib.request.urlopen(
         config.auth_server + "/list-servers", data.encode("utf-8")
     ) as f:
@@ -155,7 +164,10 @@ def fetch_servers_and_grant(config: Config) -> Tuple[List[RemoteServer], bytes]:
     raw_resp = verify_with_magic(b"SERVERLIST", config.auth_verify_key, raw_resp)
     resp = json.loads(raw_resp)
     version = json_prop(resp, "version", int)
-    assert version == 1
+    if version != 1:
+        print("Permuter version too old; update to use -J.")
+        sys.exit(1)
+
     grant = base64.b64decode(json_prop(resp, "grant", str))
     granted_request = verify_with_magic(b"GRANT", config.auth_verify_key, grant)
     assert granted_request[:32] == config.signing_key.verify_key.encode()
