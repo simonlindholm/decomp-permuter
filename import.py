@@ -293,9 +293,11 @@ def preprocess_c_with_macros(
     late_defines = []
     lines = []
     graph = defaultdict(set)
-    reg_token = re.compile(r"([a-zA-Z0-9_]+)")
+    reg_token = re.compile(r"[a-zA-Z0-9_]+")
     for line in source.splitlines():
-        if line.startswith("_permuter define "):
+        is_macro = line.startswith("_permuter define ")
+        params = []
+        if is_macro:
             ind1 = line.find("(")
             ind2 = line.find(" ", len("_permuter define "))
             ind = min(ind1, ind2)
@@ -305,12 +307,22 @@ def preprocess_c_with_macros(
             after = line[ind:]
             name = before.split()[2]
             late_defines.append((name, after))
+            if after.startswith("("):
+                params = [w.strip() for w in after[1 : after.find(")")].split(",")]
         else:
             lines.append(line)
             name = ""
         for m in reg_token.finditer(line):
-            name2 = m.group(1)
-            graph[name].add(name2)
+            name2 = m.group(0)
+            has_wildcard = False
+            if is_macro and name2 not in params:
+                wcbefore = line[: m.start()].rstrip().endswith("##")
+                wcafter = line[m.end() :].lstrip().startswith("##")
+                if wcbefore or wcafter:
+                    graph[name].add(name2 + "*")
+                    has_wildcard = True
+            if not has_wildcard:
+                graph[name].add(name2)
 
     # Prune away (recursively) unused macros, for cleanliness.
     used_anywhere = set()
@@ -320,7 +332,13 @@ def preprocess_c_with_macros(
         name = queue.pop()
         if name not in used_anywhere:
             used_anywhere.add(name)
-            queue.extend(graph[name])
+            if name.endswith("*"):
+                wildcard = name[:-1]
+                for name2 in graph:
+                    if wildcard in name2:
+                        queue.extend(graph[name2])
+            else:
+                queue.extend(graph[name])
 
     def get_decl(name: str, after: str) -> str:
         typ = preserve_type_fn(name)
@@ -400,7 +418,7 @@ def import_c_file(
         sys.exit(1)
 
 
-def finalize_compile_command(cmdline):
+def finalize_compile_command(cmdline: List[str]) -> str:
     quoted = [arg if arg == "|" else shlex.quote(arg) for arg in cmdline]
     ind = (quoted + ["|"]).index("|")
     return " ".join(quoted[:ind] + ['"$INPUT"'] + quoted[ind:] + ["-o", '"$OUTPUT"'])
