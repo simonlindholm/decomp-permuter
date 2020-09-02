@@ -85,6 +85,7 @@ class RandomizerPerm(Perm):
     def __init__(self, inner: Perm) -> None:
         super().__init__()
         self.inner = inner
+        self.perm_count = inner.perm_count
 
     def evaluate(self, seed: int, state: EvalState) -> str:
         text = self.inner.evaluate(seed, state)
@@ -201,12 +202,13 @@ class LineSwapPerm(Perm):
             del texts[ind]
         return "\n".join(output)
 
+
 class IntPerm(Perm):
     def __init__(self, low: int, high: int) -> None:
         assert low <= high
         super().__init__()
         self.low = low
-        self.perm_count = (high - low + 1)
+        self.perm_count = high - low + 1
 
     def evaluate(self, seed: int, state: EvalState) -> str:
         return str(self.low + seed)
