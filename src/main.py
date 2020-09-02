@@ -500,8 +500,12 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
                     break
     else:
         # Create queues
-        task_queue: "multiprocessing.Queue[Optional[Tuple[int, int]]]" = multiprocessing.Queue()
-        results_queue: "multiprocessing.Queue[Tuple[int, EvalResult]]" = multiprocessing.Queue()
+        task_queue: "multiprocessing.Queue[Optional[Tuple[int, int]]]" = (
+            multiprocessing.Queue()
+        )
+        results_queue: "multiprocessing.Queue[Tuple[int, EvalResult]]" = (
+            multiprocessing.Queue()
+        )
         task_queue.cancel_join_thread()
         results_queue.cancel_join_thread()
 

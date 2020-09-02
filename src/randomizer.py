@@ -359,7 +359,7 @@ def random_type(random: Random) -> SimpleType:
     idtype = ca.IdentifierType(names=new_names)
     quals = []
     if random.choice([True, False]):
-        quals = ['volatile']
+        quals = ["volatile"]
     return ca.TypeDecl(declname=None, quals=quals, type=idtype)
 
 
@@ -1336,7 +1336,7 @@ def perm_struct_ref(
         return ca.UnaryOp("&", node)
 
     def rec(node: ca.Node) -> Any:
-        """ Recurse down the StructRef tree, finding the parent of the leaf BinaryOp/ArrayRef.
+        """Recurse down the StructRef tree, finding the parent of the leaf BinaryOp/ArrayRef.
         Throws RandomizationFailure when a UnaryOp other than * or & was encountered."""
         if isinstance(node, ca.UnaryOp):
             ensure(node.op in ["&", "*"])
