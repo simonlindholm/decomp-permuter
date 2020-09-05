@@ -89,14 +89,17 @@ def simplify_objdump(input_lines: List[str], *, stack_differences: bool) -> List
                 continue
             before, imm, after = parse_relocated_line(prev)
             repl = row.split()[-1]
+            # As part of ignoring branch targets, we ignore relocations for j
+            # instructions. The target is already lost anyway.
+            if imm == "<target>":
+                assert ign_branch_targets
+                continue
             # Sometimes s8 is used as a non-framepointer, but we've already lost
             # the immediate value by pretending it is one. This isn't too bad,
             # since it's rare and applies consistently. But we do need to handle it
             # here to avoid a crash, by pretending that lost imms are zero for
             # relocations.
-            if imm == "<target>":
-                continue
-            if imm != "0" and imm != "imm":
+            if imm != "0" and imm != "imm" and imm != "addr":
                 repl += "+" + imm if int(imm, 0) > 0 else imm
             if "R_MIPS_LO16" in row:
                 repl = f"%lo({repl})"
