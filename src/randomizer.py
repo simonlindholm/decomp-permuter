@@ -1205,6 +1205,44 @@ def perm_add_mask(
         else None,
     )
 
+def perm_float_literal(
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
+) -> None:
+    """Converts a Float Literal"""
+    typemap = build_typemap(ast)
+
+    cands: List[Expression] = []
+    class Visitor(ca.NodeVisitor):
+        def visit_Constant(self, node) -> None:
+            if node.type == "float":
+                cands.append(node)
+
+    Visitor().visit(fn.body)
+    ensure(cands)
+
+    node = random.choice(cands)
+
+    value: str = node.value
+    choices: List[str] = []
+    if ".0f" in value:
+        choices.append(value.replace(".0f",""))
+        choices.append(value.replace(".0f",".0"))
+    if value.startswith("0."):
+        choices.append(value.replace("0.","."))
+    elif value.startswith("."):
+        choices.append("0" + value)
+    if len(choices) == 0:
+        choices.append(value.replace("f",""))
+
+    ensure(choices)
+    value = random.choice(choices)
+
+    visit_replace(
+        fn.body,
+        lambda n, _: ca.Constant("float", value)
+        if n is node
+        else None,
+    )
 
 def perm_cast_simple(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
@@ -1493,6 +1531,7 @@ class Randomizer:
             (perm_cast_simple, 10),
             (perm_refer_to_var, 10),
             (perm_randomize_internal_type, 10),
+            (perm_float_literal, 10),
             (perm_randomize_external_type, 5),
             (perm_randomize_function_type, 5),
             (perm_split_assignment, 10),
