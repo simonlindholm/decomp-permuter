@@ -1126,6 +1126,30 @@ def perm_reorder_stmts(
     ast_util.insert_statement(tob, toi, stmt)
 
 
+def perm_equals_operator(
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
+) -> None:
+    """Convert a statement of the form `x = x op y` to `x op= y`"""
+    cands: List[ca.Assignment] = []
+    operators = ["+", "-", "*", "/", "<<", ">>", "^", "|", "&"]
+
+    class Visitor(ca.NodeVisitor):
+        def visit_Assignment(self, node: ca.Assignment) -> None:
+            if node.op == "=" and \
+            region.contains_node(node) and \
+            ast_util.equal_ast(node.lvalue, node.rvalue.left) and \
+            node.rvalue.op in operators:
+                cands.append(node)
+
+    Visitor().visit(fn.body)
+    ensure(cands)
+
+    node = random.choice(cands)
+
+    node.op = node.rvalue.op + node.op
+    node.rvalue = node.rvalue.right
+
+
 def perm_inequalities(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> None:
@@ -1543,6 +1567,7 @@ class Randomizer:
             (perm_reorder_stmts, 5),
             (perm_associative, 5),
             (perm_inequalities, 5),
+            (perm_equals_operator, 5),
         ]
         while True:
             method = self.random.choice(
