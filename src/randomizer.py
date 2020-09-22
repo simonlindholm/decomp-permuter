@@ -1137,6 +1137,7 @@ def perm_equals_operator(
         def visit_Assignment(self, node: ca.Assignment) -> None:
             if node.op == "=" and \
             region.contains_node(node) and \
+            isinstance(node.rvalue, ca.BinaryOp) and \
             ast_util.equal_ast(node.lvalue, node.rvalue.left) and \
             node.rvalue.op in operators:
                 cands.append(node)
