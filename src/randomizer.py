@@ -1126,6 +1126,33 @@ def perm_reorder_stmts(
     ast_util.insert_statement(tob, toi, stmt)
 
 
+def perm_compound_assignment(
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
+) -> None:
+    """Convert a statement of the form `x = x op y` to `x op= y`"""
+    cands: List[ca.Assignment] = []
+    operators = ["+", "-", "*", "/", "<<", ">>", "^", "|", "&"]
+
+    class Visitor(ca.NodeVisitor):
+        def visit_Assignment(self, node: ca.Assignment) -> None:
+            if (
+                node.op == "="
+                and region.contains_node(node)
+                and isinstance(node.rvalue, ca.BinaryOp)
+                and ast_util.equal_ast(node.lvalue, node.rvalue.left)
+                and node.rvalue.op in operators
+            ):
+                cands.append(node)
+
+    Visitor().visit(fn.body)
+    ensure(cands)
+
+    node = random.choice(cands)
+
+    node.op = node.rvalue.op + node.op
+    node.rvalue = node.rvalue.right
+
+
 def perm_inequalities(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> None:
@@ -1205,6 +1232,7 @@ def perm_add_mask(
         else None,
     )
 
+
 def perm_float_literal(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> None:
@@ -1212,6 +1240,7 @@ def perm_float_literal(
     typemap = build_typemap(ast)
 
     cands: List[Expression] = []
+
     class Visitor(ca.NodeVisitor):
         def visit_Constant(self, node) -> None:
             if node.type == "float":
@@ -1225,24 +1254,23 @@ def perm_float_literal(
     value: str = node.value
     choices: List[str] = []
     if ".0f" in value:
-        choices.append(value.replace(".0f",""))
-        choices.append(value.replace(".0f",".0"))
+        choices.append(value.replace(".0f", ""))
+        choices.append(value.replace(".0f", ".0"))
     if value.startswith("0."):
-        choices.append(value.replace("0.","."))
+        choices.append(value.replace("0.", "."))
     elif value.startswith("."):
         choices.append("0" + value)
     if len(choices) == 0:
-        choices.append(value.replace("f",""))
+        choices.append(value.replace("f", ""))
 
     ensure(choices)
     value = random.choice(choices)
 
     visit_replace(
         fn.body,
-        lambda n, _: ca.Constant("float", value)
-        if n is node
-        else None,
+        lambda n, _: ca.Constant("float", value) if n is node else None,
     )
+
 
 def perm_cast_simple(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
@@ -1543,6 +1571,7 @@ class Randomizer:
             (perm_reorder_stmts, 5),
             (perm_associative, 5),
             (perm_inequalities, 5),
+            (perm_compound_assignment, 5),
         ]
         while True:
             method = self.random.choice(
