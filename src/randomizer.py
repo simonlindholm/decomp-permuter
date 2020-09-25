@@ -993,7 +993,7 @@ def perm_empty_stmt(
 
     label_name = f"dummy_label_{random.randint(1, 10**6)}"
 
-    stmts: List[ca.Statement] = []
+    stmts: List[Statement] = []
 
     kind = random.randrange(5)
     if kind == 0:  # if (1) or multiple if (1)
@@ -1095,9 +1095,6 @@ def perm_reorder_stmts(
     """Move a statement to another random place."""
     cands = get_insertion_points(fn, region)
 
-    # Don't reorder declarations, or put statements before them.
-    cands = [c for c in cands if not isinstance(c[2], ca.Decl)]
-
     # Figure out candidate statements to be moved. Don't move pragmas; it can
     # cause assertion failures. Don't move blocks; statements are generally not
     # reordered across basic blocks, and we don't want to risk moving a block
@@ -1116,11 +1113,38 @@ def perm_reorder_stmts(
     fromi = random.choice(source_inds)
     toi = round(random.triangular(0, len(cands) - 1, fromi))
 
-    fromb, fromi, _ = cands[fromi]
-    tob, toi, _ = cands[toi]
+    fromb, fromi, from_stmt = cands[fromi]
+    tob, toi, to_stmt = cands[toi]
+
+    if fromb == tob:
+        ensure(toi != fromi and toi != fromi + 1)
+
+    if isinstance(from_stmt, ca.Decl):
+        # Moving a declaration is tricky, when also preserving C89 compatibility.
+        # We can move it to after another declaration, or to the start of a block.
+        # Alternatively, if the declaration includes an initializer, we can
+        # split that out as an assignment.
+        to_block_stmts = ast_util.get_block_stmts(tob, False)
+        if toi == 0 or isinstance(to_block_stmts[toi - 1], ca.Decl):
+            # Fine to move
+            pass
+        elif (
+            from_stmt.name
+            and from_stmt.init
+            and not isinstance(from_stmt.init, ca.InitList)
+        ):
+            assignment = ca.Assignment("=", ca.ID(from_stmt.name), from_stmt.init)
+            ast_util.insert_statement(tob, toi, assignment)
+            from_stmt.init = None
+            return
+        else:
+            raise RandomizationFailure
+    else:
+        # Don't put statements before declarations.
+        ensure(not isinstance(to_stmt, ca.Decl))
+
     if fromb == tob and fromi < toi:
         toi -= 1
-    ensure(not (fromb == tob and fromi == toi))
 
     stmt = ast_util.get_block_stmts(fromb, True).pop(fromi)
     ast_util.insert_statement(tob, toi, stmt)
