@@ -1149,6 +1149,7 @@ def perm_compound_assignment(
 
     node = random.choice(cands)
 
+    assert isinstance(node.rvalue, ca.BinaryOp)
     node.op = node.rvalue.op + node.op
     node.rvalue = node.rvalue.right
 
@@ -1239,10 +1240,10 @@ def perm_float_literal(
     """Converts a Float Literal"""
     typemap = build_typemap(ast)
 
-    cands: List[Expression] = []
+    cands: List[ca.Constant] = []
 
     class Visitor(ca.NodeVisitor):
-        def visit_Constant(self, node) -> None:
+        def visit_Constant(self, node: ca.Constant) -> None:
             if node.type == "float":
                 cands.append(node)
 
