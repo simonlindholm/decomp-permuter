@@ -1276,24 +1276,29 @@ def perm_float_literal(
 
     node = random.choice(cands)
 
-    value: str = node.value
-    choices: List[str] = []
-    if ".0f" in value:
-        choices.append(value.replace(".0f", ""))
-        choices.append(value.replace(".0f", ".0"))
+    value: str = node.value.lower()
+    choices: List[str] = [value[:-1]]
+    if value.endswith(".0f"):
+        choices.append(value[:-3] or "0")
+    elif value.endswith(".f"):
+        choices.append(value[:-2] or "0")
     if value.startswith("0."):
-        choices.append(value.replace("0.", "."))
+        choices.append("." + (value[2:] or "0"))
     elif value.startswith("."):
         choices.append("0" + value)
-    if len(choices) == 0:
-        choices.append(value.replace("f", ""))
 
     ensure(choices)
     value = random.choice(choices)
+    if value.endswith("f"):
+        type = "float"
+    elif "." in value:
+        type = "double"
+    else:
+        type = "int"
 
     visit_replace(
         fn.body,
-        lambda n, _: ca.Constant("float", value) if n is node else None,
+        lambda n, _: ca.Constant(type, value) if n is node else None,
     )
 
 
