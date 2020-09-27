@@ -240,6 +240,7 @@ def visit_replace(top_node: ca.Node, callback: Callable[[ca.Node, bool], Any]) -
         if repl:
             return repl
         if isinstance(node, ca.Assignment):
+            node.lvalue = rec(node.lvalue, True)
             node.rvalue = rec(node.rvalue)
         elif isinstance(node, ca.StructRef):
             node.name = rec(node.name)
