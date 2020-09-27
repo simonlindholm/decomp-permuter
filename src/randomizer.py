@@ -1086,6 +1086,17 @@ def perm_add_self_assignment(
     ast_util.insert_statement(where[0], where[1], assignment)
 
 
+def perm_dummy_comma_expr(
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
+) -> None:
+    """Change x into (0, x) for a random expression x."""
+    cands = get_block_expressions(fn.body, region)
+    ensure(cands)
+    expr = random.choice(cands)
+    new_expr = ca.BinaryOp(",", ca.Constant("int", "0"), expr)
+    replace_subexprs(fn.body, lambda e: new_expr if e is expr else None)
+
+
 def perm_reorder_stmts(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> None:
@@ -1595,6 +1606,7 @@ class Randomizer:
             (perm_ins_block, 10),
             (perm_struct_ref, 10),
             (perm_empty_stmt, 10),
+            (perm_dummy_comma_expr, 5),
             (perm_add_self_assignment, 5),
             (perm_associative, 5),
             (perm_inequalities, 5),
