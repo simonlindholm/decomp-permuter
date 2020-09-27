@@ -1268,7 +1268,7 @@ def perm_float_literal(
 
     class Visitor(ca.NodeVisitor):
         def visit_Constant(self, node: ca.Constant) -> None:
-            if node.type == "float":
+            if node.type == "float" and region.contains_node(node):
                 cands.append(node)
 
     Visitor().visit(fn.body)
