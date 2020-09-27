@@ -139,20 +139,16 @@ def get_randomization_region(
 
 
 def get_block_expressions(block: Block, region: Region) -> List[Expression]:
+    """Return a list of all expressions within a block that are also within a
+    given region."""
     exprs: List[Expression] = []
 
-    def rec(block: Block) -> None:
-        for stmt in ast_util.get_block_stmts(block, False):
-            ast_util.for_nested_blocks(stmt, rec)
+    def visitor(expr: Expression) -> None:
+        if not region.contains_node(expr):
+            return
+        exprs.append(expr)
 
-            def visitor(expr: Expression) -> None:
-                if not region.contains_node(expr):
-                    return
-                exprs.append(expr)
-
-            replace_subexprs(stmt, visitor)
-
-    rec(block)
+    replace_subexprs(block, visitor)
     return exprs
 
 
