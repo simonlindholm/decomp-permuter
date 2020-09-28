@@ -229,16 +229,16 @@ def find_var_reads(top_node: ca.Node) -> List[ca.ID]:
 
 
 def visit_replace(top_node: ca.Node, callback: Callable[[ca.Node, bool], Any]) -> None:
-    def rec(orig_node: ca.Node, toplevel: bool = False) -> Any:
+    def rec(orig_node: ca.Node, toplevel: bool = False, *, lvalue: bool = False) -> Any:
         node: "ca.AnyNode" = typing.cast("ca.AnyNode", orig_node)
-        repl = callback(node, not toplevel)
+        repl = callback(node, not toplevel and not lvalue)
         if repl:
             return repl
         if isinstance(node, ca.Assignment):
-            node.lvalue = rec(node.lvalue, True)
+            node.lvalue = rec(node.lvalue, lvalue=True)
             node.rvalue = rec(node.rvalue)
         elif isinstance(node, ca.StructRef):
-            node.name = rec(node.name)
+            node.name = rec(node.name, lvalue=(lvalue and node.type == "."))
         elif isinstance(node, ca.Cast):
             if node.expr:
                 node.expr = rec(node.expr)
