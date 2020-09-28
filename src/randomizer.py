@@ -1167,16 +1167,16 @@ def perm_reorder_stmts(
 def perm_compound_assignment(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> None:
-    """Convert a statement of the form `x = x op y` to `x op= y`"""
+    """Convert a statement of the form `x = x op y` to `x op= y`, or vice versa."""
     cands: List[ca.Assignment] = []
     operators = ["+", "-", "*", "/", "<<", ">>", "^", "|", "&"]
 
     class Visitor(ca.NodeVisitor):
         def visit_Assignment(self, node: ca.Assignment) -> None:
-            if (
-                node.op == "="
-                and region.contains_node(node)
-                and isinstance(node.rvalue, ca.BinaryOp)
+            if not region.contains_node(node):
+                return
+            if node.op != "=" or (
+                isinstance(node.rvalue, ca.BinaryOp)
                 and ast_util.equal_ast(node.lvalue, node.rvalue.left)
                 and node.rvalue.op in operators
             ):
@@ -1184,12 +1184,16 @@ def perm_compound_assignment(
 
     Visitor().visit(fn.body)
     ensure(cands)
-
     node = random.choice(cands)
 
-    assert isinstance(node.rvalue, ca.BinaryOp)
-    node.op = node.rvalue.op + node.op
-    node.rvalue = node.rvalue.right
+    if node.op == "=":
+        assert isinstance(node.rvalue, ca.BinaryOp)
+        node.op = node.rvalue.op + node.op
+        node.rvalue = node.rvalue.right
+    else:
+        operator = node.op[:-1]
+        node.op = "="
+        node.rvalue = ca.BinaryOp(operator, copy.deepcopy(node.lvalue), node.rvalue)
 
 
 def perm_inequalities(
