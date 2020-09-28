@@ -245,12 +245,15 @@ def visit_replace(top_node: ca.Node, callback: Callable[[ca.Node, bool], Any]) -
         elif isinstance(node, (ca.Constant, ca.ID)):
             pass
         elif isinstance(node, ca.UnaryOp):
-            if node.op not in ["p++", "p--", "++", "--", "&", "sizeof"]:
+            if node.op in ["p++", "p--", "++", "--", "&"]:
+                node.expr = rec(node.expr, lvalue=True)
+            elif node.op != "sizeof":
                 node.expr = rec(node.expr)
         elif isinstance(node, ca.BinaryOp):
             node.left = rec(node.left)
             node.right = rec(node.right)
         elif isinstance(node, ca.FuncCall):
+            # not worth replacing .name
             if node.args:
                 rec(node.args, True)
         elif isinstance(node, ca.ExprList):
@@ -258,7 +261,7 @@ def visit_replace(top_node: ca.Node, callback: Callable[[ca.Node, bool], Any]) -
                 if not isinstance(node.exprs[i], ca.Typename):
                     node.exprs[i] = rec(node.exprs[i])
         elif isinstance(node, ca.ArrayRef):
-            node.name = rec(node.name)
+            node.name = rec(node.name, lvalue=lvalue)
             node.subscript = rec(node.subscript)
         elif isinstance(node, ca.TernaryOp):
             node.cond = rec(node.cond)
@@ -272,7 +275,7 @@ def visit_replace(top_node: ca.Node, callback: Callable[[ca.Node, bool], Any]) -
                 node.init = rec(node.init, isinstance(node.init, ca.InitList))
         elif isinstance(node, ca.For):
             if node.init:
-                node.init = rec(node.init)
+                node.init = rec(node.init, True)
             if node.cond:
                 node.cond = rec(node.cond)
             if node.next:
