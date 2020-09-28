@@ -144,9 +144,8 @@ def get_block_expressions(block: Block, region: Region) -> List[Expression]:
     exprs: List[Expression] = []
 
     def visitor(expr: Expression) -> None:
-        if not region.contains_node(expr):
-            return
-        exprs.append(expr)
+        if region.contains_node(expr):
+            exprs.append(expr)
 
     replace_subexprs(block, visitor)
     return exprs
@@ -346,6 +345,10 @@ def replace_subexprs(top_node: ca.Node, callback: Callable[[Expression], Any]) -
         return callback(typing.cast(Expression, node))
 
     visit_replace(top_node, expr_filter)
+
+
+def replace_node(top_node: ca.Node, old: ca.Node, new: ca.Node) -> None:
+    visit_replace(top_node, lambda node, _: new if node is old else None)
 
 
 def random_type(random: Random) -> SimpleType:
@@ -1094,7 +1097,7 @@ def perm_dummy_comma_expr(
     ensure(cands)
     expr = random.choice(cands)
     new_expr = ca.BinaryOp(",", ca.Constant("int", "0"), expr)
-    replace_subexprs(fn.body, lambda e: new_expr if e is expr else None)
+    replace_node(fn.body, expr, new_expr)
 
 
 def perm_reorder_stmts(
@@ -1258,12 +1261,8 @@ def perm_add_mask(
     masks: List[str] = ["0xFF", "0xFFFF", "0xFFFFFFFF", "0xFFFFFFFFFFFFFFFF"]
     mask = random.choice(masks) + random.choice(["", "u"])
 
-    visit_replace(
-        fn.body,
-        lambda n, _: ca.BinaryOp("&", expr, ca.Constant("int", mask))
-        if n is expr
-        else None,
-    )
+    new_expr = ca.BinaryOp("&", expr, ca.Constant("int", mask))
+    replace_node(fn.body, expr, new_expr)
 
 
 def perm_float_literal(
@@ -1304,10 +1303,7 @@ def perm_float_literal(
     else:
         type = "int"
 
-    visit_replace(
-        fn.body,
-        lambda n, _: ca.Constant(type, value) if n is node else None,
-    )
+    replace_node(fn.body, node, ca.Constant(type, value))
 
 
 def perm_cast_simple(
@@ -1342,13 +1338,9 @@ def perm_cast_simple(
         new_type = random.choice(floating_type)
 
     # Surround the original expression with a cast to the chosen type
-    def callback(node: ca.Node, is_expr: bool) -> Optional[ca.Node]:
-        if node is expr:
-            typedecl = ca.TypeDecl(None, [], ca.IdentifierType(new_type))
-            return ca.Cast(ca.Typename(None, [], typedecl), expr)
-        return None
-
-    visit_replace(fn.body, callback)
+    typedecl = ca.TypeDecl(None, [], ca.IdentifierType(new_type))
+    new_expr = ca.Cast(ca.Typename(None, [], typedecl), expr)
+    replace_node(fn.body, expr, new_expr)
 
 
 # struct_ref          # type of a         # easiest conversion
