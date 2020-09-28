@@ -1099,7 +1099,7 @@ def perm_dummy_comma_expr(
     cands = get_block_expressions(fn.body, region)
     ensure(cands)
     expr = random.choice(cands)
-    new_expr = ca.BinaryOp(",", ca.Constant("int", "0"), expr)
+    new_expr = ca.ExprList([ca.Constant("int", "0"), expr])
     replace_node(fn.body, expr, new_expr)
 
 
