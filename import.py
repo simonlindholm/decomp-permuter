@@ -2,6 +2,7 @@
 # usage: ./import.py path/to/file.c path/to/asm.s [make flags]
 import sys
 import os
+import platform
 import re
 import subprocess
 import shutil
@@ -13,6 +14,18 @@ from collections import defaultdict
 
 from strip_other_fns import strip_other_fns_and_write
 
+is_macos = True if platform.system() == "Darwin" else False
+
+# homebrew_gcc_cpp = max(f for f in os.listdir("/usr/local/bin") if f.startswith("cpp-"))
+def homebrew_gcc_cpp():
+    try:
+        return max(f for f in os.listdir("/usr/local/bin") if f.startswith("cpp-"))
+    except ValueError:
+        return ""
+
+cpp_cmd = homebrew_gcc_cpp() if is_macos else "cpp"
+readlink_cmd = "greadlink" if is_macos else "readlink"
+make_cmd = "gmake" if is_macos else "make"
 
 ASM_PRELUDE: str = """
 .set noat
@@ -27,7 +40,7 @@ ASM_PRELUDE: str = """
 
 DEFAULT_AS_CMDLINE: List[str] = ["mips-linux-gnu-as", "-march=vr4300", "-mabi=32"]
 
-CPP: List[str] = ["cpp", "-P", "-undef"]
+CPP: List[str] = [cpp_cmd, "-P", "-undef"]
 
 STUB_FN_MACROS: List[str] = [
     "-D_Static_assert(x, y)=",
@@ -145,15 +158,14 @@ def fixup_build_command(
 
     return res, assembler
 
-
 def find_build_command_line(
     c_file: str, make_flags: List[str]
 ) -> Tuple[List[str], List[str], str]:
     makefile_dir = find_makefile_dir(os.path.abspath(os.path.dirname(c_file)))
     rel_c_file = os.path.relpath(c_file, makefile_dir)
-    make_cmd = ["make", "--always-make", "--dry-run", "--debug=j"] + make_flags
+    make_invocation = [make_cmd, "--always-make", "--dry-run", "--debug=j"] + make_flags
     debug_output = (
-        subprocess.check_output(make_cmd, cwd=makefile_dir).decode("utf-8").split("\n")
+        subprocess.check_output(make_invocation, cwd=makefile_dir).decode("utf-8").split("\n")
     )
     output = []
     close_match = False
@@ -423,12 +435,12 @@ def finalize_compile_command(cmdline: List[str]) -> str:
     ind = (quoted + ["|"]).index("|")
     return " ".join(quoted[:ind] + ['"$INPUT"'] + quoted[ind:] + ["-o", '"$OUTPUT"'])
 
-
 def write_compile_command(compiler: List[str], cwd: str, out_file: str) -> None:
+
     with open(out_file, "w", encoding="utf-8") as f:
         f.write("#!/usr/bin/env bash\n")
-        f.write('INPUT="$(readlink -f "$1")"\n')
-        f.write('OUTPUT="$(readlink -f "$3")"\n')
+        f.write('INPUT="$(' + readlink_cmd + ' -f "$1")"\n')
+        f.write('OUTPUT="$(' + readlink_cmd + ' -f "$3")"\n')
         f.write(f"cd {shlex.quote(cwd)}\n")
         f.write(finalize_compile_command(compiler))
     os.chmod(out_file, 0o755)
