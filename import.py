@@ -14,17 +14,17 @@ from collections import defaultdict
 
 from strip_other_fns import strip_other_fns_and_write
 
-is_macos = True if platform.system() == "Darwin" else False
+is_macos = (platform.system() == "Darwin")
 
-# homebrew_gcc_cpp = max(f for f in os.listdir("/usr/local/bin") if f.startswith("cpp-"))
 def homebrew_gcc_cpp():
+    lookup_path = "/usr/local/bin"
     try:
-        return max(f for f in os.listdir("/usr/local/bin") if f.startswith("cpp-"))
+        return max(f for f in os.listdir(lookup_path) if f.startswith("cpp-"))
     except ValueError:
-        return ""
+        print("Error while looking up in " + lookup_path + " for cpp- executable")
+        sys.exit(1)
 
 cpp_cmd = homebrew_gcc_cpp() if is_macos else "cpp"
-readlink_cmd = "greadlink" if is_macos else "readlink"
 make_cmd = "gmake" if is_macos else "make"
 
 ASM_PRELUDE: str = """
@@ -439,8 +439,8 @@ def write_compile_command(compiler: List[str], cwd: str, out_file: str) -> None:
 
     with open(out_file, "w", encoding="utf-8") as f:
         f.write("#!/usr/bin/env bash\n")
-        f.write('INPUT="$(' + readlink_cmd + ' -f "$1")"\n')
-        f.write('OUTPUT="$(' + readlink_cmd + ' -f "$3")"\n')
+        f.write('INPUT="$(realpath "$1")"\n')
+        f.write('OUTPUT="$(realpath "$3")"\n')
         f.write(f"cd {shlex.quote(cwd)}\n")
         f.write(finalize_compile_command(compiler))
     os.chmod(out_file, 0o755)
