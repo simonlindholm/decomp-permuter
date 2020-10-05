@@ -1,4 +1,15 @@
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, TypeVar, Union
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Sequence,
+    Set,
+    Tuple,
+    TypeVar,
+    Union,
+)
 import attr
 import bisect
 import copy
@@ -380,21 +391,21 @@ def random_bool(random: Random, prob: float) -> bool:
     return random.random() < prob
 
 
-def random_weighted(random: Random, values: List[Tuple[float, T]]) -> T:
+def random_weighted(random: Random, values: Sequence[Tuple[T, float]]) -> T:
     assert values, "Cannot pick randomly from empty set"
     sumprob = 0.0
-    for (prob, val) in values:
+    for (val, prob) in values:
         assert prob > 0, "Probabilities must be positive"
         sumprob += prob
     targetprob = random.uniform(0, sumprob)
     sumprob = 0.0
-    for (prob, val) in values:
+    for (val, prob) in values:
         sumprob += prob
         if sumprob > targetprob:
             return val
 
     # Float imprecision
-    return values[0][1]
+    return values[0][0]
 
 
 def random_type(random: Random) -> SimpleType:
@@ -509,7 +520,7 @@ def perm_temp_for_expr(
     writes: Dict[str, List[int]] = compute_write_locations(fn, indices)
     reads: Dict[str, List[int]] = compute_read_locations(fn, indices)
     typemap = build_typemap(ast)
-    candidates: List[Tuple[float, Tuple[Place, Expression, Optional[str]]]] = []
+    candidates: List[Tuple[Tuple[Place, Expression, Optional[str]], float]] = []
 
     # Step 0: decide whether to make a pointer to the chosen expression, or to
     # copy it by value.
@@ -592,7 +603,7 @@ def perm_temp_for_expr(
                     if isinstance(orig_expr, (ca.ID, ca.Constant)):
                         prob *= 0.15 if should_make_ptr else 0.5
                     reuse_cand = random.choice(reuse_cands) if reuse_cands else None
-                    candidates.append((prob, (place, expr, reuse_cand)))
+                    candidates.append(((place, expr, reuse_cand), prob))
 
                 einds[expr] = eind
 
@@ -1688,9 +1699,7 @@ class Randomizer:
             (perm_compound_assignment, 5),
         ]
         while True:
-            method = self.random.choice(
-                [x for (elem, prob) in methods for x in [elem] * prob]
-            )
+            method = random_weighted(self.random, methods)
             try:
                 method(fn, ast, indices, region, self.random)
                 break
