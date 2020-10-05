@@ -30,24 +30,20 @@ from .ast_types import (
 DEBUG_EAGER_TYPES = False
 
 # Randomize the type of introduced temporary variable with this probability
-RANDOMIZE_TYPE_PROB = 0.3
+PROB_RANDOMIZE_TYPE = 0.3
 
 # Reuse an existing var instead of introducing a new temporary one with this probability
-REUSE_VAR_PROB = 0.5
+PROB_REUSE_VAR = 0.5
 
 # When wrapping statements in a new block, use a same-line `do { ... } while(0);`
 # (as opposed to non-same-line `if (1) { ... }`) with this probability.
 # This matches what macros often do.
-INS_BLOCK_DOWHILE_PROB = 0.5
+PROB_INS_BLOCK_DOWHILE = 0.5
 
 # Make a pointer to a temporary expression, rather than copy it by value, with
 # this probability. (This always happens for expressions of struct type,
 # regardless of this probability.)
-TEMP_PTR_PROB = 0.05
-
-# When substituting a variable by its value, substitute all instances with this
-# probability, rather than just a subrange or the complement of one.
-PROB_EXPAND_REPLACE_ALL = 0.3
+PROB_TEMP_PTR = 0.05
 
 # When creating a temporary for an expression, use the temporary for all equal
 # expressions with this probability.
@@ -57,9 +53,16 @@ PROB_TEMP_REPLACE_ALL = 0.2
 # with maximal endpoint with this probability.
 PROB_TEMP_REPLACE_MOST = 0.2
 
+# When substituting a variable by its value, substitute all instances with this
+# probability, rather than just a subrange or the complement of one.
+PROB_EXPAND_REPLACE_ALL = 0.3
+
 # When substituting a variable by its value, keep the variable assignment with
 # this probability.
 PROB_KEEP_REPLACED_VAR = 0.2
+
+# Change the return type of an external function to void with this probability.
+PROB_RET_VOID = 0.2
 
 # Number larger than any node index. (If you're trying to compile a 1 GB large
 # C file to matching asm, you have bigger problems than this limit.)
@@ -364,6 +367,10 @@ def replace_node(top_node: ca.Node, old: ca.Node, new: ca.Node) -> None:
     visit_replace(top_node, lambda node, _: new if node is old else None)
 
 
+def random_bool(random: Random, prob: float) -> bool:
+    return random.random() < prob
+
+
 def random_weighted(random: Random, values: List[Tuple[float, T]]) -> T:
     assert values, "Cannot pick randomly from empty set"
     sumprob = 0.0
@@ -383,12 +390,12 @@ def random_weighted(random: Random, values: List[Tuple[float, T]]) -> T:
 
 def random_type(random: Random) -> SimpleType:
     new_names: List[str] = []
-    if random.choice([True, False]):
+    if random_bool(random, 0.5):
         new_names.append("unsigned")
     new_names.append(random.choice(["char", "short", "int", "int"]))
     idtype = ca.IdentifierType(names=new_names)
     quals = []
-    if random.choice([True, False]):
+    if random_bool(random, 0.5):
         quals = ["volatile"]
     return ca.TypeDecl(declname=None, quals=quals, type=idtype)
 
@@ -448,7 +455,7 @@ def maybe_reuse_var(
     typemap: TypeMap,
     random: Random,
 ) -> Optional[str]:
-    if random.uniform(0, 1) > REUSE_VAR_PROB or var is None:
+    if not random_bool(random, PROB_REUSE_VAR) or var is None:
         return None
     var_type: SimpleType = decayed_expr_type(ca.ID(var), typemap)
     if not same_type(var_type, type, typemap, allow_similar=True):
@@ -495,7 +502,7 @@ def perm_temp_for_expr(
 
     # Step 0: decide whether to make a pointer to the chosen expression, or to
     # copy it by value.
-    should_make_ptr = random.uniform(0, 1) < TEMP_PTR_PROB
+    should_make_ptr = random_bool(random, PROB_TEMP_PTR)
 
     def surrounding_writes(expr: Expression, base: Expression) -> Tuple[int, int]:
         """Compute the previous and next write to a variable included in expr,
@@ -646,15 +653,15 @@ def perm_temp_for_expr(
 
     replace_subexprs(fn.body, find_duplicates)
     assert orig_expr in replace_cands
-    if random.uniform(0, 1) < PROB_TEMP_REPLACE_ALL:
+    if random_bool(random, PROB_TEMP_REPLACE_ALL):
         lo_index = 0
         hi_index = len(replace_cands)
     else:
         index = replace_cands.index(orig_expr)
         lo_index = random.randint(0, index)
         hi_index = random.randint(index + 1, len(replace_cands))
-        if random.uniform(0, 1) < PROB_TEMP_REPLACE_MOST:
-            if random.choice([True, False]):
+        if random_bool(random, PROB_TEMP_REPLACE_MOST):
+            if random_bool(random, 0.5):
                 lo_index = 0
             else:
                 hi_index = len(replace_cands)
@@ -676,7 +683,7 @@ def perm_temp_for_expr(
     assignment = ca.Assignment("=", ca.ID(var), expr)
     ast_util.insert_statement(block, index, assignment)
     if not reused:
-        if random.uniform(0, 1) < RANDOMIZE_TYPE_PROB:
+        if random_bool(random, PROB_RANDOMIZE_TYPE):
             type = randomize_type(type, typemap, random)
         ast_util.insert_decl(fn, var, type)
 
@@ -727,7 +734,7 @@ def perm_expand_expr(
     ]
     assert repl_cands, "index is always in repl_cands"
     myi = repl_cands.index(index)
-    if random.uniform(0, 1) >= PROB_EXPAND_REPLACE_ALL and len(repl_cands) > 1:
+    if not random_bool(random, PROB_EXPAND_REPLACE_ALL) and len(repl_cands) > 1:
         # Keep using the variable for a bit in the middle
         side = random.randrange(3)
         H = len(repl_cands)
@@ -738,7 +745,7 @@ def perm_expand_expr(
         repl_cands[loi:hii] = []
         keep_var = True
     else:
-        keep_var = random.uniform(0, 1) < PROB_KEEP_REPLACED_VAR
+        keep_var = random_bool(random, PROB_KEEP_REPLACED_VAR)
     repl_cands_set = set(repl_cands)
 
     # Step 4: do the replacement
@@ -889,14 +896,14 @@ def perm_randomize_function_type(
     assert isinstance(main_fndecl, ca.FuncDecl), "checked above"
     main_decl.type = main_fndecl
 
-    if random.choice([True, False]):
+    if random_bool(random, 0.5):
         # Replace the return type, changing integer signedness/size as well as
         # switching to/from void (which we should perhaps avoid if the function
         # call result is used, but eh, it's annoying to tell).
         type = pointer_decay(main_fndecl.type, typemap)
         if allowed_basic_type(type, typemap, ["void"]):
             main_fndecl.type = random_type(random)
-        elif random.uniform(0, 1) < 0.2:
+        elif random_bool(random, PROB_RET_VOID):
             idtype = ca.IdentifierType(names=["void"])
             main_fndecl.type = ca.TypeDecl(declname=None, quals=[], type=idtype)
         else:
@@ -944,7 +951,7 @@ def perm_refer_to_var(
     if isinstance(type, ca.TypeDecl) and isinstance(type.type, (ca.Struct, ca.Union)):
         expr = ca.UnaryOp("&", expr)
 
-    if random.choice([True, False]):
+    if random_bool(random, 0.5):
         expr = ca.UnaryOp("!", expr)
 
     # Insert it wherever -- possibly outside the randomization region, since regalloc
@@ -986,7 +993,7 @@ def perm_ins_block(
     if hi < lo:
         lo, hi = hi, lo
     new_block = ca.Compound(block_items=stmts[lo:hi])
-    if random.uniform(0, 1) < INS_BLOCK_DOWHILE_PROB and all(
+    if random_bool(random, PROB_INS_BLOCK_DOWHILE) and all(
         region.contains_node(n) for n in stmts[lo:hi]
     ):
         cond = ca.Constant(type="int", value="0")
@@ -1255,13 +1262,13 @@ def perm_inequalities(
     else:
         if node.op in ["<", ">="]:
             node.op = {"<": "<=", ">=": ">"}[node.op]
-            if random.choice([True, False]):
+            if random_bool(random, 0.5):
                 node.left = plus1(node.left)
             else:
                 node.right = minus1(node.right)
         else:
             node.op = {">": ">=", "<=": "<"}[node.op]
-            if random.choice([True, False]):
+            if random_bool(random, 0.5):
                 node.left = minus1(node.left)
             else:
                 node.right = plus1(node.right)
@@ -1359,7 +1366,7 @@ def perm_cast_simple(
     integral_type = [["int"], ["char"], ["long"], ["short"], ["long", "long"]]
     floating_type = [["float"], ["double"]]
     new_type: List[str]
-    if random.choice([True, False]):
+    if random_bool(random, 0.5):
         # Cast to integral type, sometimes unsigned
         sign: List[str] = random.choice([[], ["unsigned"]])
         new_type = sign + random.choice(integral_type)
@@ -1420,7 +1427,7 @@ def perm_struct_ref(
     # TODO: Split into separate perm? Need a separate one for arrayrefs, (a + b)[1] to a[b + 1]
     def randomize_associative_binop(left: ca.Node, right: ca.BinaryOp) -> ca.BinaryOp:
         """Try moving parentheses to the left side sometimes (sadly, it seems to matter)"""
-        if random.choice([True, False]) and right.op in ["+", "-"]:
+        if random_bool(random, 0.5) and right.op in ["+", "-"]:
             # ((a + b) - c)
             return ca.BinaryOp(
                 right.op, ca.BinaryOp("+", left, right.left), right.right
@@ -1525,7 +1532,7 @@ def perm_struct_ref(
             changed = True
 
         # Step 4: Convert back to ArrayRef
-        if random.choice([True, False]):
+        if random_bool(random, 0.5):
             # Sanity check that there's at least one dereference
             if isinstance(parent, ca.UnaryOp) and parent.op == "*":
                 apply_child(parent, to_array)
@@ -1533,7 +1540,7 @@ def perm_struct_ref(
                 changed = True
 
     # Step 5: Convert the StructRef type back
-    if random.choice([True, False]):
+    if random_bool(random, 0.5):
         struct_ref.name = addr(struct_ref.name)
         struct_ref.type = "->"
         changed = True
@@ -1587,7 +1594,7 @@ def perm_split_assignment(
     vartype = decayed_expr_type(var, typemap)
 
     # Choose which side to move to a new assignment
-    if random.choice([True, False]):
+    if random_bool(random, 0.5):
         side = split.left
         sidetype = decayed_expr_type(side, typemap)
         ensure(same_type(vartype, sidetype, typemap, allow_similar=True))
