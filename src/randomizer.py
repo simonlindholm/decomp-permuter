@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, TypeVar, Union
 import attr
 import bisect
 import copy
@@ -47,7 +47,15 @@ TEMP_PTR_PROB = 0.05
 
 # When substituting a variable by its value, substitute all instances with this
 # probability, rather than just a subrange or the complement of one.
-PROB_REPLACE_ALL = 0.3
+PROB_EXPAND_REPLACE_ALL = 0.3
+
+# When creating a temporary for an expression, use the temporary for all equal
+# expressions with this probability.
+PROB_TEMP_REPLACE_ALL = 0.2
+
+# When creating a temporary for an expression, use the temporary for an interval
+# with maximal endpoint with this probability.
+PROB_TEMP_REPLACE_MOST = 0.2
 
 # When substituting a variable by its value, keep the variable assignment with
 # this probability.
@@ -56,6 +64,8 @@ PROB_KEEP_REPLACED_VAR = 0.2
 # Number larger than any node index. (If you're trying to compile a 1 GB large
 # C file to matching asm, you have bigger problems than this limit.)
 MAX_INDEX = 10 ** 9
+
+T = TypeVar("T")
 
 
 class RandomizationFailure(Exception):
@@ -354,6 +364,23 @@ def replace_node(top_node: ca.Node, old: ca.Node, new: ca.Node) -> None:
     visit_replace(top_node, lambda node, _: new if node is old else None)
 
 
+def random_weighted(random: Random, values: List[Tuple[float, T]]) -> T:
+    assert values, "Cannot pick randomly from empty set"
+    sumprob = 0.0
+    for (prob, val) in values:
+        assert prob > 0, "Probabilities must be positive"
+        sumprob += prob
+    targetprob = random.uniform(0, sumprob)
+    sumprob = 0.0
+    for (prob, val) in values:
+        sumprob += prob
+        if sumprob > targetprob:
+            return val
+
+    # Float imprecision
+    return values[0][1]
+
+
 def random_type(random: Random) -> SimpleType:
     new_names: List[str] = []
     if random.choice([True, False]):
@@ -555,23 +582,10 @@ def perm_temp_for_expr(
 
     rec(fn.body, [])
 
-    ensure(candidates)
-
     # Step 2: decide on a place/expression
-    sumprob = 0.0
-    for (prob, cand) in candidates:
-        sumprob += prob
-    targetprob = random.uniform(0, sumprob)
-    sumprob = 0.0
-    chosen_cand = None
-    for (prob, cand) in candidates:
-        sumprob += prob
-        if sumprob > targetprob:
-            chosen_cand = cand
-            break
+    ensure(candidates)
+    place, expr, reuse_cand = random_weighted(random, candidates)
 
-    assert chosen_cand is not None, "math"
-    place, expr, reuse_cand = chosen_cand
     type: SimpleType = decayed_expr_type(expr, typemap)
 
     # Don't replace effectful expressions. This is a bit expensive to
@@ -632,9 +646,18 @@ def perm_temp_for_expr(
 
     replace_subexprs(fn.body, find_duplicates)
     assert orig_expr in replace_cands
-    index = replace_cands.index(orig_expr)
-    lo_index = random.randint(0, index)
-    hi_index = random.randint(index + 1, len(replace_cands))
+    if random.uniform(0, 1) < PROB_TEMP_REPLACE_ALL:
+        lo_index = 0
+        hi_index = len(replace_cands)
+    else:
+        index = replace_cands.index(orig_expr)
+        lo_index = random.randint(0, index)
+        hi_index = random.randint(index + 1, len(replace_cands))
+        if random.uniform(0, 1) < PROB_TEMP_REPLACE_MOST:
+            if random.choice([True, False]):
+                lo_index = 0
+            else:
+                hi_index = len(replace_cands)
     replace_cand_set = set(replace_cands[lo_index:hi_index])
 
     # Step 5: replace the chosen expression
@@ -704,7 +727,7 @@ def perm_expand_expr(
     ]
     assert repl_cands, "index is always in repl_cands"
     myi = repl_cands.index(index)
-    if random.uniform(0, 1) >= PROB_REPLACE_ALL and len(repl_cands) > 1:
+    if random.uniform(0, 1) >= PROB_EXPAND_REPLACE_ALL and len(repl_cands) > 1:
         # Keep using the variable for a bit in the middle
         side = random.randrange(3)
         H = len(repl_cands)
