@@ -170,6 +170,7 @@ class Permuter:
             self.permutations.is_random()
             and self.random.uniform(0, 1) < self.keep_prob
             and self._last_score != 0
+            and self._last_score != self.scorer.PENALTY_INF
         ) or self.force_rng_seed
 
         self._last_score = None
