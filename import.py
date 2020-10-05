@@ -14,15 +14,17 @@ from collections import defaultdict
 
 from strip_other_fns import strip_other_fns_and_write
 
-is_macos = (platform.system() == "Darwin")
+is_macos = platform.system() == "Darwin"
 
-def homebrew_gcc_cpp():
+
+def homebrew_gcc_cpp() -> str:
     lookup_path = "/usr/local/bin"
     try:
         return max(f for f in os.listdir(lookup_path) if f.startswith("cpp-"))
     except ValueError:
         print("Error while looking up in " + lookup_path + " for cpp- executable")
         sys.exit(1)
+
 
 cpp_cmd = homebrew_gcc_cpp() if is_macos else "cpp"
 make_cmd = "gmake" if is_macos else "make"
@@ -158,6 +160,7 @@ def fixup_build_command(
 
     return res, assembler
 
+
 def find_build_command_line(
     c_file: str, make_flags: List[str]
 ) -> Tuple[List[str], List[str], str]:
@@ -165,7 +168,9 @@ def find_build_command_line(
     rel_c_file = os.path.relpath(c_file, makefile_dir)
     make_invocation = [make_cmd, "--always-make", "--dry-run", "--debug=j"] + make_flags
     debug_output = (
-        subprocess.check_output(make_invocation, cwd=makefile_dir).decode("utf-8").split("\n")
+        subprocess.check_output(make_invocation, cwd=makefile_dir)
+        .decode("utf-8")
+        .split("\n")
     )
     output = []
     close_match = False
@@ -434,6 +439,7 @@ def finalize_compile_command(cmdline: List[str]) -> str:
     quoted = [arg if arg == "|" else shlex.quote(arg) for arg in cmdline]
     ind = (quoted + ["|"]).index("|")
     return " ".join(quoted[:ind] + ['"$INPUT"'] + quoted[ind:] + ["-o", '"$OUTPUT"'])
+
 
 def write_compile_command(compiler: List[str], cwd: str, out_file: str) -> None:
 

@@ -1190,8 +1190,29 @@ def perm_reorder_stmts(
     if isinstance(from_stmt, ca.Decl):
         # Moving a declaration is tricky, when also preserving C89 compatibility.
         # We can move it to after another declaration, or to the start of a block.
-        # Alternatively, if the declaration includes an initializer, we can
-        # split that out as an assignment.
+        # Alternatively, if the declaration includes an initializer, and we move
+        # it forwards, we can split that out as an assignment.
+        # We don't allow moving the declaration or assignment past the next
+        # occurrence of the variable.
+        ensure(from_stmt.name)
+        var_name = from_stmt.name
+        to_index = indices.starts[to_stmt] if to_stmt else indices.ends[fromb]
+        uses = 0
+
+        class Visitor(ca.NodeVisitor):
+            def visit_ID(self, node: ca.ID) -> None:
+                nonlocal uses
+                if node.name == var_name and indices.starts[node] < to_index:
+                    uses += 1
+
+            def visit_TypeDecl(self, node: ca.TypeDecl) -> None:
+                nonlocal uses
+                if node.declname == var_name and indices.starts[node] < to_index:
+                    uses += 1
+
+        Visitor().visit(fn.body)
+        ensure(uses <= 1)
+
         to_block_stmts = ast_util.get_block_stmts(tob, False)
         if toi == 0 or isinstance(to_block_stmts[toi - 1], ca.Decl):
             # Fine to move
@@ -1200,6 +1221,7 @@ def perm_reorder_stmts(
             from_stmt.name
             and from_stmt.init
             and not isinstance(from_stmt.init, ca.InitList)
+            and uses > 0
         ):
             assignment = ca.Assignment("=", ca.ID(from_stmt.name), from_stmt.init)
             ast_util.insert_statement(tob, toi, assignment)
