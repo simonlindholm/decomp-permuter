@@ -68,9 +68,13 @@ def find_fns(source: str) -> List[str]:
     ]
 
 
+class CompileFailure(Exception):
+    pass
+
+
 @attr.s
 class EvalError:
-    exc_str: str = attr.ib()
+    exc_str: Optional[str] = attr.ib()
     seed: Optional[Tuple[int, int]] = attr.ib()
 
 
@@ -95,6 +99,7 @@ class Permuter:
         force_rng_seed: Optional[int],
         keep_prob: float,
         need_all_sources: bool,
+        show_errors: bool,
     ) -> None:
         self.dir = dir
         self.random = Random()
@@ -124,6 +129,7 @@ class Permuter:
 
         self.keep_prob = keep_prob
         self.need_all_sources = need_all_sources
+        self.show_errors = show_errors
 
         self.base, base_score, self.base_hash = self.create_and_score_base()
         self.hashes = {self.base_hash}
@@ -155,7 +161,7 @@ class Permuter:
             return result.hash != self.base_hash
         return False
 
-    def eval_candidate(self, seed: int) -> CandidateResult:
+    def _eval_candidate(self, seed: int) -> CandidateResult:
         t0 = time.time()
 
         # Determine if we should keep the last candidate.
@@ -191,6 +197,8 @@ class Permuter:
         t2 = time.time()
 
         o_file = self.cand.compile(self.compiler)
+        if not o_file and self.show_errors:
+            raise CompileFailure()
 
         t3 = time.time()
 
@@ -213,7 +221,9 @@ class Permuter:
 
     def try_eval_candidate(self, seed: int) -> EvalResult:
         try:
-            return self.eval_candidate(seed)
+            return self._eval_candidate(seed)
+        except CompileFailure:
+            return EvalError(exc_str=None, seed=self.cur_seed)
         except Exception:
             return EvalError(exc_str=traceback.format_exc(), seed=self.cur_seed)
 
@@ -266,8 +276,9 @@ def write_candidate(perm: Permuter, result: CandidateResult) -> None:
 
 def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> bool:
     if isinstance(result, EvalError):
-        print(f"\n[{permuter.unique_name}] internal permuter failure.")
-        print(result.exc_str)
+        if result.exc_str is not None:
+            print(f"\n[{permuter.unique_name}] internal permuter failure.")
+            print(result.exc_str)
         if result.seed is not None:
             seed_str = str(result.seed[1])
             if result.seed[0] != 0:
@@ -473,6 +484,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
                 force_rng_seed=force_rng_seed,
                 keep_prob=options.keep_prob,
                 need_all_sources=options.print_diffs,
+                show_errors=options.show_errors,
             )
         except CandidateConstructionFailure as e:
             print(e.message, file=sys.stderr)
