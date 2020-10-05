@@ -123,6 +123,12 @@ def expr_type(node: c_ast.Node, typemap: TypeMap) -> Type:
         if node.op == "*":
             subtype = rec(node.expr)
             return deref_type(subtype, typemap)
+        if node.op in ["-", "+"]:
+            subtype = pointer_decay(rec(node.expr), typemap)
+            if allowed_basic_type(subtype, typemap, ["double"]):
+                return basic_type("double")
+            if allowed_basic_type(subtype, typemap, ["float"]):
+                return basic_type("float")
         if node.op in ["sizeof", "-", "+", "~", "!"]:
             return basic_type("int")
         assert False, f"unknown unary op {node.op}"
