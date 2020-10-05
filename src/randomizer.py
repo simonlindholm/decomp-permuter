@@ -429,7 +429,7 @@ def randomize_innermost_type(
 
 
 def get_insertion_points(
-    fn: ca.FuncDef, region: Region
+    fn: ca.FuncDef, region: Region, *, allow_within_decl: bool = False
 ) -> List[Tuple[Block, int, Optional[ca.Node]]]:
     cands: List[Tuple[Block, int, Optional[ca.Node]]] = []
 
@@ -445,6 +445,8 @@ def get_insertion_points(
             cands.append((block, len(stmts), None))
 
     rec(fn.body)
+    if not allow_within_decl:
+        cands = [c for c in cands if not isinstance(c[2], ca.Decl)]
     return cands
 
 
@@ -973,7 +975,6 @@ def perm_refer_to_var(
     # Insert it wherever -- possibly outside the randomization region, since regalloc
     # can act at a distance. (Except before a declaration.)
     ins_cands = get_insertion_points(fn, Region.unbounded())
-    ins_cands = [c for c in ins_cands if not isinstance(c[2], ca.Decl)]
     ensure(ins_cands)
 
     cond = copy.deepcopy(expr)
@@ -1037,7 +1038,6 @@ def perm_empty_stmt(
 
     # Insert the statement wherever, except before a declaration.
     cands = get_insertion_points(fn, Region.unbounded())
-    cands = [c for c in cands if not isinstance(c[2], ca.Decl)]
     ensure(cands)
 
     label_name = f"dummy_label_{random.randint(1, 10**6)}"
@@ -1153,7 +1153,7 @@ def perm_reorder_stmts(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> None:
     """Move a statement to another random place."""
-    cands = get_insertion_points(fn, region)
+    cands = get_insertion_points(fn, region, allow_within_decl=True)
 
     # Figure out candidate statements to be moved. Don't move pragmas; it can
     # cause assertion failures. Don't move blocks; statements are generally not
