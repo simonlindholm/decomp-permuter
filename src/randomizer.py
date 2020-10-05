@@ -745,7 +745,7 @@ def perm_expand_expr(
         and not isinstance(write.init, ca.InitList)
     ):
         repl_expr = write.init
-    elif isinstance(write, ca.Assignment):
+    elif isinstance(write, ca.Assignment) and write.op == "=":
         repl_expr = write.rvalue
     else:
         raise RandomizationFailure
