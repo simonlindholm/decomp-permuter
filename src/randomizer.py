@@ -45,6 +45,10 @@ PROB_INS_BLOCK_DOWHILE = 0.5
 # regardless of this probability.)
 PROB_TEMP_PTR = 0.05
 
+# Instead of emitting an assignment statement, assign the temporary within the
+# first expression it's used in with this probability.
+PROB_TEMP_ASSIGN_AT_FIRST_USE = 0.1
+
 # When creating a temporary for an expression, use the temporary for all equal
 # expressions with this probability.
 PROB_TEMP_REPLACE_ALL = 0.2
@@ -591,7 +595,13 @@ def perm_temp_for_expr(
 
     # Step 2: decide on a place/expression
     ensure(candidates)
+    place: Optional[Place]
     place, expr, reuse_cand = random_weighted(random, candidates)
+
+    if random_bool(random, PROB_TEMP_ASSIGN_AT_FIRST_USE):
+        # Don't emit a statement for the assignment, emit an assignment
+        # expression at the first use instead.
+        place = None
 
     type: SimpleType = decayed_expr_type(expr, typemap)
 
@@ -619,7 +629,10 @@ def perm_temp_for_expr(
     # print("replacing:", to_c(expr))
 
     # Step 3: decide on a variable to hold the expression
-    assign_before = place[2]
+    if place is not None:
+        assign_before = place[2]
+    else:
+        assign_before = orig_expr
     reused_var = maybe_reuse_var(
         reuse_cand,
         assign_before,
@@ -670,18 +683,21 @@ def perm_temp_for_expr(
     # Step 5: replace the chosen expression
     def replacer(e: Expression) -> Optional[Expression]:
         if e in replace_cand_set:
+            ret: Expression = ca.ID(var)
+            if place is None and e is orig_expr:
+                ret = ca.Assignment("=", ret, expr)
             if should_make_ptr:
-                return ca.UnaryOp("*", ca.ID(var))
-            else:
-                return ca.ID(var)
+                ret = ca.UnaryOp("*", ret)
+            return ret
         return None
 
     replace_subexprs(fn.body, replacer)
 
     # Step 6: insert the assignment and any new variable declaration
-    block, index, _ = place
-    assignment = ca.Assignment("=", ca.ID(var), expr)
-    ast_util.insert_statement(block, index, assignment)
+    if place is not None:
+        block, index, _ = place
+        assignment = ca.Assignment("=", ca.ID(var), expr)
+        ast_util.insert_statement(block, index, assignment)
     if not reused:
         if random_bool(random, PROB_RANDOMIZE_TYPE):
             type = randomize_type(type, typemap, random)
