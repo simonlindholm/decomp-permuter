@@ -104,28 +104,28 @@ class Region:
         """Check whether the region contains an entire node."""
         if self.indices is None:
             return True
-        # We assume valid nesting of regions, so it's fine to check just the
-        # node's starting index. (Though for clarify we should probably check
-        # the end index as well, if we refactor the code so it's available.)
-        return self.start < self.indices[node] < self.end
+        return (
+            self.start < self.indices.starts[node]
+            and self.indices.ends[node] < self.end
+        )
 
     def contains_pre(self, node: ca.Node) -> bool:
         """Check whether the region contains a point just before a given node."""
         if self.indices is None:
             return True
-        return self.start < self.indices[node] <= self.end
+        return self.start < self.indices.starts[node] < self.end
 
     def contains_pre_index(self, index: int) -> bool:
         """Check whether the region contains a point just before a given node,
         as specified by its index."""
         if self.indices is None:
             return True
-        return self.start < index <= self.end
+        return self.start < index < self.end
 
 
-def reverse_indices(indices: Indices) -> Dict[int, ca.Node]:
+def reverse_start_indices(indices: Indices) -> Dict[int, ca.Node]:
     ret = {}
-    for k, v in indices.items():
+    for k, v in indices.starts.items():
         ret[v] = k
     return ret
 
@@ -142,10 +142,10 @@ def get_randomization_region(
             if node.string == "_permuter randomizer start":
                 if cur_start is not None:
                     raise Exception("nested PERM_RANDOMIZE not supported")
-                cur_start = indices[node]
+                cur_start = indices.ends[node]
             if node.string == "_permuter randomizer end":
                 assert cur_start is not None, "randomizer end without start"
-                ret.append(Region(cur_start, indices[node], indices))
+                ret.append(Region(cur_start + 1, indices.starts[node] - 1, indices))
                 cur_start = None
 
     Visitor().visit(top_node)
@@ -185,17 +185,17 @@ def compute_write_locations(
     class Visitor(ca.NodeVisitor):
         def visit_Decl(self, node: ca.Decl) -> None:
             if node.name:
-                add_write(node.name, indices[node])
+                add_write(node.name, indices.starts[node])
             self.generic_visit(node)
 
         def visit_UnaryOp(self, node: ca.UnaryOp) -> None:
             if node.op in ["p++", "p--", "++", "--"] and isinstance(node.expr, ca.ID):
-                add_write(node.expr.name, indices[node])
+                add_write(node.expr.name, indices.starts[node])
             self.generic_visit(node)
 
         def visit_Assignment(self, node: ca.Assignment) -> None:
             if isinstance(node.lvalue, ca.ID):
-                add_write(node.lvalue.name, indices[node])
+                add_write(node.lvalue.name, indices.starts[node])
             self.generic_visit(node)
 
     Visitor().visit(top_node)
@@ -206,7 +206,7 @@ def compute_read_locations(top_node: ca.Node, indices: Indices) -> Dict[str, Lis
     reads: Dict[str, List[int]] = {}
     for node in find_var_reads(top_node):
         var_name = node.name
-        loc = indices[node]
+        loc = indices.starts[node]
         if var_name not in reads:
             reads[var_name] = []
         else:
@@ -478,8 +478,8 @@ def maybe_reuse_var(
             return list[ind]
         return None
 
-    assignment_ind = indices[assign_before]
-    expr_ind = indices[orig_expr]
+    assignment_ind = indices.starts[assign_before]
+    expr_ind = indices.starts[orig_expr]
     write = find_next(writes.get(var, []), assignment_ind)
     read = find_next(reads.get(var, []), assignment_ind)
     # TODO: if write/read is within expr, search again from after it (since
@@ -524,7 +524,7 @@ def perm_temp_for_expr(
         sub_reads = find_var_reads(expr)
         prev_write = -1
         next_write = MAX_INDEX
-        base_index = indices[base]
+        base_index = indices.starts[base]
         for sub_read in sub_reads:
             var_name = sub_read.name
             if var_name not in writes:
@@ -582,7 +582,7 @@ def perm_temp_for_expr(
                     # assignment too high up.
                     # TODO: also fail on moving past function calls, or
                     # possibly-aliasing writes.
-                    if indices[place[2]] <= prev_write:
+                    if indices.starts[place[2]] <= prev_write:
                         break
 
                     # Make far-away places less likely, and similarly for
@@ -664,11 +664,13 @@ def perm_temp_for_expr(
 
     # Step 4: possibly expand the replacement to include duplicate expressions.
     prev_write, next_write = surrounding_writes(expr, orig_expr)
-    prev_write = max(prev_write, indices[assign_before] - 1)
+    prev_write = max(prev_write, indices.starts[assign_before] - 1)
     replace_cands: List[Expression] = []
 
     def find_duplicates(e: Expression) -> None:
-        if prev_write < indices[e] <= next_write and ast_util.equal_ast(e, orig_expr):
+        if prev_write < indices.starts[e] <= next_write and ast_util.equal_ast(
+            e, orig_expr
+        ):
             replace_cands.append(e)
 
     replace_subexprs(fn.body, find_duplicates)
@@ -737,7 +739,7 @@ def perm_expand_expr(
     ensure(i > 0)
     before = writes[i - 1]
     after = MAX_INDEX if i == len(writes) else writes[i]
-    rev_indices = reverse_indices(indices)
+    rev_indices = reverse_start_indices(indices)
     write = rev_indices[before]
     if (
         isinstance(write, ca.Decl)
@@ -773,7 +775,7 @@ def perm_expand_expr(
 
     # Step 4: do the replacement
     def callback(expr: ca.Node, is_expr: bool) -> Optional[ca.Node]:
-        if indices[expr] in repl_cands_set:
+        if indices.starts[expr] in repl_cands_set:
             return copy.deepcopy(repl_expr)
         if expr == write and isinstance(write, ca.Assignment) and not keep_var:
             if is_expr:

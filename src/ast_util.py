@@ -19,7 +19,13 @@ from .ast_types import (
     set_decl_name,
 )
 
-Indices = Dict[ca.Node, int]
+
+@attr.s
+class Indices:
+    starts: Dict[ca.Node, int] = attr.ib()
+    ends: Dict[ca.Node, int] = attr.ib()
+
+
 Block = Union[ca.Compound, ca.Case, ca.Default]
 if typing.TYPE_CHECKING:
     # ca.Expression and ca.Statement don't actually exist, they live only in
@@ -109,19 +115,22 @@ def extract_fn(ast: ca.FileAST, fn_name: str) -> Tuple[ca.FuncDef, int]:
 
 
 def compute_node_indices(top_node: ca.Node) -> Indices:
-    indices: Indices = {}
-    cur_index = 0
+    starts: Dict[ca.Node, int] = {}
+    ends: Dict[ca.Node, int] = {}
+    cur_index = 1
 
     class Visitor(ca.NodeVisitor):
         def generic_visit(self, node: ca.Node) -> None:
             nonlocal cur_index
-            assert node not in indices, "nodes should only appear once in AST"
-            indices[node] = cur_index
-            cur_index += 1
+            assert node not in starts, "nodes should only appear once in AST"
+            starts[node] = cur_index
+            cur_index += 2
             super().generic_visit(node)
+            ends[node] = cur_index
+            cur_index += 2
 
     Visitor().visit(top_node)
-    return indices
+    return Indices(starts, ends)
 
 
 def equal_ast(a: ca.Node, b: ca.Node) -> bool:
