@@ -965,7 +965,8 @@ def perm_refer_to_var(
     ensure(cands)
     expr = random.choice(cands)
     ensure(not ast_util.is_effectful(expr))
-    type: SimpleType = decayed_expr_type(expr, build_typemap(ast))
+    typemap = build_typemap(ast)
+    type: Type = resolve_typedefs(decayed_expr_type(expr, typemap), typemap)
     if isinstance(type, ca.TypeDecl) and isinstance(type.type, (ca.Struct, ca.Union)):
         expr = ca.UnaryOp("&", expr)
 
