@@ -246,6 +246,11 @@ def find_var_reads(top_node: ca.Node) -> List[ca.ID]:
 
 
 def visit_replace(top_node: ca.Node, callback: Callable[[ca.Node, bool], Any]) -> None:
+    def empty_statement_to_none(node: Any) -> Any:
+        if isinstance(node, ca.EmptyStatement):
+            return None
+        return node
+
     def rec(orig_node: ca.Node, toplevel: bool = False, *, lvalue: bool = False) -> Any:
         node: "ca.AnyNode" = typing.cast("ca.AnyNode", orig_node)
         repl = callback(node, not toplevel and not lvalue)
@@ -292,11 +297,11 @@ def visit_replace(top_node: ca.Node, callback: Callable[[ca.Node, bool], Any]) -
                 node.init = rec(node.init, isinstance(node.init, ca.InitList))
         elif isinstance(node, ca.For):
             if node.init:
-                node.init = rec(node.init, True)
+                node.init = empty_statement_to_none(rec(node.init, True))
             if node.cond:
                 node.cond = rec(node.cond)
             if node.next:
-                node.next = rec(node.next, True)
+                node.next = empty_statement_to_none(rec(node.next, True))
             node.stmt = rec(node.stmt, True)
         elif isinstance(node, ca.Compound):
             for sub in node.block_items or []:
