@@ -292,21 +292,54 @@ def normalize_ast(fn: ca.FuncDef, ast: ca.FileAST) -> None:
     rec(fn.body)
 
 
-def prune_ast(fn: ca.FuncDef, ast: ca.FileAST) -> int:
-    """Prune away unnecessary parts of the AST, to reduce overhead from serialization
-    and from the compiler's C parser."""
-    seen_ids = set()
+def _ast_used_ids(ast: ca.FileAST) -> Set[str]:
+    seen = set()
     re_token = re.compile(r"[a-zA-Z0-9_$]+")
 
     class Visitor(ca.NodeVisitor):
         def visit_ID(self, node: ca.ID) -> None:
-            seen_ids.add(node.name)
+            seen.add(node.name)
 
         def visit_Pragma(self, node: ca.Pragma) -> None:
             for token in re_token.findall(node.string):
-                seen_ids.add(token)
+                seen.add(token)
 
     Visitor().visit(ast)
+    return seen
+
+
+def _used_type_names(ast: ca.FileAST) -> Set[str]:
+    seen = set()
+
+    class Visitor(ca.NodeVisitor):
+        def visit_IdentifierType(self, node: ca.IdentifierType) -> None:
+            for name in node.names:
+                seen.add(name)
+
+        def visit_TypeDecl(self, node: ca.TypeDecl) -> None:
+            tp = node.type
+            if isinstance(tp, ca.IdentifierType):
+                for name in tp.names:
+                    seen.add(name)
+            elif isinstance(tp, ca.Enum):
+                if tp.name and not tp.values:
+                    seen.add(tp.name)
+            else:
+                if tp.name and not tp.decls:
+                    seen.add(tp.name)
+            self.generic_visit(node)
+
+    Visitor().visit(ast)
+    return seen
+
+
+def prune_ast(fn: ca.FuncDef, ast: ca.FileAST) -> int:
+    """Prune away unnecessary parts of the AST, to reduce overhead from serialization
+    and from the compiler's C parser.
+
+    Structs involved in circular references are currently not removed -- the algorithm
+    is based on refcounting instead of tracing GC for simplicity."""
+    used_ids = _ast_used_ids(ast)
 
     new_items = []
     for i in range(len(ast.ext)):
@@ -315,7 +348,7 @@ def prune_ast(fn: ca.FuncDef, ast: ca.FileAST) -> int:
             isinstance(item, ca.Decl)
             and item.name
             and not item.init
-            and item.name not in seen_ids
+            and item.name not in used_ids
         ):
             # Skip pointless declaration. (Declarations with initializer lists can
             # in some cases affect codegen, so we keep them.)
@@ -323,4 +356,51 @@ def prune_ast(fn: ca.FuncDef, ast: ca.FileAST) -> int:
         else:
             new_items.append(item)
     ast.ext = new_items
+
+    has_removals = True
+    while has_removals:
+        has_removals = False
+
+        used_type_names = _used_type_names(ast)
+
+        def useful_type(tp: "ca.Type", for_typedef: bool) -> bool:
+            """Check whether a type is needed, e.g. because it contains a definition of
+            a struct that's referenced from outside, or definitions or enum members."""
+            if isinstance(tp, (ca.PtrDecl, ca.ArrayDecl)):
+                return useful_type(tp.type, for_typedef)
+            if isinstance(tp, ca.FuncDecl):
+                return not for_typedef
+            if not isinstance(tp, ca.TypeDecl):
+                return True
+            inner_type = tp.type
+            if isinstance(inner_type, ca.IdentifierType):
+                return False
+            if inner_type.name is not None and inner_type.name in used_type_names:
+                return True
+            if isinstance(inner_type, ca.Enum):
+                return any(it.name in used_ids for it in inner_type.values.enumerators)
+            return False
+
+        new_items = []
+        for i in range(len(ast.ext)):
+            item = ast.ext[i]
+            if (
+                isinstance(item, ca.Typedef)
+                and item.name not in used_type_names
+                and not useful_type(item.type, True)
+            ):
+                # Skip unused typedefs.
+                has_removals = True
+            elif (
+                isinstance(item, ca.Decl)
+                and not item.name
+                and not useful_type(item.type, False)
+            ):
+                # Skip unused struct/union/enum definitions.
+                has_removals = True
+            else:
+                new_items.append(item)
+
+        ast.ext = new_items
+
     return new_items.index(fn)
