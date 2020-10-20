@@ -1190,7 +1190,18 @@ def perm_reorder_stmts(
 
     ensure(source_inds)
     fromi = random.choice(source_inds)
-    toi = round(random.triangular(0, len(cands) - 1, fromi))
+
+    weighted_cands = []
+    for i in range(len(cands)):
+        dist = max(fromi - i, i - (fromi + 1))
+        if dist == 0:
+            continue
+        # Move distance 1, 2, 3, ... with probabilities
+        # 23%, 12%, 8%, 6%, 4%, 3%, 3%, 2%, 2%, 2%, ...
+        prob = (dist + 1) ** -1.5
+        weighted_cands.append((i, prob))
+    ensure(weighted_cands)
+    toi = random_weighted(random, weighted_cands)
 
     fromb, fromi, from_stmt = cands[fromi]
     tob, toi, to_stmt = cands[toi]
