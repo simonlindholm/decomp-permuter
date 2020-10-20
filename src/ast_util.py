@@ -3,6 +3,7 @@ import attr
 import bisect
 import copy
 from random import Random
+import re
 import sys
 import time
 import typing
@@ -289,3 +290,37 @@ def normalize_ast(fn: ca.FuncDef, ast: ca.FileAST) -> None:
             for_nested_blocks(stmt, rec)
 
     rec(fn.body)
+
+
+def prune_ast(fn: ca.FuncDef, ast: ca.FileAST) -> int:
+    """Prune away unnecessary parts of the AST, to reduce overhead from serialization
+    and from the compiler's C parser."""
+    seen_ids = set()
+    re_token = re.compile(r"[a-zA-Z0-9_$]+")
+
+    class Visitor(ca.NodeVisitor):
+        def visit_ID(self, node: ca.ID) -> None:
+            seen_ids.add(node.name)
+
+        def visit_Pragma(self, node: ca.Pragma) -> None:
+            for token in re_token.findall(node.string):
+                seen_ids.add(token)
+
+    Visitor().visit(ast)
+
+    new_items = []
+    for i in range(len(ast.ext)):
+        item = ast.ext[i]
+        if (
+            isinstance(item, ca.Decl)
+            and item.name
+            and not item.init
+            and item.name not in seen_ids
+        ):
+            # Skip pointless declaration. (Declarations with initializer lists can
+            # in some cases affect codegen, so we keep them.)
+            pass
+        else:
+            new_items.append(item)
+    ast.ext = new_items
+    return new_items.index(fn)

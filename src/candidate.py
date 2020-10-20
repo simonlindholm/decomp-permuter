@@ -54,6 +54,7 @@ class Candidate:
         parser = CParser()
         ast = parser.parse(source)
         orig_fn, fn_index = ast_util.extract_fn(ast, fn_name)
+        fn_index = ast_util.prune_ast(orig_fn, ast)
         ast_util.normalize_ast(orig_fn, ast)
         return orig_fn, fn_index, ast
 
