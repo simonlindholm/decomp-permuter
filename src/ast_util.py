@@ -1,6 +1,7 @@
-from typing import Dict, Union, List, Tuple, Callable, Optional, Any, Set
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 import attr
 import bisect
+from collections import defaultdict
 import copy
 from random import Random
 import re
@@ -292,115 +293,95 @@ def normalize_ast(fn: ca.FuncDef, ast: ca.FileAST) -> None:
     rec(fn.body)
 
 
-def _ast_used_ids(ast: ca.FileAST) -> Set[str]:
-    seen = set()
-    re_token = re.compile(r"[a-zA-Z0-9_$]+")
+def prune_ast(fn: ca.FuncDef, ast: ca.FileAST) -> int:
+    """Prune away unnecessary parts of the AST, to reduce overhead from serialization
+    and from the compiler's C parser."""
+
+    # Create a GC graph that maps names of declarations and enumerators to indices
+    # in ast.ext, as well an initial list of GC roots, consisting of everything
+    # that isn't a Decl and or Typedef.
+    edges: Dict[str, List[int]] = defaultdict(list)
+    gc_roots: List[int] = []
+
+    def add_type_edges(tp: "ca.Type", i: int) -> None:
+        """Check whether a type is needed, e.g. because it contains a definition of
+        a struct that's referenced from outside, or definitions or enum members."""
+        while isinstance(tp, (ca.PtrDecl, ca.ArrayDecl)):
+            tp = tp.type
+        if isinstance(tp, ca.FuncDecl):
+            return
+        inner_type = tp.type if isinstance(tp, ca.TypeDecl) else tp
+        if isinstance(inner_type, ca.IdentifierType):
+            return
+        if inner_type.name:
+            edges[inner_type.name].append(i)
+        if isinstance(inner_type, ca.Enum) and inner_type.values:
+            for value in inner_type.values.enumerators:
+                edges[value.name].append(i)
+        if isinstance(inner_type, (ca.Struct, ca.Union)) and inner_type.decls:
+            for decl in inner_type.decls:
+                if isinstance(decl, ca.Decl):
+                    add_type_edges(decl.type, i)
+
+    for i in range(len(ast.ext)):
+        item = ast.ext[i]
+        if isinstance(item, ca.Decl) and not item.init:
+            # (Exclude declarations with initializers, since taking function
+            # pointers can affect regalloc on IDO.)
+            if item.name:
+                edges[item.name].append(i)
+            add_type_edges(item.type, i)
+        elif isinstance(item, ca.Typedef):
+            edges[item.name].append(i)
+            add_type_edges(item.type, i)
+        elif isinstance(item, ca.Pragma) and "GLOBAL_ASM" in item.string:
+            pass
+        else:
+            gc_roots.append(i)
+
+    # Do the GC as a DFS traversal of the graph. Visiting a node searches its
+    # AST for all kinds of mentioned IDs, and adds more nodes to the stack
+    # using the edges we found before.
+    gc_todo: List[int] = gc_roots
+
+    def add_name(name: str) -> None:
+        if name in edges:
+            gc_todo.extend(edges[name])
+            del edges[name]
 
     class Visitor(ca.NodeVisitor):
-        def visit_ID(self, node: ca.ID) -> None:
-            seen.add(node.name)
-
         def visit_Pragma(self, node: ca.Pragma) -> None:
-            for token in re_token.findall(node.string):
-                seen.add(token)
+            for token in re.findall(r"[a-zA-Z0-9_$]+", node.string):
+                add_name(token)
 
-    Visitor().visit(ast)
-    return seen
+        def visit_ID(self, node: ca.ID) -> None:
+            add_name(node.name)
 
-
-def _used_type_names(ast: ca.FileAST) -> Set[str]:
-    seen = set()
-
-    class Visitor(ca.NodeVisitor):
         def visit_IdentifierType(self, node: ca.IdentifierType) -> None:
             for name in node.names:
-                seen.add(name)
+                add_name(name)
 
         def visit_TypeDecl(self, node: ca.TypeDecl) -> None:
+            if node.declname:
+                add_name(node.declname)
             tp = node.type
             if isinstance(tp, ca.IdentifierType):
                 for name in tp.names:
-                    seen.add(name)
+                    add_name(name)
             elif isinstance(tp, ca.Enum):
                 if tp.name and not tp.values:
-                    seen.add(tp.name)
+                    add_name(tp.name)
             else:
                 if tp.name and not tp.decls:
-                    seen.add(tp.name)
+                    add_name(tp.name)
             self.generic_visit(node)
 
-    Visitor().visit(ast)
-    return seen
+    keep_exts: Set[int] = set()
+    while gc_todo:
+        i = gc_todo.pop()
+        if i not in keep_exts:
+            keep_exts.add(i)
+            Visitor().visit(ast.ext[i])
 
-
-def prune_ast(fn: ca.FuncDef, ast: ca.FileAST) -> int:
-    """Prune away unnecessary parts of the AST, to reduce overhead from serialization
-    and from the compiler's C parser.
-
-    Structs involved in circular references are currently not removed -- the algorithm
-    is based on refcounting instead of tracing GC for simplicity."""
-    used_ids = _ast_used_ids(ast)
-
-    new_items = []
-    for i in range(len(ast.ext)):
-        item = ast.ext[i]
-        if (
-            isinstance(item, ca.Decl)
-            and item.name
-            and not item.init
-            and item.name not in used_ids
-        ):
-            # Skip pointless declaration. (Declarations with initializer lists can
-            # in some cases affect codegen, so we keep them.)
-            pass
-        else:
-            new_items.append(item)
-    ast.ext = new_items
-
-    has_removals = True
-    while has_removals:
-        has_removals = False
-
-        used_type_names = _used_type_names(ast)
-
-        def useful_type(tp: "ca.Type", for_typedef: bool) -> bool:
-            """Check whether a type is needed, e.g. because it contains a definition of
-            a struct that's referenced from outside, or definitions or enum members."""
-            if isinstance(tp, (ca.PtrDecl, ca.ArrayDecl)):
-                return useful_type(tp.type, for_typedef)
-            if isinstance(tp, ca.FuncDecl):
-                return not for_typedef
-            if not isinstance(tp, ca.TypeDecl):
-                return True
-            inner_type = tp.type
-            if isinstance(inner_type, ca.IdentifierType):
-                return False
-            if inner_type.name is not None and inner_type.name in used_type_names:
-                return True
-            if isinstance(inner_type, ca.Enum):
-                return any(it.name in used_ids for it in inner_type.values.enumerators)
-            return False
-
-        new_items = []
-        for i in range(len(ast.ext)):
-            item = ast.ext[i]
-            if (
-                isinstance(item, ca.Typedef)
-                and item.name not in used_type_names
-                and not useful_type(item.type, True)
-            ):
-                # Skip unused typedefs.
-                has_removals = True
-            elif (
-                isinstance(item, ca.Decl)
-                and not item.name
-                and not useful_type(item.type, False)
-            ):
-                # Skip unused struct/union/enum definitions.
-                has_removals = True
-            else:
-                new_items.append(item)
-
-        ast.ext = new_items
-
-    return new_items.index(fn)
+    ast.ext = [ast.ext[i] for i in sorted(keep_exts)]
+    return ast.ext.index(fn)
