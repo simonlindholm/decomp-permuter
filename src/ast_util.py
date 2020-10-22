@@ -350,6 +350,10 @@ def prune_ast(fn: ca.FuncDef, ast: ca.FileAST) -> int:
     mentioned_ids: Set[str] = set()
 
     class IdVisitor(ca.NodeVisitor):
+        def visit_Pragma(self, node: ca.Pragma) -> None:
+            for token in re.findall(r"[a-zA-Z0-9_$]+", node.string):
+                mentioned_ids.add(token)
+
         def visit_ID(self, node: ca.ID) -> None:
             mentioned_ids.add(node.name)
 
