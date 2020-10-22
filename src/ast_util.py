@@ -305,7 +305,9 @@ def prune_ast(fn: ca.FuncDef, ast: ca.FileAST) -> int:
     can_fwd_declare_typedef: Set[str] = set()
     can_fwd_declare_tagged: Set[str] = set()
 
-    def add_type_edges(tp: "ca.Type", i: int) -> None:
+    def add_type_edges(
+        tp: Union["ca.Type", ca.Struct, ca.Union, ca.Enum], i: int
+    ) -> None:
         while isinstance(tp, (ca.PtrDecl, ca.ArrayDecl)):
             tp = tp.type
         if isinstance(tp, ca.FuncDecl):
@@ -425,7 +427,7 @@ def prune_ast(fn: ca.FuncDef, ast: ca.FileAST) -> int:
 
     temp_id = 0
 
-    def fwd_declare(tp: "ca.InnerType") -> None:
+    def fwd_declare(tp: Union[ca.Struct, ca.Union, ca.Enum]) -> None:
         nonlocal temp_id
         if not tp.name:
             temp_id += 1
@@ -445,6 +447,7 @@ def prune_ast(fn: ca.FuncDef, ast: ca.FileAST) -> int:
         elif isinstance(item, ca.Typedef) and item.name in need_fwd_decl_typedef:
             assert item.name in can_fwd_declare_typedef
             assert isinstance(item.type, ca.TypeDecl)
+            assert isinstance(item.type.type, (ca.Struct, ca.Union, ca.Enum))
             fwd_declare(item.type.type)
         elif (
             isinstance(item, ca.Decl)

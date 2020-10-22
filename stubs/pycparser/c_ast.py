@@ -346,7 +346,7 @@ class Decl(Node):
     quals: List[str]  # e.g. const
     storage: List[str]  # e.g. register
     funcspec: List[str]  # e.g. inline
-    type: Type
+    type: Union_[Type, "Struct", "Union", "Enum"]
     init: Optional[Union_[Expression, "InitList"]]
     bitsize: Optional[Expression]
 
@@ -356,7 +356,7 @@ class Decl(Node):
         quals: List[str],
         storage: List[str],
         funcspec: List[str],
-        type: Type,
+        type: Union_[Type, "Struct", "Union", "Enum"],
         init: Optional[Expression],
         bitsize: Optional[Expression],
         coord: Optional[Coord] = None,

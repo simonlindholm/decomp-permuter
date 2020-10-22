@@ -30,6 +30,7 @@ from .ast_types import (
     basic_type,
     build_typemap,
     decayed_expr_type,
+    get_decl_type,
     resolve_typedefs,
     same_type,
     set_decl_name,
@@ -864,9 +865,10 @@ def perm_randomize_external_type(
 
     ensure(decls)
     decl = random.choice(decls)[0]
+    decl_type = get_decl_type(decl)
 
     typemap = build_typemap(ast)
-    new_type = randomize_innermost_type(decl.type, typemap, random, ensure_changed=True)
+    new_type = randomize_innermost_type(decl_type, typemap, random, ensure_changed=True)
 
     for decl, i in decls:
         decl.type = copy.deepcopy(new_type)
@@ -956,7 +958,8 @@ def perm_randomize_function_type(
         arg = main_fndecl.args.params[ind]
         if isinstance(arg, (ca.ID, ca.EllipsisParam)):
             raise RandomizationFailure
-        type = pointer_decay(arg.type, typemap)
+        arg_type = arg.type if isinstance(arg, ca.Typename) else get_decl_type(arg)
+        type = pointer_decay(arg_type, typemap)
         arg.type = randomize_type(type, typemap, random, ensure_changed=True)
         if isinstance(arg, ca.Decl):
             set_decl_name(arg)

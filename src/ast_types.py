@@ -63,6 +63,14 @@ def pointer_decay(type: Type, typemap: TypeMap) -> SimpleType:
     return type
 
 
+def get_decl_type(decl: c_ast.Decl) -> Type:
+    """For a Decl that declares a variable (and not just a struct/union/enum),
+    return its type."""
+    assert decl.name is not None
+    assert isinstance(decl.type, (PtrDecl, ArrayDecl, FuncDecl, TypeDecl))
+    return decl.type
+
+
 def deref_type(type: Type, typemap: TypeMap) -> Type:
     type = resolve_typedefs(type, typemap)
     assert isinstance(type, (ArrayDecl, PtrDecl)), "dereferencing non-pointer"
@@ -79,7 +87,7 @@ def struct_member_type(struct: StructUnion, field_name: str, typemap: TypeMap) -
     for decl in struct.decls:
         if isinstance(decl, c_ast.Decl):
             if decl.name == field_name:
-                return decl.type
+                return get_decl_type(decl)
             if decl.name == None and isinstance(decl.type, (c_ast.Struct, c_ast.Union)):
                 try:
                     return struct_member_type(decl.type, field_name, typemap)
@@ -268,7 +276,7 @@ def build_typemap(ast: c_ast.FileAST) -> TypeMap:
 
         def visit_Decl(self, decl: c_ast.Decl) -> None:
             if decl.name is not None:
-                ret.var_types[decl.name] = decl.type
+                ret.var_types[decl.name] = get_decl_type(decl)
             if not isinstance(decl.type, FuncDecl) or decl in defined_function_decls:
                 # Do not visit declarations in parameter lists of functions
                 # other than our own.
@@ -279,7 +287,7 @@ def build_typemap(ast: c_ast.FileAST) -> TypeMap:
 
         def visit_FuncDef(self, fn: c_ast.FuncDef) -> None:
             if fn.decl.name is not None:
-                ret.var_types[fn.decl.name] = fn.decl.type
+                ret.var_types[fn.decl.name] = get_decl_type(fn.decl)
             defined_function_decls.add(fn.decl)
             self.generic_visit(fn)
 
@@ -289,7 +297,8 @@ def build_typemap(ast: c_ast.FileAST) -> TypeMap:
 
 def set_decl_name(decl: c_ast.Decl) -> None:
     name = decl.name
-    type = decl.type
+    assert name is not None
+    type = get_decl_type(decl)
     while not isinstance(type, TypeDecl):
         type = type.type
     type.declname = name
