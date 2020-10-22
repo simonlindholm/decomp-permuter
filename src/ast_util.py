@@ -302,10 +302,10 @@ def prune_ast(fn: ca.FuncDef, ast: ca.FileAST) -> int:
     # that isn't a Decl and or Typedef.
     edges: Dict[str, List[int]] = defaultdict(list)
     gc_roots: List[int] = []
+    can_fwd_declare_typedef: Set[str] = set()
+    can_fwd_declare_tagged: Set[str] = set()
 
     def add_type_edges(tp: "ca.Type", i: int) -> None:
-        """Check whether a type is needed, e.g. because it contains a definition of
-        a struct that's referenced from outside, or definitions or enum members."""
         while isinstance(tp, (ca.PtrDecl, ca.ArrayDecl)):
             tp = tp.type
         if isinstance(tp, ca.FuncDecl):
@@ -330,19 +330,35 @@ def prune_ast(fn: ca.FuncDef, ast: ca.FileAST) -> int:
             # pointers can affect regalloc on IDO.)
             if item.name:
                 edges[item.name].append(i)
+            if isinstance(item.type, (ca.Struct, ca.Union, ca.Enum)) and item.type.name:
+                can_fwd_declare_tagged.add(item.type.name)
             add_type_edges(item.type, i)
         elif isinstance(item, ca.Typedef):
             edges[item.name].append(i)
+            if isinstance(item.type, ca.TypeDecl) and isinstance(
+                item.type.type, (ca.Struct, ca.Union, ca.Enum)
+            ):
+                can_fwd_declare_typedef.add(item.name)
             add_type_edges(item.type, i)
         elif isinstance(item, ca.Pragma) and "GLOBAL_ASM" in item.string:
             pass
         else:
             gc_roots.append(i)
 
+    mentioned_ids: Set[str] = set()
+
+    class IdVisitor(ca.NodeVisitor):
+        def visit_ID(self, node: ca.ID) -> None:
+            mentioned_ids.add(node.name)
+
+    IdVisitor().visit(ast)
+
     # Do the GC as a DFS traversal of the graph. Visiting a node searches its
     # AST for all kinds of mentioned IDs, and adds more nodes to the stack
     # using the edges we found before.
     gc_todo: List[int] = gc_roots
+    need_fwd_decl_typedef: List[str] = []
+    need_fwd_decl_tagged: List[str] = []
 
     def add_name(name: str) -> None:
         if name in edges:
@@ -361,19 +377,43 @@ def prune_ast(fn: ca.FuncDef, ast: ca.FileAST) -> int:
             for name in node.names:
                 add_name(name)
 
+        def visit_Enum(self, node: ca.Enum) -> None:
+            if node.name and not node.values:
+                add_name(node.name)
+            self.generic_visit(node)
+
+        def visit_Struct(self, node: ca.Struct) -> None:
+            if node.name and not node.decls:
+                add_name(node.name)
+            self.generic_visit(node)
+
+        def visit_Union(self, node: ca.Union) -> None:
+            if node.name and not node.decls:
+                add_name(node.name)
+            self.generic_visit(node)
+
+        def visit_PtrDecl(self, node: ca.PtrDecl) -> None:
+            # For pointer declarations which haven't been accessed, forward
+            # declarations suffice.
+            if (
+                isinstance(node.type, ca.TypeDecl)
+                and node.type.declname
+                and node.type.declname not in mentioned_ids
+            ):
+                tp = node.type.type
+                if isinstance(tp, ca.IdentifierType):
+                    if all(name in can_fwd_declare_typedef for name in tp.names):
+                        need_fwd_decl_typedef.extend(tp.names)
+                        return
+                elif tp.name and tp.name in can_fwd_declare_tagged:
+                    if not (tp.values if isinstance(tp, ca.Enum) else tp.decls):
+                        need_fwd_decl_tagged.append(tp.name)
+                        return
+            self.generic_visit(node)
+
         def visit_TypeDecl(self, node: ca.TypeDecl) -> None:
             if node.declname:
                 add_name(node.declname)
-            tp = node.type
-            if isinstance(tp, ca.IdentifierType):
-                for name in tp.names:
-                    add_name(name)
-            elif isinstance(tp, ca.Enum):
-                if tp.name and not tp.values:
-                    add_name(tp.name)
-            else:
-                if tp.name and not tp.decls:
-                    add_name(tp.name)
             self.generic_visit(node)
 
     keep_exts: Set[int] = set()
@@ -383,5 +423,40 @@ def prune_ast(fn: ca.FuncDef, ast: ca.FileAST) -> int:
             keep_exts.add(i)
             Visitor().visit(ast.ext[i])
 
-    ast.ext = [ast.ext[i] for i in sorted(keep_exts)]
+    temp_id = 0
+
+    def fwd_declare(tp: "ca.InnerType") -> None:
+        nonlocal temp_id
+        if not tp.name:
+            temp_id += 1
+            tp.name = f"_PermuterTemp{temp_id}"
+        if isinstance(tp, (ca.Struct, ca.Union)):
+            tp.decls = None
+        elif isinstance(tp, ca.Enum):
+            tp.values = None
+        else:
+            assert False
+
+    new_ext = []
+
+    for i, item in enumerate(ast.ext):
+        if i in keep_exts:
+            pass
+        elif isinstance(item, ca.Typedef) and item.name in need_fwd_decl_typedef:
+            assert item.name in can_fwd_declare_typedef
+            assert isinstance(item.type, ca.TypeDecl)
+            fwd_declare(item.type.type)
+        elif (
+            isinstance(item, ca.Decl)
+            and isinstance(item.type, (ca.Struct, ca.Union, ca.Enum))
+            and item.type.name
+            and item.type.name in need_fwd_decl_tagged
+        ):
+            assert item.type.name in can_fwd_declare_tagged
+            fwd_declare(item.type)
+        else:
+            continue
+        new_ext.append(item)
+
+    ast.ext = new_ext
     return ast.ext.index(fn)
