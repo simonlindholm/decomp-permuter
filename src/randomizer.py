@@ -681,7 +681,11 @@ def perm_temp_for_expr(
         ):
             replace_cands.append(e)
 
-    replace_subexprs(fn.body, find_duplicates)
+    if ast_util.is_effectful(expr):
+        replace_cands = [orig_expr]
+    else:
+        replace_subexprs(fn.body, find_duplicates)
+
     assert orig_expr in replace_cands
     if random_bool(random, PROB_TEMP_REPLACE_ALL):
         lo_index = 0
