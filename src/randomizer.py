@@ -624,10 +624,6 @@ def perm_temp_for_expr(
 
     type: SimpleType = decayed_expr_type(expr, typemap)
 
-    # Don't replace effectful expressions. This is a bit expensive to
-    # check, so do it here instead of within the visitor.
-    ensure(not ast_util.is_effectful(expr))
-
     # Always use pointers when replacing structs
     if (
         not should_make_ptr
@@ -763,7 +759,6 @@ def perm_expand_expr(
         repl_expr = write.rvalue
     else:
         raise RandomizationFailure
-    ensure(not ast_util.is_effectful(repl_expr))
 
     # Step 3: pick of the range of variables to replace
     repl_cands = [
@@ -784,6 +779,10 @@ def perm_expand_expr(
     else:
         keep_var = random_bool(random, PROB_KEEP_REPLACED_VAR)
     repl_cands_set = set(repl_cands)
+
+    # Don't duplicate effectful expressions.
+    if ast_util.is_effectful(repl_expr):
+        ensure(len(repl_cands) == 1 and not keep_var)
 
     # Step 4: do the replacement
     def callback(expr: ca.Node, is_expr: bool) -> Optional[ca.Node]:
