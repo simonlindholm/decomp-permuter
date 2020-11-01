@@ -357,7 +357,7 @@ class Decl(Node):
         storage: List[str],
         funcspec: List[str],
         type: Union_[Type, "Struct", "Union", "Enum"],
-        init: Optional[Expression],
+        init: Optional[Union_[Expression, "InitList"]],
         bitsize: Optional[Expression],
         coord: Optional[Coord] = None,
     ):
