@@ -53,6 +53,7 @@ class Options:
     stack_differences: bool = attr.ib(default=False)
     abort_exceptions: bool = attr.ib(default=False)
     better_only: bool = attr.ib(default=False)
+    best_only: bool = attr.ib(default=False)
     stop_on_zero: bool = attr.ib(default=False)
     keep_prob: float = attr.ib(default=DEFAULT_RAND_KEEP_PROB)
     force_seed: Optional[str] = attr.ib(default=None)
@@ -316,6 +317,7 @@ def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> 
     if (
         score_value is not None
         and score_hash is not None
+        and not (score_value < permuter.best_score and context.options.best_only)
         and (
             score_value < permuter.base_score
             or (score_value == permuter.base_score and not context.options.better_only)
@@ -618,6 +620,12 @@ def main() -> None:
         help="Only report scores better than the base.",
     )
     parser.add_argument(
+        "--best-only",
+        dest="best_only",
+        action="store_true",
+        help="Only report ties or new high scores.",
+    )
+    parser.add_argument(
         "--stop-on-zero",
         dest="stop_on_zero",
         action="store_true",
@@ -655,6 +663,7 @@ def main() -> None:
         print_diffs=args.print_diffs,
         abort_exceptions=args.abort_exceptions,
         better_only=args.better_only,
+        best_only=args.best_only,
         stack_differences=args.stack_differences,
         stop_on_zero=args.stop_on_zero,
         keep_prob=args.keep_prob,
