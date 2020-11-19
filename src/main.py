@@ -317,7 +317,7 @@ def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> 
     if (
         score_value is not None
         and score_hash is not None
-        and not (score_value < permuter.best_score and context.options.best_only)
+        and not (score_value > permuter.best_score and context.options.best_only)
         and (
             score_value < permuter.base_score
             or (score_value == permuter.base_score and not context.options.better_only)
