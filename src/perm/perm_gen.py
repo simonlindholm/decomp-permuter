@@ -2,17 +2,18 @@ from typing import Callable, Dict, List, Tuple
 import re
 
 from .perm import (
-    Perm,
     CombinePerm,
+    CondNezPerm,
     GeneralPerm,
+    IgnorePerm,
+    IntPerm,
+    LineSwapPerm,
+    Perm,
     RandomizerPerm,
     TextPerm,
     TernaryPerm,
     TypecastPerm,
     VarPerm,
-    CondNezPerm,
-    LineSwapPerm,
-    IntPerm,
 )
 
 
@@ -63,6 +64,7 @@ PERM_FACTORIES: Dict[str, Callable[[str], Perm]] = {
     "PERM_CONDNEZ": lambda text: CondNezPerm(rec_perm_gen(text)),
     "PERM_LINESWAP": lambda text: LineSwapPerm(split_args_newline(text)),
     "PERM_INT": lambda text: IntPerm(*map(int, split_args_text(text))),
+    "PERM_IGNORE": lambda text: IgnorePerm(rec_perm_gen(text)),
 }
 
 

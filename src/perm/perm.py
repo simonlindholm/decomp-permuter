@@ -1,3 +1,4 @@
+from base64 import b64encode
 from typing import Dict, List, Optional
 import math
 import itertools
@@ -68,6 +69,20 @@ class TextPerm(Perm):
 
     def evaluate(self, seed: int, state: EvalState) -> str:
         return self.text
+
+
+class IgnorePerm(Perm):
+    def __init__(self, inner: Perm) -> None:
+        super().__init__()
+        self.inner = inner
+        self.perm_count = inner.perm_count
+
+    def evaluate(self, seed: int, state: EvalState) -> str:
+        text = self.inner.evaluate(seed, state)
+        if not text:
+            return ""
+        encoded = b64encode(text.encode("utf-8")).decode("ascii")
+        return "#pragma _permuter b64literal " + encoded
 
 
 class CombinePerm(Perm):

@@ -38,9 +38,10 @@ The .c file may be modified with any of the following macros which affect manual
 - `PERM_TERNARY(prefix, a, b, c)` expands to either `prefix a ? b : c` or `if (a) prefix b; else prefix c;`.
 - `PERM_VAR(a, b)` sets the meta-variable `a` to `b`, `PERM_VAR(a)` expands to the meta-variable `a`.
 - `PERM_RANDOMIZE(code)` expands to `code`, but allows randomization within that region.
-- `PERM_LINESWAP(lines)` expands to a permutation of the ordered set of non-whitespace lines (split by `\n`).
+- `PERM_LINESWAP(lines)` expands to a permutation of the ordered set of non-whitespace lines (split by `\n`). Warning: this gets slow with more than 5 lines or so!
 - `PERM_CONDNEZ(cond)` expands to either `cond` or `(cond) != 0`.
 - `PERM_INT(lo, hi)` expands to an integer between `lo` and `hi` (which must be constants).
+- `PERM_IGNORE(code)` expands to `code`, without passing it through the C parser library (pycparser). This can be used to avoid parse errors for non-standard C, e.g. `asm` blocks.
 
 Arguments are split by a commas, exluding commas inside parenthesis. `(,)` is a special escape sequence that resolves to `,`. 
 

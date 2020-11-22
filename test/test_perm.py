@@ -20,6 +20,7 @@ c_files_list = [
     ["test_type.c", "test_type1"],
     ["test_type.c", "test_type2"],
     ["test_type.c", "test_type3"],
+    ["test_ignore.c", "test_ignore"],
     ["test_randomizer.c", "test_randomizer"],
 ]
 
@@ -95,6 +96,10 @@ class TestStringMethods(unittest.TestCase):
 
     def test_type3_threaded(self):
         score = self.go("test_type.c", "test_type3", threads=2)
+        self.assertEqual(score, 0)
+
+    def test_ignore(self):
+        score = self.go("test_ignore.c", "test_ignore")
         self.assertEqual(score, 0)
 
     def test_randomizer(self):

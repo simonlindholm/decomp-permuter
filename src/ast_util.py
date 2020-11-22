@@ -1,5 +1,6 @@
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 import attr
+from base64 import b64decode
 import bisect
 from collections import defaultdict
 import copy
@@ -64,6 +65,10 @@ def to_c(node: ca.Node) -> str:
             elif stripped.startswith("#pragma _permuter define "):
                 assert in_late_defines
                 out.append("#" + stripped.split(" ", 2)[2] + "\n")
+            elif stripped.startswith("#pragma _permuter b64literal "):
+                out.append(b64decode(stripped.split()[-1]).decode("utf-8"))
+                if same_line == 0:
+                    out.append("\n")
 
             # Ignore permuter pragmas, but leave actual pragmas in (like intrinsics)
             if stripped.startswith("#pragma _permuter"):
