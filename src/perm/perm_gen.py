@@ -55,12 +55,21 @@ def split_args_text(text: str) -> List[str]:
     return res
 
 
+def make_var_perm(text: str) -> VarPerm:
+    args = split_by_comma(text)
+    if len(args) not in [1, 2]:
+        raise Exception("PERM_VAR takes 1 or 2 arguments")
+    var_name = args[0]
+    value = rec_perm_gen(args[1]) if len(args) == 2 else None
+    return VarPerm(var_name, value)
+
+
 PERM_FACTORIES: Dict[str, Callable[[str], Perm]] = {
     "PERM_GENERAL": lambda text: GeneralPerm(split_args(text)),
     "PERM_RANDOMIZE": lambda text: RandomizerPerm(rec_perm_gen(text)),
     "PERM_TERNARY": lambda text: TernaryPerm(*split_args(text)),
     "PERM_TYPECAST": lambda text: TypecastPerm(split_args(text)),
-    "PERM_VAR": lambda text: VarPerm(split_args(text)),
+    "PERM_VAR": lambda text: make_var_perm(text),
     "PERM_CONDNEZ": lambda text: CondNezPerm(rec_perm_gen(text)),
     "PERM_LINESWAP": lambda text: LineSwapPerm(split_args_newline(text)),
     "PERM_INT": lambda text: IntPerm(*map(int, split_args_text(text))),

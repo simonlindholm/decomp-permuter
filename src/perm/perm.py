@@ -21,9 +21,8 @@ class Perm:
     to happen in an infinite loop, rather than stop after the last permutation
     has been tested."""
 
-    def __init__(self) -> None:
-        self.perm_count = 1
-        self.children: List[Perm] = []
+    perm_count: int
+    children: List[Perm]
 
     def evaluate(self, seed: int, state: EvalState) -> str:
         return ""
@@ -62,10 +61,11 @@ def _count_either(perms: List[Perm]) -> int:
 
 class TextPerm(Perm):
     def __init__(self, text: str) -> None:
-        super().__init__()
         # Comma escape sequence
         text = text.replace("(,)", ",")
         self.text = text
+        self.children = []
+        self.perm_count = 1
 
     def evaluate(self, seed: int, state: EvalState) -> str:
         return self.text
@@ -73,12 +73,11 @@ class TextPerm(Perm):
 
 class IgnorePerm(Perm):
     def __init__(self, inner: Perm) -> None:
-        super().__init__()
-        self.inner = inner
+        self.children = [inner]
         self.perm_count = inner.perm_count
 
     def evaluate(self, seed: int, state: EvalState) -> str:
-        text = self.inner.evaluate(seed, state)
+        text = self.children[0].evaluate(seed, state)
         if not text:
             return ""
         encoded = b64encode(text.encode("utf-8")).decode("ascii")
@@ -87,7 +86,6 @@ class IgnorePerm(Perm):
 
 class CombinePerm(Perm):
     def __init__(self, parts: List[Perm]) -> None:
-        super().__init__()
         self.children = parts
         self.perm_count = _count_all(parts)
 
@@ -98,12 +96,11 @@ class CombinePerm(Perm):
 
 class RandomizerPerm(Perm):
     def __init__(self, inner: Perm) -> None:
-        super().__init__()
-        self.inner = inner
+        self.children = [inner]
         self.perm_count = inner.perm_count
 
     def evaluate(self, seed: int, state: EvalState) -> str:
-        text = self.inner.evaluate(seed, state)
+        text = self.children[0].evaluate(seed, state)
         return "\n".join(
             [
                 "",
@@ -120,7 +117,6 @@ class RandomizerPerm(Perm):
 
 class GeneralPerm(Perm):
     def __init__(self, candidates: List[Perm]) -> None:
-        super().__init__()
         self.perm_count = _count_either(candidates)
         self.children = candidates
 
@@ -130,7 +126,6 @@ class GeneralPerm(Perm):
 
 class TernaryPerm(Perm):
     def __init__(self, pre: Perm, cond: Perm, iftrue: Perm, iffalse: Perm) -> None:
-        super().__init__()
         self.children = [pre, cond, iftrue, iffalse]
         self.perm_count = 2 * _count_all(self.children)
 
@@ -145,9 +140,8 @@ class TernaryPerm(Perm):
 
 class TypecastPerm(Perm):
     def __init__(self, types: List[Perm]) -> None:
-        super().__init__()
-        self.perm_count = _count_either(types)
         self.children = types
+        self.perm_count = _count_either(types)
 
     def evaluate(self, seed: int, state: EvalState) -> str:
         t = _eval_either(seed, self.children, state)
@@ -158,21 +152,18 @@ class TypecastPerm(Perm):
 
 
 class VarPerm(Perm):
-    def __init__(self, args: List[Perm]) -> None:
-        super().__init__()
-        assert len(args) in [1, 2]
-        assert isinstance(args[0], TextPerm)
-        self.var_name = args[0].text
-        if len(args) == 2:
-            self.expansion: Optional[Perm] = args[1]
-            self.perm_count = args[1].perm_count
+    def __init__(self, var_name: str, expansion: Optional[Perm]) -> None:
+        self.var_name = var_name
+        if expansion:
+            self.children = [expansion]
+            self.perm_count = expansion.perm_count
         else:
-            self.expansion = None
+            self.children = []
             self.perm_count = 1
 
     def evaluate(self, seed: int, state: EvalState) -> str:
-        if self.expansion is not None:
-            ret = self.expansion.evaluate(seed, state)
+        if self.children:
+            ret = self.children[0].evaluate(seed, state)
             state.vars[self.var_name] = ret
             return ""
         else:
@@ -180,13 +171,9 @@ class VarPerm(Perm):
                 raise Exception(f"Tried to read undefined PERM_VAR {self.var_name}")
             return state.vars[self.var_name]
 
-    def is_random(self) -> bool:
-        return self.expansion is not None and self.expansion.is_random()
-
 
 class CondNezPerm(Perm):
     def __init__(self, perm: Perm) -> None:
-        super().__init__()
         self.children = [perm]
         self.perm_count = 2 * _count_all(self.children)
 
@@ -201,7 +188,6 @@ class CondNezPerm(Perm):
 
 class LineSwapPerm(Perm):
     def __init__(self, lines: List[Perm]) -> None:
-        super().__init__()
         self.children = lines
         self.own_count = math.factorial(len(lines))
         self.perm_count = self.own_count * _count_all(self.children)
@@ -221,8 +207,8 @@ class LineSwapPerm(Perm):
 class IntPerm(Perm):
     def __init__(self, low: int, high: int) -> None:
         assert low <= high
-        super().__init__()
         self.low = low
+        self.children = []
         self.perm_count = high - low + 1
 
     def evaluate(self, seed: int, state: EvalState) -> str:
