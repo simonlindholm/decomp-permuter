@@ -8,8 +8,10 @@ from .perm import (
     IgnorePerm,
     IntPerm,
     LineSwapPerm,
+    OncePerm,
     Perm,
     RandomizerPerm,
+    RootPerm,
     TextPerm,
     TernaryPerm,
     TypecastPerm,
@@ -55,6 +57,15 @@ def split_args_text(text: str) -> List[str]:
     return res
 
 
+def make_once_perm(text: str) -> OncePerm:
+    args = split_by_comma(text)
+    if len(args) not in [1, 2]:
+        raise Exception("PERM_ONCE takes 1 or 2 arguments")
+    key = args[0]
+    value = rec_perm_gen(args[-1])
+    return OncePerm(key, value)
+
+
 def make_var_perm(text: str) -> VarPerm:
     args = split_by_comma(text)
     if len(args) not in [1, 2]:
@@ -66,6 +77,7 @@ def make_var_perm(text: str) -> VarPerm:
 
 PERM_FACTORIES: Dict[str, Callable[[str], Perm]] = {
     "PERM_GENERAL": lambda text: GeneralPerm(split_args(text)),
+    "PERM_ONCE": lambda text: make_once_perm(text),
     "PERM_RANDOMIZE": lambda text: RandomizerPerm(rec_perm_gen(text)),
     "PERM_TERNARY": lambda text: TernaryPerm(*split_args(text)),
     "PERM_TYPECAST": lambda text: TypecastPerm(split_args(text)),
@@ -89,8 +101,8 @@ def consume_arg_parens(text: str) -> Tuple[str, str]:
     raise Exception("Failed to find closing parenthesis when parsing PERM macro")
 
 
-def rec_perm_gen(input: str) -> Perm:
-    remain = input
+def rec_perm_gen(text: str) -> Perm:
+    remain = text
     macro_search = r"(PERM_.+?)\("
 
     perms: List[Perm] = []
@@ -121,9 +133,9 @@ def rec_perm_gen(input: str) -> Perm:
     return CombinePerm(perms)
 
 
-def perm_gen(input: str) -> Perm:
-    ret = rec_perm_gen(input)
+def perm_gen(text: str) -> Perm:
+    ret = rec_perm_gen(text)
     if isinstance(ret, TextPerm):
         ret = RandomizerPerm(ret)
         print("No perm macros found. Defaulting to randomization")
-    return ret
+    return RootPerm(ret)

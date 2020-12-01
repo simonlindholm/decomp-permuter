@@ -1,4 +1,5 @@
 from base64 import b64encode
+from collections import defaultdict
 from typing import Dict, List, Optional
 import math
 import itertools
@@ -7,8 +8,8 @@ import attr
 
 
 @attr.s
-class EvalState:
-    vars: Dict[str, str] = attr.ib(factory=dict)
+class PreprocessState:
+    once_options: Dict[str, List["Perm"]] = attr.ib(factory=lambda: defaultdict(list))
 
 
 class Perm:
@@ -22,13 +23,23 @@ class Perm:
     has been tested."""
 
     perm_count: int
-    children: List[Perm]
+    children: List["Perm"]
 
-    def evaluate(self, seed: int, state: EvalState) -> str:
+    def evaluate(self, seed: int, state: "EvalState") -> str:
         return ""
+
+    def preprocess(self, state: PreprocessState) -> None:
+        for p in self.children:
+            p.preprocess(state)
 
     def is_random(self) -> bool:
         return any(p.is_random() for p in self.children)
+
+
+@attr.s
+class EvalState:
+    vars: Dict[str, str] = attr.ib(factory=dict)
+    once_choices: Dict[str, Perm] = attr.ib(factory=dict)
 
 
 def _eval_all(seed: int, perms: List[Perm], state: EvalState) -> List[str]:
@@ -57,6 +68,22 @@ def _eval_either(seed: int, perms: List[Perm], state: EvalState) -> str:
 
 def _count_either(perms: List[Perm]) -> int:
     return sum(p.perm_count for p in perms)
+
+
+class RootPerm(Perm):
+    def __init__(self, inner: Perm) -> None:
+        self.children = [inner]
+        self.perm_count = inner.perm_count
+        self.preprocess_state = PreprocessState()
+        self.preprocess(self.preprocess_state)
+        for options in self.preprocess_state.once_options.values():
+            self.perm_count *= len(options)
+
+    def evaluate(self, seed: int, state: EvalState) -> str:
+        for key, options in self.preprocess_state.once_options.items():
+            seed, choice = divmod(seed, len(options))
+            state.once_choices[key] = options[choice]
+        return self.children[0].evaluate(seed, state)
 
 
 class TextPerm(Perm):
@@ -122,6 +149,22 @@ class GeneralPerm(Perm):
 
     def evaluate(self, seed: int, state: EvalState) -> str:
         return _eval_either(seed, self.children, state)
+
+
+class OncePerm(Perm):
+    def __init__(self, key: str, inner: Perm) -> None:
+        self.key = key
+        self.children = [inner]
+        self.perm_count = inner.perm_count
+
+    def preprocess(self, state: PreprocessState) -> None:
+        state.once_options[self.key].append(self)
+        super().preprocess(state)
+
+    def evaluate(self, seed: int, state: EvalState) -> str:
+        if state.once_choices[self.key] is self:
+            return self.children[0].evaluate(seed, state)
+        return ""
 
 
 class TernaryPerm(Perm):

@@ -22,6 +22,8 @@ c_files_list = [
     ["test_type.c", "test_type3"],
     ["test_ignore.c", "test_ignore"],
     ["test_randomizer.c", "test_randomizer"],
+    ["test_once.c", "test_once1"],
+    ["test_once.c", "test_once2"],
 ]
 
 
@@ -40,7 +42,12 @@ class TestStringMethods(unittest.TestCase):
             actual_preprocessed = preprocess(file_test, cpp_args=["-DACTUAL"])
             base_preprocessed = preprocess(file_test, cpp_args=["-UACTUAL"])
 
+            # Strip away other functions to be able to get an .o file with
+            # only the target function to compare again.
             strip_other_fns_and_write(actual_preprocessed, test_fn, file_actual)
+
+            # For symmetry, do the same for the base file. This isn't technically
+            # necessary.
             strip_other_fns_and_write(base_preprocessed, test_fn, file_base)
 
             actual_source = Path(file_actual).read_text()
@@ -100,6 +107,14 @@ class TestStringMethods(unittest.TestCase):
 
     def test_ignore(self):
         score = self.go("test_ignore.c", "test_ignore")
+        self.assertEqual(score, 0)
+
+    def test_once1(self):
+        score = self.go("test_once.c", "test_once1")
+        self.assertEqual(score, 0)
+
+    def test_once2(self):
+        score = self.go("test_once.c", "test_once2")
         self.assertEqual(score, 0)
 
     def test_randomizer(self):
