@@ -14,3 +14,15 @@ void test_randomizer(void) {
     )
 }
 #endif
+
+#ifdef ACTUAL
+void test_randomizer2(void) {
+    foo();
+    bar();
+}
+#else
+void test_randomizer2(void) {
+    bar();
+    foo();
+}
+#endif
