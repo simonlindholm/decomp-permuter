@@ -34,6 +34,7 @@ void test_once2(void) {
     PERM_ONCE(2, B = 1;)
     PERM_ONCE(2,)
     PERM_ONCE(3, PERM_VAR(bademit, A = 9))
+    PERM_ONCE(3, PERM_VAR(bademit, A = 9))
     C = 3;
 }
 #endif

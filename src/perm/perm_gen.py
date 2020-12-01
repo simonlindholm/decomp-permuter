@@ -61,7 +61,7 @@ def make_once_perm(text: str) -> OncePerm:
     args = split_by_comma(text)
     if len(args) not in [1, 2]:
         raise Exception("PERM_ONCE takes 1 or 2 arguments")
-    key = args[0]
+    key = args[0].strip()
     value = rec_perm_gen(args[-1])
     return OncePerm(key, value)
 

@@ -76,7 +76,9 @@ class RootPerm(Perm):
         self.perm_count = inner.perm_count
         self.preprocess_state = PreprocessState()
         self.preprocess(self.preprocess_state)
-        for options in self.preprocess_state.once_options.values():
+        for key, options in self.preprocess_state.once_options.items():
+            if len(options) == 1:
+                raise Exception(f"PERM_ONCE({key}) occurs only once, possible error?")
             self.perm_count *= len(options)
 
     def evaluate(self, seed: int, state: EvalState) -> str:

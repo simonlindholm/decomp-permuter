@@ -42,7 +42,7 @@ The .c file may be modified with any of the following macros which affect manual
 - `PERM_CONDNEZ(cond)` expands to either `cond` or `(cond) != 0`.
 - `PERM_INT(lo, hi)` expands to an integer between `lo` and `hi` (which must be constants).
 - `PERM_IGNORE(code)` expands to `code`, without passing it through the C parser library (pycparser). This can be used to avoid parse errors for non-standard C, e.g. `asm` blocks.
-- `PERM_ONCE([key,] code)` expands to either `code` or to an empty string, such that each key gets expanded exactly once. `key` defaults to `code`. For example, `PERM_ONCE(a;) b; PERM_ONCE(a;)` expands to either `a; b;` or `b; a;`.
+- `PERM_ONCE([key,] code)` expands to either `code` or to nothing, such that each unique key gets expanded exactly once. `key` defaults to `code`. For example, `PERM_ONCE(a;) b; PERM_ONCE(a;)` expands to either `a; b;` or `b; a;`.
 
 Arguments are split by a commas, exluding commas inside parenthesis. `(,)` is a special escape sequence that resolves to `,`. 
 
