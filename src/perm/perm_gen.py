@@ -137,5 +137,8 @@ def perm_gen(text: str) -> Perm:
     ret = rec_perm_gen(text)
     if isinstance(ret, TextPerm):
         ret = RandomizerPerm(ret)
-        print("No perm macros found. Defaulting to randomization")
-    return RootPerm(ret)
+        print("No perm macros found. Defaulting to randomization.")
+    ret = RootPerm(ret)
+    if not ret.is_random():
+        print(f"Will run for {ret.perm_count} iterations.")
+    return ret
