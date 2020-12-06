@@ -13,95 +13,171 @@ from src import main
 
 
 class TestStringMethods(unittest.TestCase):
-    def go(self, filename, fn_name, **kwargs) -> int:
+    def go(self, intro, outro, base, target, **kwargs) -> int:
+        base = intro + "\n" + base + "\n" + outro
+        target = intro + "\n" + target + "\n" + outro
         compiler = Compiler("test/compile.sh")
 
+        # For debugging, to avoid the auto-deleted directory:
+        # target_dir = tempfile.mkdtemp()
         with tempfile.TemporaryDirectory() as target_dir:
-            file_test = os.path.join("test", filename)
-            file_actual = os.path.join(target_dir, "actual.c")
-            file_base = os.path.join(target_dir, "base.c")
-            file_target = os.path.join(target_dir, "target.o")
+            with open(os.path.join(target_dir, "base.c"), "w") as f:
+                f.write(base)
 
-            actual_preprocessed = preprocess(file_test, cpp_args=["-DACTUAL"])
-            base_preprocessed = preprocess(file_test, cpp_args=["-UACTUAL"])
-
-            # Strip away other functions to be able to get an .o file with
-            # only the target function to compare again.
-            strip_other_fns_and_write(actual_preprocessed, fn_name, file_actual)
-
-            # For symmetry, do the same for the base file. This isn't technically
-            # necessary.
-            strip_other_fns_and_write(base_preprocessed, fn_name, file_base)
-
-            actual_source = Path(file_actual).read_text()
-            target_o = compiler.compile(actual_source, show_errors=True)
+            target_o = compiler.compile(target, show_errors=True)
             assert target_o is not None
-            shutil.copy2(target_o, file_target)
-            os.remove(target_o)
+            shutil.move(target_o, os.path.join(target_dir, "target.o"))
 
-            shutil.copy2("test/compile.sh", target_dir)
+            shutil.copy2("test/compile.sh", os.path.join(target_dir, "compile.sh"))
 
             opts = main.Options(directories=[target_dir], stop_on_zero=True, **kwargs)
             return main.run(opts)[0]
 
     def test_general(self):
-        score = self.go("test_general.c", "test_general")
-        self.assertEqual(score, 0)
-
-    def test_general_3(self):
-        score = self.go("test_general.c", "test_general_3")
+        score = self.go(
+            "int test() {",
+            "}",
+            "return PERM_GENERAL(32,64);",
+            "return 64;",
+        )
         self.assertEqual(score, 0)
 
     def test_general_multiple(self):
-        score = self.go("test_general.c", "test_general_multiple")
+        score = self.go(
+            "int test() {",
+            "}",
+            "return PERM_GENERAL(1,2,3) + PERM_GENERAL(3,6,9);",
+            "return 9;",
+        )
         self.assertEqual(score, 0)
 
     def test_ternary1(self):
-        score = self.go("test_ternary.c", "test_ternary1")
+        score = self.go(
+            "int test(int cond) {",
+            "}",
+            "int test; PERM_TERNARY(test = ,cond,1,2) return test;",
+            "int test; if (cond) test = 1; else test = 2; return test;",
+        )
         self.assertEqual(score, 0)
 
     def test_ternary2(self):
-        score = self.go("test_ternary.c", "test_ternary2")
+        score = self.go(
+            "int test(int cond) {",
+            "}",
+            "int test; PERM_TERNARY(test = ,cond,1,2) return test;",
+            "int test; test = cond ? 1 : 2; return test;",
+        )
         self.assertEqual(score, 0)
 
     def test_type1(self):
-        score = self.go("test_type.c", "test_type1")
+        score = self.go(
+            "int test(int a, int b) {",
+            "}",
+            "return a / PERM_TYPECAST(,unsigned int,float) b;",
+            "return a / b;",
+        )
         self.assertEqual(score, 0)
 
     def test_type2(self):
-        score = self.go("test_type.c", "test_type2")
+        score = self.go(
+            "int test(int a, int b) {",
+            "}",
+            "return a / PERM_TYPECAST(,unsigned int,float) b;",
+            "return a / (unsigned int) b;",
+        )
         self.assertEqual(score, 0)
 
     def test_type3(self):
-        score = self.go("test_type.c", "test_type3")
+        score = self.go(
+            "int test(int a, int b) {",
+            "}",
+            "return a / PERM_TYPECAST(,unsigned int,float) b;",
+            "return a / (float) b;",
+        )
         self.assertEqual(score, 0)
 
     def test_type3_threaded(self):
-        score = self.go("test_type.c", "test_type3", threads=2)
+        score = self.go(
+            "int test(int a, int b) {",
+            "}",
+            "return a / PERM_TYPECAST(,unsigned int,float) b;",
+            "return a / (float) b;",
+            threads=2,
+        )
         self.assertEqual(score, 0)
 
     def test_ignore(self):
-        score = self.go("test_ignore.c", "test_ignore")
+        score = self.go(
+            "int test(int a, int b) {",
+            "}",
+            "PERM_IGNORE( return a / PERM_GENERAL(a, b); )",
+            "return a / b;",
+        )
         self.assertEqual(score, 0)
 
     def test_once1(self):
-        score = self.go("test_once.c", "test_once1")
+        score = self.go(
+            "volatile int A, B, C; void test() {",
+            "}",
+            """
+                PERM_ONCE(B = 2;)
+                A = 1;
+                PERM_ONCE(B = 2;)
+                C = 3;
+                PERM_ONCE(B = 2;)
+            """,
+            "A = 1; B = 2; C = 3;",
+        )
         self.assertEqual(score, 0)
 
     def test_once2(self):
-        score = self.go("test_once.c", "test_once2")
+        score = self.go(
+            "volatile int A, B, C; void test() {",
+            "}",
+            """
+                PERM_VAR(emit,)
+                PERM_VAR(bademit,)
+                PERM_ONCE(1, PERM_VAR(bademit, A = 7;) A = 2;)
+                PERM_ONCE(1, PERM_VAR(emit, A = 1;))
+                PERM_VAR(emit)
+                PERM_VAR(bademit)
+                PERM_ONCE(2, B = 2;)
+                PERM_ONCE(2, B = 1;)
+                PERM_ONCE(2,)
+                PERM_ONCE(3, PERM_VAR(bademit, A = 9))
+                PERM_ONCE(3, PERM_VAR(bademit, A = 9))
+                C = 3;
+            """,
+            "A = 1; B = 2; C = 3;",
+        )
         self.assertEqual(score, 0)
 
     def test_randomizer(self):
-        score = self.go("test_randomizer.c", "test_randomizer")
+        score = self.go(
+            "void foo(); void bar(); void test(void) {",
+            "}",
+            "PERM_RANDOMIZE(bar(); foo();)",
+            "foo(); bar();",
+        )
         self.assertEqual(score, 0)
 
     def test_auto_randomizer(self):
-        score = self.go("test_randomizer.c", "test_randomizer2")
+        score = self.go(
+            "void foo(); void bar(); void test(void) {",
+            "}",
+            "bar(); foo();",
+            "foo(); bar();",
+        )
         self.assertEqual(score, 0)
 
     def test_randomizer_threaded(self):
-        score = self.go("test_randomizer.c", "test_randomizer", threads=2)
+        score = self.go(
+            "void foo(); void bar(); void test(void) {",
+            "}",
+            "PERM_RANDOMIZE(bar(); foo();)",
+            "foo(); bar();",
+            threads=2,
+        )
         self.assertEqual(score, 0)
 
 
