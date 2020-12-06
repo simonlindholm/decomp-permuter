@@ -1142,6 +1142,67 @@ def perm_associative(
         node.op = "<" + node.op[1:]
 
 
+def perm_condition(
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
+) -> None:
+    """Change if(x) into if(x != 0), or vice versa. Also handles for/while/do-while."""
+    cands: List[Union[ca.If, ca.While, ca.DoWhile, ca.For]] = []
+
+    class Visitor(ca.NodeVisitor):
+        def visit_If(self, node: ca.If) -> None:
+            cands.append(node)
+            self.generic_visit(node)
+
+        def visit_While(self, node: ca.While) -> None:
+            cands.append(node)
+            self.generic_visit(node)
+
+        def visit_DoWhile(self, node: ca.DoWhile) -> None:
+            cands.append(node)
+            self.generic_visit(node)
+
+        def visit_For(self, node: ca.For) -> None:
+            cands.append(node)
+            self.generic_visit(node)
+
+    Visitor().visit(fn.body)
+    ensure(cands)
+    node = random.choice(cands)
+    if not node.cond:
+        raise RandomizationFailure
+
+    if (
+        isinstance(node.cond, ca.BinaryOp)
+        and node.cond.op in ["==", "!=", "<", ">", "<=", ">="]
+        and random_bool(random, 0.9)
+    ):
+        ensure(node.cond.op in ["==", "!="])
+        ensure(
+            isinstance(node.cond.right, ca.Constant)
+            and node.cond.right.value in ["0", "0U", "0.0", "0.0f"]
+        )
+        if node.cond.op == "==":
+            node.cond = ca.UnaryOp("!", node.cond.left)
+        else:
+            node.cond = node.cond.left
+    else:
+        expr = node.cond
+        op = "!="
+        if isinstance(expr, ca.UnaryOp) and expr.op == "!" and random_bool(random, 0.9):
+            assert not isinstance(expr.expr, ca.Typename)
+            expr = expr.expr
+            op = "=="
+        zero = random_weighted(
+            random,
+            [
+                (ca.Constant("int", "0"), 0.8),
+                (ca.Constant("unsigned int", "0U"), 0.2),
+                (ca.Constant("float", "0.0f"), 0.05),
+            ],
+        )
+        node.cond = ca.BinaryOp(op, expr, zero)
+
+
 def perm_add_self_assignment(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> None:
@@ -1709,6 +1770,7 @@ class Randomizer:
             (perm_ins_block, 10),
             (perm_struct_ref, 10),
             (perm_empty_stmt, 10),
+            (perm_condition, 10),
             (perm_dummy_comma_expr, 5),
             (perm_add_self_assignment, 5),
             (perm_associative, 5),
