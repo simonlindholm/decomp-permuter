@@ -10,7 +10,8 @@ import sys
 import time
 import typing
 
-from pycparser import c_ast as ca, c_parser, c_generator
+from pycparser import CParser, c_ast as ca, c_parser, c_generator
+from pycparser.plyparser import ParseError
 
 from .error import CandidateConstructionFailure
 from .ast_types import (
@@ -119,6 +120,32 @@ def extract_fn(ast: ca.FileAST, fn_name: str) -> Tuple[ca.FuncDef, int]:
             f"Found multiple copies of function {fn_name} in base.c."
         )
     return ret[0]
+
+
+def parse_c(source: str) -> ca.FileAST:
+    try:
+        parser = CParser()
+        return parser.parse(source, "<source>")
+    except ParseError as e:
+        msg = str(e)
+        position, msg = msg.split(": ", 1)
+        parts = position.split(":")
+        if len(parts) >= 2:
+            lineno = int(parts[1])
+            posstr = f" at approximately line {lineno}"
+            if len(parts) >= 3:
+                posstr += f", column {parts[2]}"
+            posstr += " (after PERM expansion)"
+            try:
+                line = source.split("\n")[lineno - 1].rstrip()
+                posstr += "\n\n" + line
+            except IndexError:
+                posstr += "(out of bounds?)"
+        else:
+            posstr = ""
+        raise CandidateConstructionFailure(
+            f"Syntax error in base.c.\n{msg}{posstr}"
+        ) from None
 
 
 def compute_node_indices(top_node: ca.Node) -> Indices:

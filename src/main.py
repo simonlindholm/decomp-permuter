@@ -26,8 +26,6 @@ from enum import Enum
 from random import Random
 
 import attr
-import pycparser
-from pycparser import CParser, c_ast as ca
 
 from .error import CandidateConstructionFailure
 from .perm import perm_gen, perm_eval
@@ -122,7 +120,6 @@ class Permuter:
             self.fn_name = fn_name
         self.unique_name = self.fn_name
 
-        self.parser = pycparser.CParser()
         self.permutations = perm_gen.perm_gen(source)
 
         self.force_rng_seed = force_rng_seed
@@ -144,9 +141,7 @@ class Permuter:
 
     def create_and_score_base(self) -> Tuple[Candidate, int, str]:
         base_source = perm_eval.perm_evaluate_one(self.permutations)
-        base_cand = Candidate.from_source(
-            base_source, self.fn_name, self.parser, rng_seed=0
-        )
+        base_cand = Candidate.from_source(base_source, self.fn_name, rng_seed=0)
         o_file = base_cand.compile(self.compiler, show_errors=True)
         if not o_file:
             raise Exception(f"Unable to compile {self.source_file}")
@@ -184,9 +179,7 @@ class Permuter:
             cand_c = self.permutations.evaluate(seed, EvalState())
             rng_seed = self.force_rng_seed or random.randrange(1, 10 ** 20)
             self.cur_seed = (seed, rng_seed)
-            self.cand = Candidate.from_source(
-                cand_c, self.fn_name, self.parser, rng_seed=rng_seed
-            )
+            self.cand = Candidate.from_source(cand_c, self.fn_name, rng_seed=rng_seed)
 
         # Randomize the candidate
         if self.permutations.is_random():
