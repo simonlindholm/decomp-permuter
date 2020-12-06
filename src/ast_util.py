@@ -46,7 +46,7 @@ def to_c(node: ca.Node) -> str:
     lines = source.split("\n")
     out = []
     same_line = 0
-    in_late_defines = False
+    ignore = 0
     for line in lines:
         stripped = line.strip()
         if stripped.startswith("#pragma"):
@@ -57,13 +57,12 @@ def to_c(node: ca.Node) -> str:
                 if same_line == 0:
                     out.append("\n")
             elif stripped == "#pragma _permuter latedefine start":
-                assert not in_late_defines
-                in_late_defines = True
+                ignore += 1
             elif stripped == "#pragma _permuter latedefine end":
-                assert in_late_defines
-                in_late_defines = False
+                assert ignore > 0, "mismatched ignore pragmas"
+                ignore -= 1
             elif stripped.startswith("#pragma _permuter define "):
-                assert in_late_defines
+                assert ignore > 0, "define pragma must be within latedefine block"
                 out.append("#" + stripped.split(" ", 2)[2] + "\n")
             elif stripped.startswith("#pragma _permuter b64literal "):
                 out.append(b64decode(stripped.split()[-1]).decode("utf-8"))
@@ -73,7 +72,7 @@ def to_c(node: ca.Node) -> str:
             # Ignore permuter pragmas, but leave actual pragmas in (like intrinsics)
             if stripped.startswith("#pragma _permuter"):
                 continue
-        if in_late_defines:
+        if ignore > 0:
             continue
         if not same_line:
             line += "\n"
@@ -81,6 +80,7 @@ def to_c(node: ca.Node) -> str:
             line = " " + line.lstrip()
         out.append(line)
     assert same_line == 0
+    assert ignore == 0, "unbalanced ignore pragmas"
     return "".join(out).rstrip() + "\n"
 
 

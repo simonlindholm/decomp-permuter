@@ -113,6 +113,24 @@ class IgnorePerm(Perm):
         return "#pragma _permuter b64literal " + encoded
 
 
+class PretendPerm(Perm):
+    def __init__(self, inner: Perm) -> None:
+        self.children = [inner]
+        self.perm_count = inner.perm_count
+
+    def evaluate(self, seed: int, state: EvalState) -> str:
+        text = self.children[0].evaluate(seed, state)
+        return "\n".join(
+            [
+                "",
+                "#pragma _permuter latedefine start",
+                text,
+                "#pragma _permuter latedefine end",
+                "",
+            ]
+        )
+
+
 class CombinePerm(Perm):
     def __init__(self, parts: List[Perm]) -> None:
         self.children = parts

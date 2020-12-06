@@ -151,6 +151,30 @@ class TestPermMacros(unittest.TestCase):
         )
         self.assertEqual(score, 0)
 
+    def test_pretend(self):
+        score = self.go(
+            "int global;",
+            "",
+            """
+            PERM_IGNORE( inline void foo() { )
+            PERM_PRETEND( void foo(); void bar() { )
+                PERM_RANDOMIZE(
+                    global = 1;
+                )
+            PERM_IGNORE( } void bar() { )
+                PERM_RANDOMIZE(
+                    global = 2; foo();
+                )
+            }
+            """,
+            """
+            inline void foo() { global = 1; }
+            void bar() { foo(); global = 2; }
+            """,
+            fn_name="bar",
+        )
+        self.assertEqual(score, 0)
+
     def test_once1(self):
         score = self.go(
             "volatile int A, B, C; void test() {",
