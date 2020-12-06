@@ -12,8 +12,8 @@ from src.preprocess import preprocess
 from src import main
 
 
-class TestStringMethods(unittest.TestCase):
-    def go(self, intro, outro, base, target, **kwargs) -> int:
+class TestPermMacros(unittest.TestCase):
+    def go(self, intro, outro, base, target, fn_name=None, **kwargs) -> int:
         base = intro + "\n" + base + "\n" + outro
         target = intro + "\n" + target + "\n" + outro
         compiler = Compiler("test/compile.sh")
@@ -30,6 +30,10 @@ class TestStringMethods(unittest.TestCase):
 
             shutil.copy2("test/compile.sh", os.path.join(target_dir, "compile.sh"))
 
+            if fn_name:
+                with open(os.path.join(target_dir, "function.txt"), "w") as f:
+                    f.write(fn_name)
+
             opts = main.Options(directories=[target_dir], stop_on_zero=True, **kwargs)
             return main.run(opts)[0]
 
@@ -42,12 +46,44 @@ class TestStringMethods(unittest.TestCase):
         )
         self.assertEqual(score, 0)
 
+    def test_not_found(self):
+        score = self.go(
+            "int test() {",
+            "}",
+            "return PERM_GENERAL(32,64);",
+            "return 92;",
+        )
+        self.assertNotEqual(score, 0)
+
+    def test_multiple_functions(self):
+        score = self.go(
+            "",
+            "",
+            """
+            int ignoreme() {}
+            int foo() { return PERM_GENERAL(32,64); }
+            int ignoreme2() {}
+            """,
+            "int foo() { return 64; }",
+            fn_name="foo",
+        )
+        self.assertEqual(score, 0)
+
     def test_general_multiple(self):
         score = self.go(
             "int test() {",
             "}",
             "return PERM_GENERAL(1,2,3) + PERM_GENERAL(3,6,9);",
             "return 9;",
+        )
+        self.assertEqual(score, 0)
+
+    def test_general_nested(self):
+        score = self.go(
+            "int test() {",
+            "}",
+            "return PERM_GENERAL(1,PERM_GENERAL(100,101),3) + PERM_GENERAL(3,6,9);",
+            "return 110;",
         )
         self.assertEqual(score, 0)
 
