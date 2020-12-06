@@ -1,19 +1,27 @@
-# type: ignore
-import unittest
 import os
-import tempfile
-import shutil
 from pathlib import Path
 import re
+import shutil
+import tempfile
+from typing import Any, Optional
+import unittest
 
-from strip_other_fns import strip_other_fns_and_write
 from src.compiler import Compiler
 from src.preprocess import preprocess
 from src import main
 
 
 class TestPermMacros(unittest.TestCase):
-    def go(self, intro, outro, base, target, fn_name=None, **kwargs) -> int:
+    def go(
+        self,
+        intro: str,
+        outro: str,
+        base: str,
+        target: str,
+        *,
+        fn_name: Optional[str] = None,
+        **kwargs: Any
+    ) -> int:
         base = intro + "\n" + base + "\n" + outro
         target = intro + "\n" + target + "\n" + outro
         compiler = Compiler("test/compile.sh")
@@ -37,7 +45,7 @@ class TestPermMacros(unittest.TestCase):
             opts = main.Options(directories=[target_dir], stop_on_zero=True, **kwargs)
             return main.run(opts)[0]
 
-    def test_general(self):
+    def test_general(self) -> None:
         score = self.go(
             "int test() {",
             "}",
@@ -46,7 +54,7 @@ class TestPermMacros(unittest.TestCase):
         )
         self.assertEqual(score, 0)
 
-    def test_not_found(self):
+    def test_not_found(self) -> None:
         score = self.go(
             "int test() {",
             "}",
@@ -55,7 +63,7 @@ class TestPermMacros(unittest.TestCase):
         )
         self.assertNotEqual(score, 0)
 
-    def test_multiple_functions(self):
+    def test_multiple_functions(self) -> None:
         score = self.go(
             "",
             "",
@@ -69,7 +77,7 @@ class TestPermMacros(unittest.TestCase):
         )
         self.assertEqual(score, 0)
 
-    def test_general_multiple(self):
+    def test_general_multiple(self) -> None:
         score = self.go(
             "int test() {",
             "}",
@@ -78,7 +86,7 @@ class TestPermMacros(unittest.TestCase):
         )
         self.assertEqual(score, 0)
 
-    def test_general_nested(self):
+    def test_general_nested(self) -> None:
         score = self.go(
             "int test() {",
             "}",
@@ -87,7 +95,7 @@ class TestPermMacros(unittest.TestCase):
         )
         self.assertEqual(score, 0)
 
-    def test_ternary1(self):
+    def test_ternary1(self) -> None:
         score = self.go(
             "int test(int cond) {",
             "}",
@@ -96,7 +104,7 @@ class TestPermMacros(unittest.TestCase):
         )
         self.assertEqual(score, 0)
 
-    def test_ternary2(self):
+    def test_ternary2(self) -> None:
         score = self.go(
             "int test(int cond) {",
             "}",
@@ -105,7 +113,7 @@ class TestPermMacros(unittest.TestCase):
         )
         self.assertEqual(score, 0)
 
-    def test_type1(self):
+    def test_type1(self) -> None:
         score = self.go(
             "int test(int a, int b) {",
             "}",
@@ -114,7 +122,7 @@ class TestPermMacros(unittest.TestCase):
         )
         self.assertEqual(score, 0)
 
-    def test_type2(self):
+    def test_type2(self) -> None:
         score = self.go(
             "int test(int a, int b) {",
             "}",
@@ -123,7 +131,7 @@ class TestPermMacros(unittest.TestCase):
         )
         self.assertEqual(score, 0)
 
-    def test_type3(self):
+    def test_type3(self) -> None:
         score = self.go(
             "int test(int a, int b) {",
             "}",
@@ -132,7 +140,7 @@ class TestPermMacros(unittest.TestCase):
         )
         self.assertEqual(score, 0)
 
-    def test_type3_threaded(self):
+    def test_type3_threaded(self) -> None:
         score = self.go(
             "int test(int a, int b) {",
             "}",
@@ -142,7 +150,7 @@ class TestPermMacros(unittest.TestCase):
         )
         self.assertEqual(score, 0)
 
-    def test_ignore(self):
+    def test_ignore(self) -> None:
         score = self.go(
             "int test(int a, int b) {",
             "}",
@@ -151,7 +159,7 @@ class TestPermMacros(unittest.TestCase):
         )
         self.assertEqual(score, 0)
 
-    def test_pretend(self):
+    def test_pretend(self) -> None:
         score = self.go(
             "int global;",
             "",
@@ -175,7 +183,7 @@ class TestPermMacros(unittest.TestCase):
         )
         self.assertEqual(score, 0)
 
-    def test_once1(self):
+    def test_once1(self) -> None:
         score = self.go(
             "volatile int A, B, C; void test() {",
             "}",
@@ -190,7 +198,7 @@ class TestPermMacros(unittest.TestCase):
         )
         self.assertEqual(score, 0)
 
-    def test_once2(self):
+    def test_once2(self) -> None:
         score = self.go(
             "volatile int A, B, C; void test() {",
             "}",
@@ -212,7 +220,7 @@ class TestPermMacros(unittest.TestCase):
         )
         self.assertEqual(score, 0)
 
-    def test_randomizer(self):
+    def test_randomizer(self) -> None:
         score = self.go(
             "void foo(); void bar(); void test(void) {",
             "}",
@@ -221,7 +229,7 @@ class TestPermMacros(unittest.TestCase):
         )
         self.assertEqual(score, 0)
 
-    def test_auto_randomizer(self):
+    def test_auto_randomizer(self) -> None:
         score = self.go(
             "void foo(); void bar(); void test(void) {",
             "}",
@@ -230,7 +238,7 @@ class TestPermMacros(unittest.TestCase):
         )
         self.assertEqual(score, 0)
 
-    def test_randomizer_threaded(self):
+    def test_randomizer_threaded(self) -> None:
         score = self.go(
             "void foo(); void bar(); void test(void) {",
             "}",
