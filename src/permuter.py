@@ -12,7 +12,6 @@ import random
 import re
 import time
 import traceback
-from random import Random
 
 import attr
 
@@ -59,7 +58,6 @@ class Permuter:
         show_errors: bool,
     ) -> None:
         self.dir = dir
-        self.random = Random()
         self.compiler = compiler
         self.scorer = scorer
         self.source_file = source_file
@@ -95,9 +93,6 @@ class Permuter:
         self._cur_cand: Optional[Candidate] = None
         self._last_score: Optional[int] = None
 
-    def reseed_random(self) -> None:
-        self.random = Random()
-
     def create_and_score_base(self) -> Tuple[Candidate, int, str]:
         base_source = perm_eval.perm_evaluate_one(self._permutations)
         base_cand = Candidate.from_source(base_source, self.fn_name, rng_seed=0)
@@ -123,7 +118,7 @@ class Permuter:
         # Don't keep 0-score candidates; we'll only create new, worse, zeroes.
         keep = (
             self._permutations.is_random()
-            and self.random.uniform(0, 1) < self.keep_prob
+            and random.uniform(0, 1) < self.keep_prob
             and self._last_score != 0
             and self._last_score != self.scorer.PENALTY_INF
         ) or self._force_rng_seed
@@ -179,7 +174,7 @@ class Permuter:
         """Create an iterator over all seeds for this permuter. The iterator
         will be infinite if we are randomizing."""
         if self._force_seed is None:
-            return iter(perm_eval.perm_gen_all_seeds(self._permutations, Random()))
+            return iter(perm_eval.perm_gen_all_seeds(self._permutations))
         if self._permutations.is_random():
             return itertools.repeat(self._force_seed)
         return iter([self._force_seed])

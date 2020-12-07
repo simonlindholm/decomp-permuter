@@ -180,10 +180,6 @@ def multiprocess_worker(
     input_queue.cancel_join_thread()
     output_queue.cancel_join_thread()
 
-    # Don't use the same RNGs as the parent
-    for permuter in permuters:
-        permuter.reseed_random()
-
     try:
         while True:
             queue_item = input_queue.get()
