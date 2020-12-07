@@ -71,7 +71,7 @@ def make_var_perm(text: str) -> VarPerm:
     args = split_by_comma(text)
     if len(args) not in [1, 2]:
         raise Exception("PERM_VAR takes 1 or 2 arguments")
-    var_name = args[0]
+    var_name = rec_perm_gen(args[0])
     value = rec_perm_gen(args[1]) if len(args) == 2 else None
     return VarPerm(var_name, value)
 

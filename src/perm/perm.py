@@ -215,24 +215,25 @@ class TypecastPerm(Perm):
 
 
 class VarPerm(Perm):
-    def __init__(self, var_name: str, expansion: Optional[Perm]) -> None:
-        self.var_name = var_name
+    def __init__(self, var_name: Perm, expansion: Optional[Perm]) -> None:
         if expansion:
-            self.children = [expansion]
-            self.perm_count = expansion.perm_count
+            self.children = [var_name, expansion]
         else:
-            self.children = []
-            self.perm_count = 1
+            self.children = [var_name]
+        self.perm_count = _count_all(self.children)
 
     def evaluate(self, seed: int, state: EvalState) -> str:
-        if self.children:
-            ret = self.children[0].evaluate(seed, state)
-            state.vars[self.var_name] = ret
+        var_name_perm = self.children[0]
+        seed, sub_seed = divmod(seed, var_name_perm.perm_count)
+        var_name = var_name_perm.evaluate(sub_seed, state).strip()
+        if len(self.children) > 1:
+            ret = self.children[1].evaluate(seed, state)
+            state.vars[var_name] = ret
             return ""
         else:
-            if self.var_name not in state.vars:
-                raise Exception(f"Tried to read undefined PERM_VAR {self.var_name}")
-            return state.vars[self.var_name]
+            if var_name not in state.vars:
+                raise Exception(f"Tried to read undefined PERM_VAR {var_name}")
+            return state.vars[var_name]
 
 
 class CondNezPerm(Perm):
