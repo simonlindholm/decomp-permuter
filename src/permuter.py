@@ -15,12 +15,13 @@ import traceback
 
 import attr
 
-from .perm import perm_gen, perm_eval
-from .compiler import Compiler
-from .scorer import Scorer
-from .perm.perm import EvalState
 from .candidate import Candidate, CandidateResult
+from .compiler import Compiler
+from .error import CandidateConstructionFailure
+from .perm import perm_gen, perm_eval
+from .perm.perm import EvalState
 from .profiler import Profiler
+from .scorer import Scorer
 
 
 @attr.s
@@ -86,23 +87,26 @@ class Permuter:
         self._need_all_sources = need_all_sources
         self._show_errors = show_errors
 
-        self.base, base_score, self.base_hash = self.create_and_score_base()
-        self.base_score: int = base_score
-        self.best_score: int = base_score
+        (
+            self.base_score,
+            self.base_hash,
+            self.base_source,
+        ) = self._create_and_score_base()
+        self.best_score = self.base_score
         self.hashes = {self.base_hash}
         self._cur_cand: Optional[Candidate] = None
         self._last_score: Optional[int] = None
 
-    def create_and_score_base(self) -> Tuple[Candidate, int, str]:
+    def _create_and_score_base(self) -> Tuple[int, str, str]:
         base_source = perm_eval.perm_evaluate_one(self._permutations)
         base_cand = Candidate.from_source(base_source, self.fn_name, rng_seed=0)
         o_file = base_cand.compile(self.compiler, show_errors=True)
         if not o_file:
-            raise Exception(f"Unable to compile {self.source_file}")
+            raise CandidateConstructionFailure(f"Unable to compile {self.source_file}")
         base_result = base_cand.score(self.scorer, o_file)
-        return base_cand, base_result.score, base_result.hash
+        return base_result.score, base_result.hash, base_cand.get_source()
 
-    def need_to_send_source(self, result: CandidateResult) -> bool:
+    def _need_to_send_source(self, result: CandidateResult) -> bool:
         if self._need_all_sources:
             return True
         if result.score < self.base_score:
@@ -165,7 +169,7 @@ class Permuter:
 
         self._last_score = result.score
 
-        if not self.need_to_send_source(result):
+        if not self._need_to_send_source(result):
             result.source = None
 
         return result
@@ -199,7 +203,7 @@ class Permuter:
             def __hash__(self) -> int:
                 return hash(self.strip())
 
-        a = list(map(Line, self.base.get_source().split("\n")))
+        a = list(map(Line, self.base_source.split("\n")))
         b = list(map(Line, other_source.split("\n")))
         return "\n".join(
             difflib.unified_diff(a, b, fromfile="before", tofile="after", lineterm="")

@@ -67,7 +67,7 @@ def write_candidate(perm: Permuter, result: CandidateResult) -> None:
         except FileExistsError:
             pass
     source = result.source
-    assert source is not None, "need_to_send_source is wrong!"
+    assert source is not None, "Permuter._need_to_send_source is wrong!"
     with open(os.path.join(output_dir, "source.c"), "x", encoding="utf-8") as f:
         f.write(source)
     with open(os.path.join(output_dir, "score.txt"), "x", encoding="utf-8") as f:
@@ -97,7 +97,7 @@ def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> 
     score_hash = result.hash
 
     if context.options.print_diffs:
-        assert result.source is not None, "need_to_send_source is wrong"
+        assert result.source is not None, "Permuter._need_to_send_source is wrong"
         print()
         print(permuter.diff(result.source))
         input("Press any key to continue...")
@@ -113,8 +113,8 @@ def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> 
         timings = "  \t" + context.overall_profiler.get_str_stats()
     status_line = f"iteration {context.iteration}, {context.errors} errors, score = {disp_score}{timings}"
 
-    # Note: when updating this if condition, need_to_send_source may also need
-    # to be updated, or else assertion failures will result.
+    # Note: when updating this if condition, Permuter._need_to_send_source may
+    # also need to be updated, or else assertion failures will result.
     if (
         score_value is not None
         and score_hash is not None
