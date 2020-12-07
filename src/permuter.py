@@ -1,0 +1,205 @@
+from typing import (
+    Any,
+    List,
+    Optional,
+    Tuple,
+    Union,
+)
+import difflib
+import random
+import re
+import time
+import traceback
+from random import Random
+
+import attr
+
+from .perm import perm_gen, perm_eval
+from .compiler import Compiler
+from .scorer import Scorer
+from .perm.perm import EvalState
+from .candidate import Candidate, CandidateResult
+from .profiler import Profiler
+
+
+@attr.s
+class EvalError:
+    exc_str: Optional[str] = attr.ib()
+    seed: Optional[Tuple[int, int]] = attr.ib()
+
+
+EvalResult = Union[CandidateResult, EvalError]
+
+
+class _CompileFailure(Exception):
+    pass
+
+
+class Permuter:
+    """
+    Represents a single source from which permutation candidates can be generated,
+    and which keeps track of good scores achieved so far.
+    """
+
+    def __init__(
+        self,
+        dir: str,
+        fn_name: Optional[str],
+        compiler: Compiler,
+        scorer: Scorer,
+        source_file: str,
+        source: str,
+        *,
+        force_rng_seed: Optional[int],
+        keep_prob: float,
+        need_all_sources: bool,
+        show_errors: bool,
+    ) -> None:
+        self.dir = dir
+        self.random = Random()
+        self.compiler = compiler
+        self.scorer = scorer
+        self.source_file = source_file
+
+        if fn_name is None:
+            fns = _find_fns(source)
+            if len(fns) == 0:
+                raise Exception(f"{self.source_file} does not contain any function!")
+            if len(fns) > 1:
+                raise Exception(
+                    f"{self.source_file} must contain only one function, "
+                    "or have a function.txt next to it with a function name."
+                )
+            self.fn_name = fns[0]
+        else:
+            self.fn_name = fn_name
+        self.unique_name = self.fn_name
+
+        self.permutations = perm_gen.perm_gen(source)
+
+        self.force_rng_seed = force_rng_seed
+        self.cur_seed: Optional[Tuple[int, int]] = None
+
+        self.keep_prob = keep_prob
+        self.need_all_sources = need_all_sources
+        self.show_errors = show_errors
+
+        self.base, base_score, self.base_hash = self.create_and_score_base()
+        self.hashes = {self.base_hash}
+        self.cand: Optional[Candidate] = None
+        self.base_score: int = base_score
+        self.best_score: int = base_score
+        self._last_score: Optional[int] = None
+
+    def reseed_random(self) -> None:
+        self.random = Random()
+
+    def create_and_score_base(self) -> Tuple[Candidate, int, str]:
+        base_source = perm_eval.perm_evaluate_one(self.permutations)
+        base_cand = Candidate.from_source(base_source, self.fn_name, rng_seed=0)
+        o_file = base_cand.compile(self.compiler, show_errors=True)
+        if not o_file:
+            raise Exception(f"Unable to compile {self.source_file}")
+        base_result = base_cand.score(self.scorer, o_file)
+        return base_cand, base_result.score, base_result.hash
+
+    def need_to_send_source(self, result: CandidateResult) -> bool:
+        if self.need_all_sources:
+            return True
+        if result.score < self.base_score:
+            return True
+        if result.score == self.base_score:
+            return result.hash != self.base_hash
+        return False
+
+    def _eval_candidate(self, seed: int) -> CandidateResult:
+        t0 = time.time()
+
+        # Determine if we should keep the last candidate.
+        # Don't keep 0-score candidates; we'll only create new, worse, zeroes.
+        keep = (
+            self.permutations.is_random()
+            and self.random.uniform(0, 1) < self.keep_prob
+            and self._last_score != 0
+            and self._last_score != self.scorer.PENALTY_INF
+        ) or self.force_rng_seed
+
+        self._last_score = None
+
+        # Create a new candidate if we didn't keep the last one (or if the last one didn't exist)
+        # N.B. if we decide to keep the previous candidate, we will skip over the provided seed.
+        # This means we're not guaranteed to test all seeds, but it doesn't really matter since
+        # we're randomizing anyway.
+        if not self.cand or not keep:
+            cand_c = self.permutations.evaluate(seed, EvalState())
+            rng_seed = self.force_rng_seed or random.randrange(1, 10 ** 20)
+            self.cur_seed = (seed, rng_seed)
+            self.cand = Candidate.from_source(cand_c, self.fn_name, rng_seed=rng_seed)
+
+        # Randomize the candidate
+        if self.permutations.is_random():
+            self.cand.randomize_ast()
+
+        t1 = time.time()
+
+        self.cand.get_source()
+
+        t2 = time.time()
+
+        o_file = self.cand.compile(self.compiler)
+        if not o_file and self.show_errors:
+            raise _CompileFailure()
+
+        t3 = time.time()
+
+        result = self.cand.score(self.scorer, o_file)
+
+        t4 = time.time()
+
+        profiler: Profiler = result.profiler
+        profiler.add_stat(Profiler.StatType.perm, t1 - t0)
+        profiler.add_stat(Profiler.StatType.stringify, t2 - t1)
+        profiler.add_stat(Profiler.StatType.compile, t3 - t2)
+        profiler.add_stat(Profiler.StatType.score, t4 - t3)
+
+        self._last_score = result.score
+
+        if not self.need_to_send_source(result):
+            result.source = None
+
+        return result
+
+    def try_eval_candidate(self, seed: int) -> EvalResult:
+        """Evaluate a seed for the permuter."""
+        try:
+            return self._eval_candidate(seed)
+        except _CompileFailure:
+            return EvalError(exc_str=None, seed=self.cur_seed)
+        except Exception:
+            return EvalError(exc_str=traceback.format_exc(), seed=self.cur_seed)
+
+    def diff(self, other_source: str) -> str:
+        """Compute a unified white-space-ignoring diff from the (pretty-printed)
+        base source against another source generated from this permuter."""
+
+        class Line(str):
+            def __eq__(self, other: Any) -> bool:
+                return isinstance(other, str) and self.strip() == other.strip()
+
+            def __hash__(self) -> int:
+                return hash(self.strip())
+
+        a = list(map(Line, self.base.get_source().split("\n")))
+        b = list(map(Line, other_source.split("\n")))
+        return "\n".join(
+            difflib.unified_diff(a, b, fromfile="before", tofile="after", lineterm="")
+        )
+
+
+def _find_fns(source: str) -> List[str]:
+    fns = re.findall(r"(\w+)\([^()\n]*\)\s*?{", source)
+    return [
+        fn
+        for fn in fns
+        if not fn.startswith("PERM") and fn not in ["if", "for", "switch", "while"]
+    ]
