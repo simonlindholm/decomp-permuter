@@ -1,11 +1,13 @@
 from typing import (
     Any,
     List,
+    Iterator,
     Optional,
     Tuple,
     Union,
 )
 import difflib
+import itertools
 import random
 import re
 import time
@@ -50,6 +52,7 @@ class Permuter:
         source_file: str,
         source: str,
         *,
+        force_seed: Optional[int],
         force_rng_seed: Optional[int],
         keep_prob: float,
         need_all_sources: bool,
@@ -77,6 +80,7 @@ class Permuter:
 
         self.permutations = perm_gen.perm_gen(source)
 
+        self.force_seed = force_seed
         self.force_rng_seed = force_rng_seed
         self.cur_seed: Optional[Tuple[int, int]] = None
 
@@ -168,6 +172,15 @@ class Permuter:
             result.source = None
 
         return result
+
+    def seed_iterator(self) -> Iterator[int]:
+        """Create an iterator over all seeds for this permuter. The iterator
+        will be infinite if we are randomizing."""
+        if self.force_seed is None:
+            return iter(perm_eval.perm_gen_all_seeds(self.permutations, Random()))
+        if self.permutations.is_random():
+            return itertools.repeat(self.force_seed)
+        return iter([self.force_seed])
 
     def try_eval_candidate(self, seed: int) -> EvalResult:
         """Evaluate a seed for the permuter."""
