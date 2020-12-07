@@ -78,28 +78,28 @@ class Permuter:
             self.fn_name = fn_name
         self.unique_name = self.fn_name
 
-        self.permutations = perm_gen.perm_gen(source)
+        self._permutations = perm_gen.perm_gen(source)
 
-        self.force_seed = force_seed
-        self.force_rng_seed = force_rng_seed
-        self.cur_seed: Optional[Tuple[int, int]] = None
+        self._force_seed = force_seed
+        self._force_rng_seed = force_rng_seed
+        self._cur_seed: Optional[Tuple[int, int]] = None
 
         self.keep_prob = keep_prob
-        self.need_all_sources = need_all_sources
-        self.show_errors = show_errors
+        self._need_all_sources = need_all_sources
+        self._show_errors = show_errors
 
         self.base, base_score, self.base_hash = self.create_and_score_base()
-        self.hashes = {self.base_hash}
-        self.cand: Optional[Candidate] = None
         self.base_score: int = base_score
         self.best_score: int = base_score
+        self.hashes = {self.base_hash}
+        self._cur_cand: Optional[Candidate] = None
         self._last_score: Optional[int] = None
 
     def reseed_random(self) -> None:
         self.random = Random()
 
     def create_and_score_base(self) -> Tuple[Candidate, int, str]:
-        base_source = perm_eval.perm_evaluate_one(self.permutations)
+        base_source = perm_eval.perm_evaluate_one(self._permutations)
         base_cand = Candidate.from_source(base_source, self.fn_name, rng_seed=0)
         o_file = base_cand.compile(self.compiler, show_errors=True)
         if not o_file:
@@ -108,7 +108,7 @@ class Permuter:
         return base_cand, base_result.score, base_result.hash
 
     def need_to_send_source(self, result: CandidateResult) -> bool:
-        if self.need_all_sources:
+        if self._need_all_sources:
             return True
         if result.score < self.base_score:
             return True
@@ -122,11 +122,11 @@ class Permuter:
         # Determine if we should keep the last candidate.
         # Don't keep 0-score candidates; we'll only create new, worse, zeroes.
         keep = (
-            self.permutations.is_random()
+            self._permutations.is_random()
             and self.random.uniform(0, 1) < self.keep_prob
             and self._last_score != 0
             and self._last_score != self.scorer.PENALTY_INF
-        ) or self.force_rng_seed
+        ) or self._force_rng_seed
 
         self._last_score = None
 
@@ -134,29 +134,31 @@ class Permuter:
         # N.B. if we decide to keep the previous candidate, we will skip over the provided seed.
         # This means we're not guaranteed to test all seeds, but it doesn't really matter since
         # we're randomizing anyway.
-        if not self.cand or not keep:
-            cand_c = self.permutations.evaluate(seed, EvalState())
-            rng_seed = self.force_rng_seed or random.randrange(1, 10 ** 20)
-            self.cur_seed = (seed, rng_seed)
-            self.cand = Candidate.from_source(cand_c, self.fn_name, rng_seed=rng_seed)
+        if not self._cur_cand or not keep:
+            cand_c = self._permutations.evaluate(seed, EvalState())
+            rng_seed = self._force_rng_seed or random.randrange(1, 10 ** 20)
+            self._cur_seed = (seed, rng_seed)
+            self._cur_cand = Candidate.from_source(
+                cand_c, self.fn_name, rng_seed=rng_seed
+            )
 
         # Randomize the candidate
-        if self.permutations.is_random():
-            self.cand.randomize_ast()
+        if self._permutations.is_random():
+            self._cur_cand.randomize_ast()
 
         t1 = time.time()
 
-        self.cand.get_source()
+        self._cur_cand.get_source()
 
         t2 = time.time()
 
-        o_file = self.cand.compile(self.compiler)
-        if not o_file and self.show_errors:
+        o_file = self._cur_cand.compile(self.compiler)
+        if not o_file and self._show_errors:
             raise _CompileFailure()
 
         t3 = time.time()
 
-        result = self.cand.score(self.scorer, o_file)
+        result = self._cur_cand.score(self.scorer, o_file)
 
         t4 = time.time()
 
@@ -176,20 +178,20 @@ class Permuter:
     def seed_iterator(self) -> Iterator[int]:
         """Create an iterator over all seeds for this permuter. The iterator
         will be infinite if we are randomizing."""
-        if self.force_seed is None:
-            return iter(perm_eval.perm_gen_all_seeds(self.permutations, Random()))
-        if self.permutations.is_random():
-            return itertools.repeat(self.force_seed)
-        return iter([self.force_seed])
+        if self._force_seed is None:
+            return iter(perm_eval.perm_gen_all_seeds(self._permutations, Random()))
+        if self._permutations.is_random():
+            return itertools.repeat(self._force_seed)
+        return iter([self._force_seed])
 
     def try_eval_candidate(self, seed: int) -> EvalResult:
         """Evaluate a seed for the permuter."""
         try:
             return self._eval_candidate(seed)
         except _CompileFailure:
-            return EvalError(exc_str=None, seed=self.cur_seed)
+            return EvalError(exc_str=None, seed=self._cur_seed)
         except Exception:
-            return EvalError(exc_str=traceback.format_exc(), seed=self.cur_seed)
+            return EvalError(exc_str=traceback.format_exc(), seed=self._cur_seed)
 
     def diff(self, other_source: str) -> str:
         """Compute a unified white-space-ignoring diff from the (pretty-printed)
