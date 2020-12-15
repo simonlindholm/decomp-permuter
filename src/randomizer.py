@@ -1764,7 +1764,7 @@ def perm_remove_ast(
                 ):
                     cands.append(node)
 
-        # Remove if (constant) and empty if statements.
+        # Remove if statements that don't have an else
         def visit_If(self, node: ca.If) -> None:
             if node.iffalse:
                 return
@@ -1782,13 +1782,38 @@ def perm_remove_ast(
         if isinstance(cand.left, ca.Constant) and isinstance(cand.right, ca.Constant):
             expr = random.choice([cand.left, cand.right])
         elif isinstance(cand.left, ca.Constant):
-            expr = cand.left
-        else:
             expr = cand.right
+        else:
+            expr = cand.left
     elif isinstance(cand, ca.If):
         expr = cand.iftrue
 
     replace_node(fn.body, cand, expr)
+
+
+def perm_duplicate_assignment(
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
+) -> None:
+    """Duplicate an assignment, sometimes forcing IDO to reuse a register."""
+    cands = []
+
+    class Visitor(ca.NodeVisitor):
+        def visit_Assignment(self, node: ca.Assignment) -> None:
+            if not region.contains_node(node):
+                return
+            if node.op == "=":
+                cands.append(node)
+
+    Visitor().visit(fn.body)
+    ensure(cands)
+    cand = random.choice(cands)
+
+    ins_cands = get_insertion_points(fn, Region.unbounded())
+    ensure(ins_cands)
+
+    dup = copy.deepcopy(cand)
+    tob, toi, _ = random.choice(ins_cands)
+    ast_util.insert_statement(tob, toi, dup)
 
 
 class Randomizer:
@@ -1823,6 +1848,7 @@ class Randomizer:
             (perm_inequalities, 5),
             (perm_compound_assignment, 5),
             (perm_remove_ast, 5),
+            (perm_duplicate_assignment, 5),
         ]
         while True:
             method = random_weighted(self.random, methods)
