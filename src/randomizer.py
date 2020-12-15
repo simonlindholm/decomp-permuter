@@ -1754,15 +1754,15 @@ def perm_remove_ast(
     class Visitor(ca.NodeVisitor):
         def visit_Cast(self, node: ca.Cast) -> None:
             if region.contains_node(node):
-                cands.append(node)
+                cands.append((node, node.expr))
 
         # Replace (a & constant) with (a).
         def visit_BinaryOp(self, node: ca.BinaryOp) -> None:
             if region.contains_node(node) and node.op == "&":
-                if isinstance(node.left, ca.Constant) or isinstance(
-                    node.right, ca.Constant
-                ):
-                    cands.append(node)
+                if isinstance(node.left, ca.Constant):
+                    cands.append((node, node.right))
+                if isinstance(node.right, ca.Constant):
+                    cands.append((node, node.left))
 
         # Remove if statements that don't have an else
         def visit_If(self, node: ca.If) -> None:
@@ -1770,24 +1770,12 @@ def perm_remove_ast(
                 return
 
             if region.contains_node(node):
-                cands.append(node)
+                cands.append((node, node.iftrue))
 
     Visitor().visit(fn.body)
     ensure(cands)
 
-    cand = random.choice(cands)
-    if isinstance(cand, ca.Cast):
-        expr = cand.expr
-    elif isinstance(cand, ca.BinaryOp):
-        if isinstance(cand.left, ca.Constant) and isinstance(cand.right, ca.Constant):
-            expr = random.choice([cand.left, cand.right])
-        elif isinstance(cand.left, ca.Constant):
-            expr = cand.right
-        else:
-            expr = cand.left
-    elif isinstance(cand, ca.If):
-        expr = cand.iftrue
-
+    cand, expr = random.choice(cands)
     replace_node(fn.body, cand, expr)
 
 
