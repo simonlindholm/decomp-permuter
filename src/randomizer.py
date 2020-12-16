@@ -316,11 +316,11 @@ def visit_replace(top_node: ca.Node, callback: Callable[[ca.Node, bool], Any]) -
                 node.next = empty_statement_to_none(rec(node.next, True))
             node.stmt = rec(node.stmt, True)
         elif isinstance(node, ca.Compound):
-            for sub in node.block_items or []:
-                rec(sub, True)
+            for i, sub in enumerate(node.block_items) or []:
+                node.block_items[i] = rec(sub, True)
         elif isinstance(node, (ca.Case, ca.Default)):
-            for sub in node.stmts or []:
-                rec(sub, True)
+            for i, sub in enumerate(node.stmts) or []:
+                node.stmts[i] = rec(sub, True)
         elif isinstance(node, ca.While):
             node.cond = rec(node.cond)
             node.stmt = rec(node.stmt, True)
@@ -1745,6 +1745,65 @@ def perm_split_assignment(
     ast_util.insert_statement(ins_block, ins_index, new_assign)
 
 
+def perm_remove_ast(
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
+) -> None:
+    """Delete parts of the function that might be unnecessary (mistakes or unnecessary changes from an improved base.c)."""
+    cands = []
+
+    class Visitor(ca.NodeVisitor):
+        def visit_Cast(self, node: ca.Cast) -> None:
+            if region.contains_node(node):
+                cands.append((node, node.expr))
+
+        # Replace (a & constant) with (a).
+        def visit_BinaryOp(self, node: ca.BinaryOp) -> None:
+            if region.contains_node(node) and node.op == "&":
+                if isinstance(node.left, ca.Constant):
+                    cands.append((node, node.right))
+                if isinstance(node.right, ca.Constant):
+                    cands.append((node, node.left))
+
+        # Remove if statements that don't have an else
+        def visit_If(self, node: ca.If) -> None:
+            if node.iffalse:
+                return
+
+            if region.contains_node(node):
+                cands.append((node, node.iftrue))
+
+    Visitor().visit(fn.body)
+    ensure(cands)
+
+    cand, expr = random.choice(cands)
+    replace_node(fn.body, cand, expr)
+
+
+def perm_duplicate_assignment(
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
+) -> None:
+    """Duplicate an assignment, sometimes forcing IDO to reuse a register."""
+    cands = []
+
+    class Visitor(ca.NodeVisitor):
+        def visit_Assignment(self, node: ca.Assignment) -> None:
+            if not region.contains_node(node):
+                return
+            if node.op == "=":
+                cands.append(node)
+
+    Visitor().visit(fn.body)
+    ensure(cands)
+    cand = random.choice(cands)
+
+    ins_cands = get_insertion_points(fn, Region.unbounded())
+    ensure(ins_cands)
+
+    dup = copy.deepcopy(cand)
+    tob, toi, _ = random.choice(ins_cands)
+    ast_util.insert_statement(tob, toi, dup)
+
+
 class Randomizer:
     def __init__(self, rng_seed: int) -> None:
         self.random = Random(rng_seed)
@@ -1776,6 +1835,8 @@ class Randomizer:
             (perm_associative, 5),
             (perm_inequalities, 5),
             (perm_compound_assignment, 5),
+            (perm_remove_ast, 5),
+            (perm_duplicate_assignment, 5),
         ]
         while True:
             method = random_weighted(self.random, methods)
