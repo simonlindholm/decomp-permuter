@@ -316,11 +316,13 @@ def visit_replace(top_node: ca.Node, callback: Callable[[ca.Node, bool], Any]) -
                 node.next = empty_statement_to_none(rec(node.next, True))
             node.stmt = rec(node.stmt, True)
         elif isinstance(node, ca.Compound):
-            for i, sub in enumerate(node.block_items) or []:
-                node.block_items[i] = rec(sub, True)
+            if node.block_items:
+                for i, sub in enumerate(node.block_items):
+                    node.block_items[i] = rec(sub, True)
         elif isinstance(node, (ca.Case, ca.Default)):
-            for i, sub in enumerate(node.stmts) or []:
-                node.stmts[i] = rec(sub, True)
+            if node.stmts:
+                for i, sub in enumerate(node.stmts):
+                    node.stmts[i] = rec(sub, True)
         elif isinstance(node, ca.While):
             node.cond = rec(node.cond)
             node.stmt = rec(node.stmt, True)
@@ -1749,7 +1751,7 @@ def perm_remove_ast(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> None:
     """Delete parts of the function that might be unnecessary (mistakes or unnecessary changes from an improved base.c)."""
-    cands = []
+    cands: List[Tuple[ca.Node, ca.Node]] = []
 
     class Visitor(ca.NodeVisitor):
         def visit_Cast(self, node: ca.Cast) -> None:
