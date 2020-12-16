@@ -1774,6 +1774,15 @@ def perm_remove_ast(
             if region.contains_node(node):
                 cands.append((node, node.iftrue))
 
+        # Remove loops
+        def visit_While(self, node: ca.While) -> None:
+            if region.contains_node(node):
+                cands.append((node, node.stmt))
+
+        def visit_DoWhile(self, node: ca.DoWhile) -> None:
+            if region.contains_node(node):
+                cands.append((node, node.stmt))
+
     Visitor().visit(fn.body)
     ensure(cands)
 
