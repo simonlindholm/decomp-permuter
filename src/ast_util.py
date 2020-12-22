@@ -235,7 +235,9 @@ def get_block_stmts(block: Block, force: bool) -> List[Statement]:
     return ret
 
 
-def insert_decl(fn: ca.FuncDef, var: str, type: SimpleType) -> None:
+def insert_decl(
+    fn: ca.FuncDef, var: str, type: SimpleType, random: Optional[Random] = None
+) -> None:
     type = copy.deepcopy(type)
     decl = ca.Decl(
         name=var, quals=[], storage=[], funcspec=[], type=type, init=None, bitsize=None
@@ -247,6 +249,9 @@ def insert_decl(fn: ca.FuncDef, var: str, type: SimpleType) -> None:
             break
     else:
         index = len(fn.body.block_items)
+
+    if random:
+        index = random.randint(0, index)
     fn.body.block_items[index:index] = [decl]
 
 
