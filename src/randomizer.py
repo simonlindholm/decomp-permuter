@@ -1,3 +1,10 @@
+import bisect
+import copy
+from dataclasses import dataclass, field
+from random import Random
+import sys
+import time
+import typing
 from typing import (
     Any,
     Callable,
@@ -10,13 +17,6 @@ from typing import (
     TypeVar,
     Union,
 )
-import attr
-import bisect
-import copy
-import sys
-import time
-import typing
-from random import Random
 
 from pycparser import c_ast as ca, c_parser, c_generator
 
@@ -99,11 +99,11 @@ def ensure(condition: Any) -> None:
         raise RandomizationFailure
 
 
-@attr.s
+@dataclass
 class Region:
-    start: int = attr.ib()
-    end: int = attr.ib()
-    indices: Optional[Indices] = attr.ib(cmp=False)
+    start: int
+    end: int
+    indices: Optional[Indices] = field(compare=False)
 
     @staticmethod
     def unbounded() -> "Region":
@@ -416,13 +416,16 @@ def random_type(random: Random) -> SimpleType:
     if random_bool(random, 0.5):
         new_names.append("unsigned")
     new_names.extend(
-        random_weighted(random, [
-            (["char"], 1),
-            (["short"], 1),
-            (["int"], 2),
-            (["long"], 0.5),
-            (["long", "long"], 0.5),
-        ])
+        random_weighted(
+            random,
+            [
+                (["char"], 1),
+                (["short"], 1),
+                (["int"], 2),
+                (["long"], 0.5),
+                (["long", "long"], 0.5),
+            ],
+        )
     )
     idtype = ca.IdentifierType(names=new_names)
     quals = []

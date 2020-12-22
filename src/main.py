@@ -1,3 +1,11 @@
+import argparse
+from dataclasses import dataclass, field
+import itertools
+import multiprocessing
+import os
+from random import Random
+import sys
+import time
 from typing import (
     Callable,
     Dict,
@@ -7,15 +15,6 @@ from typing import (
     Optional,
     Tuple,
 )
-import argparse
-import itertools
-import os
-import sys
-import time
-import multiprocessing
-from random import Random
-
-import attr
 
 from .error import CandidateConstructionFailure
 from .preprocess import preprocess
@@ -30,29 +29,29 @@ from .profiler import Profiler
 DEFAULT_RAND_KEEP_PROB = 0.6
 
 
-@attr.s
+@dataclass
 class Options:
-    directories: List[str] = attr.ib()
-    show_errors: bool = attr.ib(default=False)
-    show_timings: bool = attr.ib(default=False)
-    print_diffs: bool = attr.ib(default=False)
-    stack_differences: bool = attr.ib(default=False)
-    abort_exceptions: bool = attr.ib(default=False)
-    better_only: bool = attr.ib(default=False)
-    best_only: bool = attr.ib(default=False)
-    stop_on_zero: bool = attr.ib(default=False)
-    keep_prob: float = attr.ib(default=DEFAULT_RAND_KEEP_PROB)
-    force_seed: Optional[str] = attr.ib(default=None)
-    threads: int = attr.ib(default=1)
+    directories: List[str]
+    show_errors: bool = False
+    show_timings: bool = False
+    print_diffs: bool = False
+    stack_differences: bool = False
+    abort_exceptions: bool = False
+    better_only: bool = False
+    best_only: bool = False
+    stop_on_zero: bool = False
+    keep_prob: float = DEFAULT_RAND_KEEP_PROB
+    force_seed: Optional[str] = None
+    threads: int = 1
 
 
-@attr.s
+@dataclass
 class EvalContext:
-    options: Options = attr.ib()
-    iteration: int = attr.ib(default=0)
-    errors: int = attr.ib(default=0)
-    overall_profiler: Profiler = attr.ib(factory=Profiler)
-    permuters: List[Permuter] = attr.ib(factory=list)
+    options: Options
+    iteration: int = 0
+    errors: int = 0
+    overall_profiler: Profiler = field(default_factory=Profiler)
+    permuters: List[Permuter] = field(default_factory=list)
 
 
 def write_candidate(perm: Permuter, result: CandidateResult) -> None:
@@ -253,7 +252,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         else:
             print(base_c)
 
-        compiler = Compiler(compile_cmd, options.show_errors)
+        compiler = Compiler(compile_cmd, show_errors=options.show_errors)
         scorer = Scorer(target_o, stack_differences=options.stack_differences)
         c_source = preprocess(base_c)
 

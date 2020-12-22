@@ -13,8 +13,8 @@ from .perm import (
     PretendPerm,
     RandomizerPerm,
     RootPerm,
-    TextPerm,
     TernaryPerm,
+    TextPerm,
     TypecastPerm,
     VarPerm,
 )

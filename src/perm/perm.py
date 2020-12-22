@@ -1,15 +1,22 @@
 from base64 import b64encode
 from collections import defaultdict
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 import math
 import itertools
 
-import attr
 
-
-@attr.s
+@dataclass
 class PreprocessState:
-    once_options: Dict[str, List["Perm"]] = attr.ib(factory=lambda: defaultdict(list))
+    once_options: Dict[str, List["Perm"]] = field(
+        default_factory=lambda: defaultdict(list)
+    )
+
+
+@dataclass
+class EvalState:
+    vars: Dict[str, str] = field(default_factory=dict)
+    once_choices: Dict[str, "Perm"] = field(default_factory=dict)
 
 
 class Perm:
@@ -25,7 +32,7 @@ class Perm:
     perm_count: int
     children: List["Perm"]
 
-    def evaluate(self, seed: int, state: "EvalState") -> str:
+    def evaluate(self, seed: int, state: EvalState) -> str:
         return ""
 
     def preprocess(self, state: PreprocessState) -> None:
@@ -34,12 +41,6 @@ class Perm:
 
     def is_random(self) -> bool:
         return any(p.is_random() for p in self.children)
-
-
-@attr.s
-class EvalState:
-    vars: Dict[str, str] = attr.ib(factory=dict)
-    once_choices: Dict[str, Perm] = attr.ib(factory=dict)
 
 
 def _eval_all(seed: int, perms: List[Perm], state: EvalState) -> List[str]:

@@ -1,14 +1,13 @@
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
-import attr
 from base64 import b64decode
 import bisect
 from collections import defaultdict
 import copy
+from dataclasses import dataclass
 from random import Random
 import re
 import sys
 import time
-import typing
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, TYPE_CHECKING, Union
 
 from pycparser import CParser, c_ast as ca, c_parser, c_generator
 from pycparser.plyparser import ParseError
@@ -24,14 +23,14 @@ from .ast_types import (
 )
 
 
-@attr.s
+@dataclass
 class Indices:
-    starts: Dict[ca.Node, int] = attr.ib()
-    ends: Dict[ca.Node, int] = attr.ib()
+    starts: Dict[ca.Node, int]
+    ends: Dict[ca.Node, int]
 
 
 Block = Union[ca.Compound, ca.Case, ca.Default]
-if typing.TYPE_CHECKING:
+if TYPE_CHECKING:
     # ca.Expression and ca.Statement don't actually exist, they live only in
     # the stubs file.
     Expression = ca.Expression

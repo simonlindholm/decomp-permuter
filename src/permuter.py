@@ -1,3 +1,10 @@
+from dataclasses import dataclass
+import difflib
+import itertools
+import random
+import re
+import time
+import traceback
 from typing import (
     Any,
     List,
@@ -6,14 +13,6 @@ from typing import (
     Tuple,
     Union,
 )
-import difflib
-import itertools
-import random
-import re
-import time
-import traceback
-
-import attr
 
 from .candidate import Candidate, CandidateResult
 from .compiler import Compiler
@@ -24,10 +23,10 @@ from .profiler import Profiler
 from .scorer import Scorer
 
 
-@attr.s
+@dataclass
 class EvalError:
-    exc_str: Optional[str] = attr.ib()
-    seed: Optional[Tuple[int, int]] = attr.ib()
+    exc_str: Optional[str]
+    seed: Optional[Tuple[int, int]]
 
 
 EvalResult = Union[CandidateResult, EvalError]
@@ -64,6 +63,10 @@ class Permuter:
         self.source_file = source_file
 
         if fn_name is None:
+            # Semi-legacy codepath; all functions imported through import.py have a
+            # function name. This would ideally be done on AST level instead of on the
+            # pre-macro'ed source code, but we don't care enough to do make that
+            # refactoring.
             fns = _find_fns(source)
             if len(fns) == 0:
                 raise Exception(f"{self.source_file} does not contain any function!")
