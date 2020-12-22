@@ -724,7 +724,7 @@ def perm_temp_for_expr(
     if not reused:
         if random_bool(random, PROB_RANDOMIZE_TYPE):
             type = randomize_type(type, typemap, random)
-        ast_util.insert_decl(fn, var, type)
+        ast_util.insert_decl(fn, var, type, random)
 
 
 def perm_expand_expr(
