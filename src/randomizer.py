@@ -416,7 +416,13 @@ def random_type(random: Random) -> SimpleType:
     if random_bool(random, 0.5):
         new_names.append("unsigned")
     new_names.extend(
-        random.choice(["char", "short", "int", "int", "long", "long long"]).split()
+        random_weighted(random, [
+            (["char"], 1),
+            (["short"], 1),
+            (["int"], 2),
+            (["long"], 0.5),
+            (["long", "long"], 0.5),
+        ])
     )
     idtype = ca.IdentifierType(names=new_names)
     quals = []
