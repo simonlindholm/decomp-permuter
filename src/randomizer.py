@@ -415,8 +415,8 @@ def random_type(random: Random) -> SimpleType:
     new_names: List[str] = []
     if random_bool(random, 0.5):
         new_names.append("unsigned")
-    new_names.append(
-        random.choice(["char", "short", "int", "int", "long", "long long"])
+    new_names.extend(
+        random.choice(["char", "short", "int", "int", "long", "long long"]).split()
     )
     idtype = ca.IdentifierType(names=new_names)
     quals = []
@@ -1817,9 +1817,10 @@ def perm_duplicate_assignment(
     ast_util.insert_statement(tob, toi, dup)
 
 
-def perm_decl(
+def perm_pad_var_decl(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> None:
+    """Inserts an unused variable to adjust stack offsets. Probably only useful with --stack-diffs enabled."""
     vars: List[str] = []
 
     class Visitor(ca.NodeVisitor):
@@ -1828,7 +1829,6 @@ def perm_decl(
                 vars.append(decl.name)
 
     Visitor().visit(fn.body)
-    ensure(vars)
 
     var = "pad"
     counter = 1
@@ -1873,7 +1873,7 @@ class Randomizer:
             (perm_compound_assignment, 5),
             (perm_remove_ast, 5),
             (perm_duplicate_assignment, 5),
-            (perm_decl, 5),
+            (perm_pad_var_decl, 1),
         ]
         while True:
             method = random_weighted(self.random, methods)
