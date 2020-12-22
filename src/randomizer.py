@@ -415,7 +415,9 @@ def random_type(random: Random) -> SimpleType:
     new_names: List[str] = []
     if random_bool(random, 0.5):
         new_names.append("unsigned")
-    new_names.append(random.choice(["char", "short", "int", "int"]))
+    new_names.append(
+        random.choice(["char", "short", "int", "int", "long", "long long"])
+    )
     idtype = ca.IdentifierType(names=new_names)
     quals = []
     if random_bool(random, 0.5):
@@ -1815,6 +1817,29 @@ def perm_duplicate_assignment(
     ast_util.insert_statement(tob, toi, dup)
 
 
+def perm_decl(
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
+) -> None:
+    vars: List[str] = []
+
+    class Visitor(ca.NodeVisitor):
+        def visit_Decl(self, decl: ca.Decl) -> None:
+            if decl.name:
+                vars.append(decl.name)
+
+    Visitor().visit(fn.body)
+    ensure(vars)
+
+    var = "pad"
+    counter = 1
+    while var in vars:
+        counter += 1
+        var = f"pad{counter}"
+
+    type = random_type(random)
+    ast_util.insert_decl(fn, var, type, random)
+
+
 class Randomizer:
     def __init__(self, rng_seed: int) -> None:
         self.random = Random(rng_seed)
@@ -1848,6 +1873,7 @@ class Randomizer:
             (perm_compound_assignment, 5),
             (perm_remove_ast, 5),
             (perm_duplicate_assignment, 5),
+            (perm_decl, 5),
         ]
         while True:
             method = random_weighted(self.random, methods)
