@@ -95,56 +95,20 @@ class TestPermMacros(unittest.TestCase):
         )
         self.assertEqual(score, 0)
 
-    def test_ternary1(self) -> None:
-        score = self.go(
-            "int test(int cond) {",
-            "}",
-            "int test; PERM_TERNARY(test = ,cond,1,2) return test;",
-            "int test; if (cond) test = 1; else test = 2; return test;",
-        )
-        self.assertEqual(score, 0)
-
-    def test_ternary2(self) -> None:
-        score = self.go(
-            "int test(int cond) {",
-            "}",
-            "int test; PERM_TERNARY(test = ,cond,1,2) return test;",
-            "int test; test = cond ? 1 : 2; return test;",
-        )
-        self.assertEqual(score, 0)
-
-    def test_type1(self) -> None:
+    def test_cast(self) -> None:
         score = self.go(
             "int test(int a, int b) {",
             "}",
-            "return a / PERM_TYPECAST(,unsigned int,float) b;",
-            "return a / b;",
-        )
-        self.assertEqual(score, 0)
-
-    def test_type2(self) -> None:
-        score = self.go(
-            "int test(int a, int b) {",
-            "}",
-            "return a / PERM_TYPECAST(,unsigned int,float) b;",
-            "return a / (unsigned int) b;",
-        )
-        self.assertEqual(score, 0)
-
-    def test_type3(self) -> None:
-        score = self.go(
-            "int test(int a, int b) {",
-            "}",
-            "return a / PERM_TYPECAST(,unsigned int,float) b;",
+            "return a / PERM_GENERAL(,(unsigned int),(float)) b;",
             "return a / (float) b;",
         )
         self.assertEqual(score, 0)
 
-    def test_type3_threaded(self) -> None:
+    def test_cast_threaded(self) -> None:
         score = self.go(
             "int test(int a, int b) {",
             "}",
-            "return a / PERM_TYPECAST(,unsigned int,float) b;",
+            "return a / PERM_GENERAL(,(unsigned int),(float)) b;",
             "return a / (float) b;",
             threads=2,
         )

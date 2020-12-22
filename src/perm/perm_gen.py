@@ -3,7 +3,6 @@ import re
 
 from .perm import (
     CombinePerm,
-    CondNezPerm,
     GeneralPerm,
     IgnorePerm,
     IntPerm,
@@ -13,9 +12,7 @@ from .perm import (
     PretendPerm,
     RandomizerPerm,
     RootPerm,
-    TernaryPerm,
     TextPerm,
-    TypecastPerm,
     VarPerm,
 )
 
@@ -80,10 +77,7 @@ PERM_FACTORIES: Dict[str, Callable[[str], Perm]] = {
     "PERM_GENERAL": lambda text: GeneralPerm(split_args(text)),
     "PERM_ONCE": lambda text: make_once_perm(text),
     "PERM_RANDOMIZE": lambda text: RandomizerPerm(rec_perm_gen(text)),
-    "PERM_TERNARY": lambda text: TernaryPerm(*split_args(text)),
-    "PERM_TYPECAST": lambda text: TypecastPerm(split_args(text)),
     "PERM_VAR": lambda text: make_var_perm(text),
-    "PERM_CONDNEZ": lambda text: CondNezPerm(rec_perm_gen(text)),
     "PERM_LINESWAP": lambda text: LineSwapPerm(split_args_newline(text)),
     "PERM_INT": lambda text: IntPerm(*map(int, split_args_text(text))),
     "PERM_IGNORE": lambda text: IgnorePerm(rec_perm_gen(text)),

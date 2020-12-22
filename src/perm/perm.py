@@ -188,33 +188,6 @@ class OncePerm(Perm):
         return ""
 
 
-class TernaryPerm(Perm):
-    def __init__(self, pre: Perm, cond: Perm, iftrue: Perm, iffalse: Perm) -> None:
-        self.children = [pre, cond, iftrue, iffalse]
-        self.perm_count = 2 * _count_all(self.children)
-
-    def evaluate(self, seed: int, state: EvalState) -> str:
-        sub_seed, variation = divmod(seed, 2)
-        pre, cond, iftrue, iffalse = _eval_all(sub_seed, self.children, state)
-        if variation > 0:
-            return f"{pre}({cond} ? {iftrue} : {iffalse});"
-        else:
-            return f"if ({cond})\n {pre}{iftrue};\n else\n {pre}{iffalse};"
-
-
-class TypecastPerm(Perm):
-    def __init__(self, types: List[Perm]) -> None:
-        self.children = types
-        self.perm_count = _count_either(types)
-
-    def evaluate(self, seed: int, state: EvalState) -> str:
-        t = _eval_either(seed, self.children, state)
-        if not t.strip():
-            return ""
-        else:
-            return f"({t})"
-
-
 class VarPerm(Perm):
     def __init__(self, var_name: Perm, expansion: Optional[Perm]) -> None:
         if expansion:
@@ -235,20 +208,6 @@ class VarPerm(Perm):
             if var_name not in state.vars:
                 raise Exception(f"Tried to read undefined PERM_VAR {var_name}")
             return state.vars[var_name]
-
-
-class CondNezPerm(Perm):
-    def __init__(self, perm: Perm) -> None:
-        self.children = [perm]
-        self.perm_count = 2 * _count_all(self.children)
-
-    def evaluate(self, seed: int, state: EvalState) -> str:
-        sub_seed, variation = divmod(seed, 2)
-        cond = self.children[0].evaluate(sub_seed, state)
-        if variation == 0:
-            return f"{cond}"
-        else:
-            return f"({cond}) != 0"
 
 
 class LineSwapPerm(Perm):
