@@ -16,7 +16,6 @@ from typing import (
     List,
     Optional,
     Tuple,
-    Union,
 )
 
 from .candidate import CandidateResult
