@@ -22,6 +22,7 @@ from .candidate import CandidateResult
 from .compiler import Compiler
 from .scorer import Scorer
 from .permuter import EvalError, EvalResult, Permuter
+from .printer import Printer
 from .profiler import Profiler
 
 # The probability that the randomizer continues transforming the output it
@@ -48,6 +49,7 @@ class Options:
 @dataclass
 class EvalContext:
     options: Options
+    printer: Printer = field(default_factory=Printer)
     iteration: int = 0
     errors: int = 0
     overall_profiler: Profiler = field(default_factory=Profiler)
@@ -79,7 +81,9 @@ def write_candidate(perm: Permuter, result: CandidateResult) -> None:
 def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> bool:
     if isinstance(result, EvalError):
         if result.exc_str is not None:
-            print(f"\n[{permuter.unique_name}] internal permuter failure.")
+            context.printer.print(
+                "internal permuter failure.", permuter, keep_progress=True
+            )
             print(result.exc_str)
         if result.seed is not None:
             seed_str = str(result.seed[1])
@@ -91,15 +95,15 @@ def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> 
         else:
             return False
 
-    profiler = result.profiler
-    score_value = result.score
-    score_hash = result.hash
-
     if context.options.print_diffs:
         assert result.source is not None, "Permuter._need_to_send_source is wrong"
         print()
         print(permuter.diff(result.source))
         input("Press any key to continue...")
+
+    profiler = result.profiler
+    score_value = result.score
+    score_hash = result.hash
 
     context.iteration += 1
     if score_value is None:
@@ -126,26 +130,22 @@ def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> 
     ):
         if score_value != 0:
             permuter.hashes.add(score_hash)
-        print("\r" + " " * (len(status_line) + 10) + "\r", end="")
         if score_value < permuter.best_score:
-            print(
-                f"\u001b[32;1m[{permuter.unique_name}] found new best score! ({score_value} vs {permuter.base_score})\u001b[0m"
-            )
+            color = "\u001b[32;1m"
+            msg = f"found new best score! ({score_value} vs {permuter.base_score})"
         elif score_value == permuter.best_score:
-            print(
-                f"\u001b[32;1m[{permuter.unique_name}] tied best score! ({score_value} vs {permuter.base_score})\u001b[0m"
-            )
+            color = "\u001b[32;1m"
+            msg = f"tied best score! ({score_value} vs {permuter.base_score})"
         elif score_value < permuter.base_score:
-            print(
-                f"\u001b[33m[{permuter.unique_name}] found a better score! ({score_value} vs {permuter.base_score})\u001b[0m"
-            )
+            color = "\u001b[33m"
+            msg = f"found a better score! ({score_value} vs {permuter.base_score})"
         else:
-            print(
-                f"\u001b[33m[{permuter.unique_name}] found different asm with same score ({score_value})\u001b[0m"
-            )
+            color = "\u001b[33m"
+            msg = f"found different asm with same score ({score_value})"
         permuter.best_score = min(permuter.best_score, score_value)
+        context.printer.print(msg, permuter, color=color)
         write_candidate(permuter, result)
-    print("\b" * 10 + " " * 10 + "\r" + status_line, end="", flush=True)
+    context.printer.progress(status_line)
     return score_value == 0
 
 
