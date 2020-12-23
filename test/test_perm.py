@@ -24,7 +24,7 @@ class TestPermMacros(unittest.TestCase):
     ) -> int:
         base = intro + "\n" + base + "\n" + outro
         target = intro + "\n" + target + "\n" + outro
-        compiler = Compiler("test/compile.sh")
+        compiler = Compiler("test/compile.sh", show_errors=True)
 
         # For debugging, to avoid the auto-deleted directory:
         # target_dir = tempfile.mkdtemp()
