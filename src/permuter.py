@@ -7,8 +7,8 @@ import time
 import traceback
 from typing import (
     Any,
-    Iterator,
     List,
+    Iterator,
     Optional,
     Tuple,
     Union,
@@ -16,7 +16,8 @@ from typing import (
 
 from .candidate import Candidate, CandidateResult
 from .compiler import Compiler
-from .perm import perm_eval, perm_gen
+from .error import CandidateConstructionFailure
+from .perm import perm_gen, perm_eval
 from .perm.perm import EvalState
 from .profiler import Profiler
 from .scorer import Scorer
@@ -24,7 +25,7 @@ from .scorer import Scorer
 
 @dataclass
 class EvalError:
-    exc_str: str
+    exc_str: Optional[str]
     seed: Optional[Tuple[int, int]]
 
 
@@ -42,6 +43,10 @@ class Message:
 
 
 class NeedMoreWork:
+    pass
+
+
+class _CompileFailure(Exception):
     pass
 
 
@@ -74,6 +79,9 @@ class Permuter:
         force_rng_seed: Optional[int],
         keep_prob: float,
         need_all_sources: bool,
+        show_errors: bool,
+        best_only: bool,
+        better_only: bool,
     ) -> None:
         self.dir = dir
         self.compiler = compiler
@@ -82,6 +90,10 @@ class Permuter:
         self.source = source
 
         if fn_name is None:
+            # Semi-legacy codepath; all functions imported through import.py have a
+            # function name. This would ideally be done on AST level instead of on the
+            # pre-macro'ed source code, but we don't care enough to do make that
+            # refactoring.
             fns = _find_fns(source)
             if len(fns) == 0:
                 raise Exception(f"{self.source_file} does not contain any function!")
@@ -103,6 +115,9 @@ class Permuter:
 
         self.keep_prob = keep_prob
         self._need_all_sources = need_all_sources
+        self._show_errors = show_errors
+        self._best_only = best_only
+        self._better_only = better_only
 
         (
             self.base_score,
@@ -119,7 +134,7 @@ class Permuter:
         base_cand = Candidate.from_source(base_source, self.fn_name, rng_seed=0)
         o_file = base_cand.compile(self.compiler, show_errors=True)
         if not o_file:
-            raise Exception(f"Unable to compile {self.source_file}")
+            raise CandidateConstructionFailure(f"Unable to compile {self.source_file}")
         base_result = base_cand.score(self.scorer, o_file)
         return base_result.score, base_result.hash, base_cand.get_source()
 
@@ -135,6 +150,7 @@ class Permuter:
             self._permutations.is_random()
             and random.uniform(0, 1) < self.keep_prob
             and self._last_score != 0
+            and self._last_score != self.scorer.PENALTY_INF
         ) or self._force_rng_seed
 
         self._last_score = None
@@ -162,6 +178,8 @@ class Permuter:
         t2 = time.time()
 
         o_file = self._cur_cand.compile(self.compiler)
+        if not o_file and self._show_errors:
+            raise _CompileFailure()
 
         t3 = time.time()
 
@@ -185,7 +203,15 @@ class Permuter:
     def should_output(self, result: CandidateResult) -> bool:
         """Check whether a result should be outputted. This must be more liberal
         in child processes than in parent ones, or else sources will be missing."""
-        return result.score <= self.base_score and result.hash not in self.hashes
+        return (
+            result.score <= self.base_score
+            and not (result.score > self.best_score and self._best_only)
+            and (
+                result.score < self.base_score
+                or (result.score == self.base_score and not self._better_only)
+            )
+            and result.hash not in self.hashes
+        )
 
     def record_result(self, result: CandidateResult) -> None:
         """Record a new result, updating the best score and adding the hash to
@@ -208,6 +234,8 @@ class Permuter:
         """Evaluate a seed for the permuter."""
         try:
             return self._eval_candidate(seed)
+        except _CompileFailure:
+            return EvalError(exc_str=None, seed=self._cur_seed)
         except Exception:
             return EvalError(exc_str=traceback.format_exc(), seed=self._cur_seed)
 

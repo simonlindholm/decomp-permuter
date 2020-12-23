@@ -6,7 +6,7 @@ import random
 import string
 import sys
 import time
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 import urllib.parse
 import urllib.request
 
@@ -49,12 +49,14 @@ def _post_request(config: Config, path: str, params: Dict[str, bytes]) -> bytes:
     params["auth"] = sign_with_magic(b"AUTH", config.signing_key, b"")
     data = urllib.parse.urlencode(params).encode("utf-8")
     with urllib.request.urlopen(config.auth_server + path, data) as f:
-        return f.read()
+        ret: bytes = f.read()
+        return ret
 
 
 def _get_request(config: Config, path: str) -> bytes:
     with urllib.request.urlopen(config.auth_server + path) as f:
-        return f.read()
+        ret: bytes = f.read()
+        return ret
 
 
 def _initial_setup(config: RawConfig) -> None:
@@ -166,7 +168,11 @@ def run_vouch(vouch_text: str) -> None:
 def fetch_servers_and_grant(config: Config) -> Tuple[List[RemoteServer], bytes]:
     print("Connecting to permuter@home...")
     raw_resp = _post_request(
-        config, "/list-servers", {"pubkey": config.signing_key.verify_key.encode(),}
+        config,
+        "/list-servers",
+        {
+            "pubkey": config.signing_key.verify_key.encode(),
+        },
     )
     raw_resp = verify_with_magic(b"SERVERLIST", config.auth_verify_key, raw_resp)
     resp = json.loads(raw_resp)
@@ -209,11 +215,18 @@ def go_online(config: Config, port: int) -> None:
     _post_request(
         config,
         "/go-online",
-        {"port": port, "pubkey": config.signing_key.verify_key.encode(),},
+        {
+            "port": str(port).encode("utf-8"),
+            "pubkey": config.signing_key.verify_key.encode(),
+        },
     )
 
 
 def go_offline(config: Config) -> None:
     _post_request(
-        config, "/go-offline", {"pubkey": config.signing_key.verify_key.encode(),},
+        config,
+        "/go-offline",
+        {
+            "pubkey": config.signing_key.verify_key.encode(),
+        },
     )

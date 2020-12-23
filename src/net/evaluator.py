@@ -78,7 +78,7 @@ def _create_permuter(data: PermuterData) -> Permuter:
         os.chmod(fd, 0o755)
         with os.fdopen(fd, "w") as f:
             f.write(data.compile_script)
-        compiler = Compiler(compile_cmd=path, show_errors=False,)
+        compiler = Compiler(compile_cmd=path, show_errors=False)
 
         return Permuter(
             dir="unused",
@@ -91,6 +91,9 @@ def _create_permuter(data: PermuterData) -> Permuter:
             force_rng_seed=None,
             keep_prob=data.keep_prob,
             need_all_sources=False,
+            show_errors=False,
+            better_only=False,
+            best_only=False,
         )
     except:
         os.unlink(path)
@@ -104,7 +107,11 @@ def _remove_permuter(perm: Permuter) -> None:
 def _send_result(perm_id: str, res: EvalResult, port: Port) -> None:
     if isinstance(res, EvalError):
         port.send_json(
-            {"type": "result", "id": perm_id, "error": res.exc_str,}
+            {
+                "type": "result",
+                "id": perm_id,
+                "error": res.exc_str,
+            }
         )
         return
 
@@ -276,7 +283,8 @@ def main() -> None:
     for i in range(num_threads):
         local_queue: "Queue[LocalWork]" = Queue()
         p = Process(
-            target=multiprocess_worker, args=(worker_queue, local_queue, task_queue),
+            target=multiprocess_worker,
+            args=(worker_queue, local_queue, task_queue),
         )
         p.start()
         local_queues.append(local_queue)

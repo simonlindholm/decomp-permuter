@@ -6,7 +6,7 @@ import string
 import subprocess
 from typing import List, Tuple, Match
 
-OBJDUMP = ["mips-linux-gnu-objdump", "-drz"]
+OBJDUMP = ["mips-linux-gnu-objdump", "-m", "mips:4300", "-drz"]
 
 # Ignore registers, for cleaner output. (We don't do this right now, but it can
 # be useful for debugging.)
@@ -23,7 +23,7 @@ skip_bl_delay_slots = True
 num_re = re.compile(r"[0-9]+")
 full_num_re = re.compile(r"\b[0-9]+\b")
 comments = re.compile(r"<.*?>")
-regs = re.compile(r"\b(a[0-3]|t[0-9]|s[0-7]|at|v[01])\b")
+regs = re.compile(r"\$?\b(a[0-3]|t[0-9]|s[0-8]|at|v[01]|f[12]?[0-9]|f3[01]|fp|ra)\b")
 sp_offset = re.compile(r",([1-9][0-9]*|0x[1-9a-f][0-9a-f]*)\((sp|s8)\)")
 includes_sp = re.compile(r"\b(sp|s8)\b")
 forbidden = set(string.ascii_letters + "_")
@@ -42,6 +42,7 @@ branch_likely_instructions = [
 ]
 branch_instructions = [
     "b",
+    "j",
     "beq",
     "bne",
     "beqz",
@@ -88,14 +89,19 @@ def simplify_objdump(input_lines: List[str], *, stack_differences: bool) -> List
                 continue
             before, imm, after = parse_relocated_line(prev)
             repl = row.split()[-1]
+            # As part of ignoring branch targets, we ignore relocations for j
+            # instructions. The target is already lost anyway.
+            if imm == "<target>":
+                assert ign_branch_targets
+                continue
             # Sometimes s8 is used as a non-framepointer, but we've already lost
             # the immediate value by pretending it is one. This isn't too bad,
             # since it's rare and applies consistently. But we do need to handle it
             # here to avoid a crash, by pretending that lost imms are zero for
             # relocations.
-            if imm != "0" and imm != "imm":
+            if imm != "0" and imm != "imm" and imm != "addr":
                 repl += "+" + imm if int(imm, 0) > 0 else imm
-            if "R_MIPS_LO16" in row:
+            if any(reloc in row for reloc in ["R_MIPS_LO16", "R_MIPS_LITERAL", "R_MIPS_GPREL16"]):
                 repl = f"%lo({repl})"
             elif "R_MIPS_HI16" in row:
                 # Ideally we'd pair up R_MIPS_LO16 and R_MIPS_HI16 to generate a

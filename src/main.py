@@ -3,12 +3,11 @@ from dataclasses import dataclass, field
 import itertools
 import multiprocessing
 import os
-import threading
 import random
-import re
+from random import Random
 import sys
+import threading
 import time
-import traceback
 from typing import (
     Callable,
     Dict,
@@ -55,6 +54,8 @@ class Options:
     print_diffs: bool = False
     stack_differences: bool = False
     abort_exceptions: bool = False
+    better_only: bool = False
+    best_only: bool = False
     stop_on_zero: bool = False
     keep_prob: float = DEFAULT_RAND_KEEP_PROB
     force_seed: Optional[str] = None
@@ -101,11 +102,9 @@ def write_candidate(perm: Permuter, result: CandidateResult) -> None:
         except FileExistsError:
             pass
     source = result.source
-    assert source is not None, "_need_to_send_source is wrong!"
+    assert source is not None, "Permuter._need_to_send_source is wrong!"
     with open(os.path.join(output_dir, "source.c"), "x", encoding="utf-8") as f:
         f.write(source)
-    with open(os.path.join(output_dir, "base.c"), "x", encoding="utf-8") as f:
-        f.write(perm.base_source)
     with open(os.path.join(output_dir, "score.txt"), "x", encoding="utf-8") as f:
         f.write(f"{result.score}\n")
     with open(os.path.join(output_dir, "diff.txt"), "x", encoding="utf-8") as f:
@@ -117,10 +116,11 @@ def post_score(
     context: EvalContext, permuter: Permuter, result: EvalResult, who: Optional[str]
 ) -> bool:
     if isinstance(result, EvalError):
-        context.printer.print(
-            "internal permuter failure.", permuter, who, keep_progress=True
-        )
-        print(result.exc_str)
+        if result.exc_str is not None:
+            context.printer.print(
+                "internal permuter failure.", permuter, who, keep_progress=True
+            )
+            print(result.exc_str)
         if result.seed is not None:
             seed_str = str(result.seed[1])
             if result.seed[0] != 0:
@@ -132,7 +132,7 @@ def post_score(
             return False
 
     if context.options.print_diffs:
-        assert result.source is not None, "_need_to_send_source is wrong"
+        assert result.source is not None, "Permuter._need_to_send_source is wrong"
         print()
         print(permuter.diff(result.source))
         input("Press any key to continue...")
@@ -247,8 +247,7 @@ def run(options: Options) -> List[int]:
         if time.time() - last_time > 5:
             print()
             print("Aborting stuck process.")
-            traceback.print_exc()
-            sys.exit(1)
+            raise
         print()
         print("Exiting.")
         sys.exit(0)
@@ -308,6 +307,9 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
                 force_rng_seed=force_rng_seed,
                 keep_prob=options.keep_prob,
                 need_all_sources=options.print_diffs,
+                show_errors=options.show_errors,
+                best_only=options.best_only,
+                better_only=options.better_only,
             )
         except CandidateConstructionFailure as e:
             print(e.message, file=sys.stderr)
@@ -485,6 +487,18 @@ def main() -> None:
         help="Stop execution when an internal permuter exception occurs.",
     )
     parser.add_argument(
+        "--better-only",
+        dest="better_only",
+        action="store_true",
+        help="Only report scores better than the base.",
+    )
+    parser.add_argument(
+        "--best-only",
+        dest="best_only",
+        action="store_true",
+        help="Only report ties or new high scores.",
+    )
+    parser.add_argument(
         "--stop-on-zero",
         dest="stop_on_zero",
         action="store_true",
@@ -555,6 +569,8 @@ def main() -> None:
         show_timings=args.show_timings,
         print_diffs=args.print_diffs,
         abort_exceptions=args.abort_exceptions,
+        better_only=args.better_only,
+        best_only=args.best_only,
         stack_differences=args.stack_differences,
         stop_on_zero=args.stop_on_zero,
         keep_prob=args.keep_prob,

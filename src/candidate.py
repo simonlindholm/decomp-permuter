@@ -4,7 +4,7 @@ import functools
 import os
 from typing import List, Dict, Optional, Callable, Optional, Tuple, Iterable
 
-from pycparser import CParser, c_ast as ca
+from pycparser import c_ast as ca
 
 from .compiler import Compiler
 from .randomizer import Randomizer
@@ -51,9 +51,9 @@ class Candidate:
     def _cached_shared_ast(
         source: str, fn_name: str
     ) -> Tuple[ca.FuncDef, int, ca.FileAST]:
-        parser = CParser()
-        ast = parser.parse(source)
+        ast = ast_util.parse_c(source)
         orig_fn, fn_index = ast_util.extract_fn(ast, fn_name)
+        fn_index = ast_util.prune_ast(orig_fn, ast)
         ast_util.normalize_ast(orig_fn, ast)
         return orig_fn, fn_index, ast
 

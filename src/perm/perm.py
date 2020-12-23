@@ -1,3 +1,5 @@
+from base64 import b64encode
+from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 import math
@@ -5,8 +7,16 @@ import itertools
 
 
 @dataclass
+class PreprocessState:
+    once_options: Dict[str, List["Perm"]] = field(
+        default_factory=lambda: defaultdict(list)
+    )
+
+
+@dataclass
 class EvalState:
     vars: Dict[str, str] = field(default_factory=dict)
+    once_choices: Dict[str, "Perm"] = field(default_factory=dict)
 
 
 class Perm:
@@ -19,12 +29,15 @@ class Perm:
     to happen in an infinite loop, rather than stop after the last permutation
     has been tested."""
 
-    def __init__(self) -> None:
-        self.perm_count = 1
-        self.children: List[Perm] = []
+    perm_count: int
+    children: List["Perm"]
 
     def evaluate(self, seed: int, state: EvalState) -> str:
         return ""
+
+    def preprocess(self, state: PreprocessState) -> None:
+        for p in self.children:
+            p.preprocess(state)
 
     def is_random(self) -> bool:
         return any(p.is_random() for p in self.children)
@@ -58,20 +71,69 @@ def _count_either(perms: List[Perm]) -> int:
     return sum(p.perm_count for p in perms)
 
 
+class RootPerm(Perm):
+    def __init__(self, inner: Perm) -> None:
+        self.children = [inner]
+        self.perm_count = inner.perm_count
+        self.preprocess_state = PreprocessState()
+        self.preprocess(self.preprocess_state)
+        for key, options in self.preprocess_state.once_options.items():
+            if len(options) == 1:
+                raise Exception(f"PERM_ONCE({key}) occurs only once, possible error?")
+            self.perm_count *= len(options)
+
+    def evaluate(self, seed: int, state: EvalState) -> str:
+        for key, options in self.preprocess_state.once_options.items():
+            seed, choice = divmod(seed, len(options))
+            state.once_choices[key] = options[choice]
+        return self.children[0].evaluate(seed, state)
+
+
 class TextPerm(Perm):
     def __init__(self, text: str) -> None:
-        super().__init__()
         # Comma escape sequence
         text = text.replace("(,)", ",")
         self.text = text
+        self.children = []
+        self.perm_count = 1
 
     def evaluate(self, seed: int, state: EvalState) -> str:
         return self.text
 
 
+class IgnorePerm(Perm):
+    def __init__(self, inner: Perm) -> None:
+        self.children = [inner]
+        self.perm_count = inner.perm_count
+
+    def evaluate(self, seed: int, state: EvalState) -> str:
+        text = self.children[0].evaluate(seed, state)
+        if not text:
+            return ""
+        encoded = b64encode(text.encode("utf-8")).decode("ascii")
+        return "#pragma _permuter b64literal " + encoded
+
+
+class PretendPerm(Perm):
+    def __init__(self, inner: Perm) -> None:
+        self.children = [inner]
+        self.perm_count = inner.perm_count
+
+    def evaluate(self, seed: int, state: EvalState) -> str:
+        text = self.children[0].evaluate(seed, state)
+        return "\n".join(
+            [
+                "",
+                "#pragma _permuter latedefine start",
+                text,
+                "#pragma _permuter latedefine end",
+                "",
+            ]
+        )
+
+
 class CombinePerm(Perm):
     def __init__(self, parts: List[Perm]) -> None:
-        super().__init__()
         self.children = parts
         self.perm_count = _count_all(parts)
 
@@ -82,11 +144,11 @@ class CombinePerm(Perm):
 
 class RandomizerPerm(Perm):
     def __init__(self, inner: Perm) -> None:
-        super().__init__()
-        self.inner = inner
+        self.children = [inner]
+        self.perm_count = inner.perm_count
 
     def evaluate(self, seed: int, state: EvalState) -> str:
-        text = self.inner.evaluate(seed, state)
+        text = self.children[0].evaluate(seed, state)
         return "\n".join(
             [
                 "",
@@ -103,7 +165,6 @@ class RandomizerPerm(Perm):
 
 class GeneralPerm(Perm):
     def __init__(self, candidates: List[Perm]) -> None:
-        super().__init__()
         self.perm_count = _count_either(candidates)
         self.children = candidates
 
@@ -111,80 +172,46 @@ class GeneralPerm(Perm):
         return _eval_either(seed, self.children, state)
 
 
-class TernaryPerm(Perm):
-    def __init__(self, pre: Perm, cond: Perm, iftrue: Perm, iffalse: Perm) -> None:
-        super().__init__()
-        self.children = [pre, cond, iftrue, iffalse]
-        self.perm_count = 2 * _count_all(self.children)
+class OncePerm(Perm):
+    def __init__(self, key: str, inner: Perm) -> None:
+        self.key = key
+        self.children = [inner]
+        self.perm_count = inner.perm_count
+
+    def preprocess(self, state: PreprocessState) -> None:
+        state.once_options[self.key].append(self)
+        super().preprocess(state)
 
     def evaluate(self, seed: int, state: EvalState) -> str:
-        sub_seed, variation = divmod(seed, 2)
-        pre, cond, iftrue, iffalse = _eval_all(sub_seed, self.children, state)
-        if variation > 0:
-            return f"{pre}({cond} ? {iftrue} : {iffalse});"
-        else:
-            return f"if ({cond})\n {pre}{iftrue};\n else\n {pre}{iffalse};"
-
-
-class TypecastPerm(Perm):
-    def __init__(self, types: List[Perm]) -> None:
-        super().__init__()
-        self.perm_count = _count_either(types)
-        self.children = types
-
-    def evaluate(self, seed: int, state: EvalState) -> str:
-        t = _eval_either(seed, self.children, state)
-        if not t.strip():
-            return ""
-        else:
-            return f"({t})"
+        if state.once_choices[self.key] is self:
+            return self.children[0].evaluate(seed, state)
+        return ""
 
 
 class VarPerm(Perm):
-    def __init__(self, args: List[Perm]) -> None:
-        super().__init__()
-        assert len(args) in [1, 2]
-        assert isinstance(args[0], TextPerm)
-        self.var_name = args[0].text
-        if len(args) == 2:
-            self.expansion: Optional[Perm] = args[1]
-            self.perm_count = args[1].perm_count
+    def __init__(self, var_name: Perm, expansion: Optional[Perm]) -> None:
+        if expansion:
+            self.children = [var_name, expansion]
         else:
-            self.expansion = None
-            self.perm_count = 1
+            self.children = [var_name]
+        self.perm_count = _count_all(self.children)
 
     def evaluate(self, seed: int, state: EvalState) -> str:
-        if self.expansion is not None:
-            ret = self.expansion.evaluate(seed, state)
-            state.vars[self.var_name] = ret
+        var_name_perm = self.children[0]
+        seed, sub_seed = divmod(seed, var_name_perm.perm_count)
+        var_name = var_name_perm.evaluate(sub_seed, state).strip()
+        if len(self.children) > 1:
+            ret = self.children[1].evaluate(seed, state)
+            state.vars[var_name] = ret
             return ""
         else:
-            if self.var_name not in state.vars:
-                raise Exception(f"Tried to read undefined PERM_VAR {self.var_name}")
-            return state.vars[self.var_name]
-
-    def is_random(self) -> bool:
-        return self.expansion is not None and self.expansion.is_random()
-
-
-class CondNezPerm(Perm):
-    def __init__(self, perm: Perm) -> None:
-        super().__init__()
-        self.children = [perm]
-        self.perm_count = 2 * _count_all(self.children)
-
-    def evaluate(self, seed: int, state: EvalState) -> str:
-        sub_seed, variation = divmod(seed, 2)
-        cond = self.children[0].evaluate(sub_seed, state)
-        if variation == 0:
-            return f"{cond}"
-        else:
-            return f"({cond}) != 0"
+            if var_name not in state.vars:
+                raise Exception(f"Tried to read undefined PERM_VAR {var_name}")
+            return state.vars[var_name]
 
 
 class LineSwapPerm(Perm):
     def __init__(self, lines: List[Perm]) -> None:
-        super().__init__()
         self.children = lines
         self.own_count = math.factorial(len(lines))
         self.perm_count = self.own_count * _count_all(self.children)
@@ -204,8 +231,8 @@ class LineSwapPerm(Perm):
 class IntPerm(Perm):
     def __init__(self, low: int, high: int) -> None:
         assert low <= high
-        super().__init__()
         self.low = low
+        self.children = []
         self.perm_count = high - low + 1
 
     def evaluate(self, seed: int, state: EvalState) -> str:

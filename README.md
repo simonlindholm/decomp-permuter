@@ -2,7 +2,7 @@
 
 Automatically permutes C files to better match a target binary. The permuter has two modes of operation:
 - Random: purely at random, introduce temporary variables for values, change types, put statements on the same line...
-- Manual: test all combinations of user-specified variations, using macros like `PERM_TERNARY(a = , b, c, d)` to try both `a = b ? c : d` and `if (b) a = c; else a = d;`.
+- Manual: test all combinations of user-specified variations, using macros like `PERM_GENERAL(a = b ? c : d;, if (b) a = c; else a = d;)` to try both specified alternatives.
 
 The modes can also be combined, by using the `PERM_RANDOMIZE` macro.
 
@@ -34,13 +34,13 @@ Otherwise, see USAGE.md for more details.
 The .c file may be modified with any of the following macros which affect manual permutation:
 
 - `PERM_GENERAL(a, b, ...)` expands to any of `a`, `b`, ...
-- `PERM_TYPECAST(a, b, ...)` expands to any of `(a)`, `(b)`, ... (empty argument for no cast at all)
-- `PERM_TERNARY(prefix, a, b, c)` expands to either `prefix a ? b : c` or `if (a) prefix b; else prefix c;`.
 - `PERM_VAR(a, b)` sets the meta-variable `a` to `b`, `PERM_VAR(a)` expands to the meta-variable `a`.
-- `PERM_RANDOMIZE(code)` expands to `code`, but allows randomization within that region.
-- `PERM_LINESWAP(lines)` expands to a permutation of the ordered set of non-whitespace lines (split by `\n`).
-- `PERM_CONDNEZ(cond)` expands to either `cond` or `(cond) != 0`.
+- `PERM_RANDOMIZE(code)` expands to `code`, but allows randomization within that region. Multiple regions may be specified.
+- `PERM_LINESWAP(lines)` expands to a permutation of the ordered set of non-whitespace lines (split by `\n`). Warning: this gets slow with more than 5 lines or so!
 - `PERM_INT(lo, hi)` expands to an integer between `lo` and `hi` (which must be constants).
+- `PERM_IGNORE(code)` expands to `code`, without passing it through the C parser library (pycparser)/randomizer. This can be used to avoid parse errors for non-standard C, e.g. `asm` blocks.
+- `PERM_PRETEND(code)` expands to `code` for the purpose of the C parser/randomizer, but gets removed afterwards. This can be used together with `PERM_IGNORE` to enable the permuter to deal with input it isn't designed for (e.g. inline functions, C++, non-code).
+- `PERM_ONCE([key,] code)` expands to either `code` or to nothing, such that each unique key gets expanded exactly once. `key` defaults to `code`. For example, `PERM_ONCE(a;) b; PERM_ONCE(a;)` expands to either `a; b;` or `b; a;`.
 
 Arguments are split by a commas, exluding commas inside parenthesis. `(,)` is a special escape sequence that resolves to `,`. 
 
@@ -51,7 +51,7 @@ PERM_GENERAL(stmt;, PERM_VAR(delayed, stmt;))
 ...
 PERM_VAR(delayed)
 ```
-is a valid pattern for emitting a statement either at one point or later.
+is an alternative way of writing `PERM_ONCE`.
 
 ## permuter@home
 
@@ -73,18 +73,27 @@ Anyone who is able to use -J can run a server.
 
 ## FAQ
 
-**What do the scores mean?** The scores are computed by taking diffs of objdump'd .o files, and giving different penalties for lines
-that are the same/use the same instruction/are reordered/don't match at all. Stack positions are ignored. For more details, see scorer.py.
-It's far from a perfect system, and should probably be tweaked to look at e.g. the register diff graph.
+**What do the scores mean?** The scores are computed by taking diffs of objdump'd .o
+files, and giving different penalties for lines that are the same/use the same
+instruction/are reordered/don't match at all. 0 means the function matches fully.
+Stack positions are ignored unless --stack-diffs is passed (but beware that the
+permuter is currently quite bad at resolving stack differences). For more details,
+see scorer.py. It's far from a perfect system, and should probably be tweaked to
+look at e.g. the register diff graph.
 
-**What sort of non-matchings are the permuter good at?** It's generally best towards the end, when mostly regalloc changes remain.
-If there are reorderings or functional changes, it's often easy to resolve those by hand, and neither the scorer nor the
+**What sort of non-matchings are the permuter good at?** It's generally best towards
+the end, when mostly regalloc changes remain. If there are reorderings or functional
+changes, it's often easy to resolve those by hand, and neither the scorer nor the
 randomizer tends to play well with them.
 
-**Should I use this instead of trying to match code by hand?** Well, the manual PERM macros might speed you up if you manage
-to fit the permuter into your workflow. The random mode is however much more of a last ditch sort of thing.
-It often finds nonsensical permutations that happen to match regalloc very well by accident.
-Still, it's often useful in pointing out which parts of the code need to be changed to get the code nearer to matching.
+**Should I use this instead of trying to match code by hand?** No, but it can be a good
+complement. PERM macros can be used to quickly test lots of variations of a function at
+once, in cases where there are interactions between several parts of a function.
+The randomization mode often finds lots of nonsensical changes that improve regalloc
+"by accident"; it's up to you to pick out the ones that look sensible. If none do,
+it can still be useful to know which parts of the function need to be changed to get the
+code nearer to matching. Having made one of the improvements, and the function can then be
+permuted again, to find further possible improvements.
 
 ## Helping out
 

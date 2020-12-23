@@ -2,34 +2,52 @@ from typing import Callable, Dict, List, Tuple
 import re
 
 from .perm import (
-    Perm,
     CombinePerm,
     GeneralPerm,
-    RandomizerPerm,
-    TextPerm,
-    TernaryPerm,
-    TypecastPerm,
-    VarPerm,
-    CondNezPerm,
-    LineSwapPerm,
+    IgnorePerm,
     IntPerm,
+    LineSwapPerm,
+    OncePerm,
+    Perm,
+    PretendPerm,
+    RandomizerPerm,
+    RootPerm,
+    TextPerm,
+    VarPerm,
 )
 
 
-def split_args(args: List[str]) -> List[Perm]:
-    perm_args = [rec_perm_gen(arg) for arg in args]
+def split_by_comma(text: str) -> List[str]:
+    level = 0
+    current = ""
+    args: List[str] = []
+    for c in text:
+        if c == "," and level == 0:
+            args.append(current)
+            current = ""
+        else:
+            if c == "(":
+                level += 1
+            elif c == ")":
+                level -= 1
+                assert level >= 0, "Bad nesting"
+            current += c
+    assert level == 0, "Mismatched parentheses"
+    args.append(current)
+    return args
+
+
+def split_args(text: str) -> List[Perm]:
+    perm_args = [rec_perm_gen(arg) for arg in split_by_comma(text)]
     return perm_args
 
 
-def split_args_newline(args: List[str]) -> List[Perm]:
-    s = "\n".join(args)
-    lines = [line for line in s.split("\n") if line and not line.isspace()]
-    perm_args = [rec_perm_gen(line) for line in lines]
-    return perm_args
+def split_args_newline(text: str) -> List[Perm]:
+    return [rec_perm_gen(line) for line in text.split("\n") if line.strip()]
 
 
-def split_args_text(args: List[str]) -> List[str]:
-    perm_list = split_args(args)
+def split_args_text(text: str) -> List[str]:
+    perm_list = split_args(text)
     res: List[str] = []
     for perm in perm_list:
         assert isinstance(perm, TextPerm)
@@ -37,48 +55,50 @@ def split_args_text(args: List[str]) -> List[str]:
     return res
 
 
-perm_create: Dict[str, Callable[[List[str]], Perm]] = {
-    "PERM_GENERAL": lambda args: GeneralPerm(split_args(args)),
-    "PERM_RANDOMIZE": lambda args: RandomizerPerm(split_args(args)[0]),
-    "PERM_TERNARY": lambda args: TernaryPerm(*split_args(args)),
-    "PERM_TYPECAST": lambda args: TypecastPerm(split_args(args)),
-    "PERM_VAR": lambda args: VarPerm(split_args(args)),
-    "PERM_CONDNEZ": lambda args: CondNezPerm(*split_args(args)),
-    "PERM_LINESWAP": lambda args: LineSwapPerm(split_args_newline(args)),
-    "PERM_INT": lambda args: IntPerm(*map(int, split_args_text(args))),
+def make_once_perm(text: str) -> OncePerm:
+    args = split_by_comma(text)
+    if len(args) not in [1, 2]:
+        raise Exception("PERM_ONCE takes 1 or 2 arguments")
+    key = args[0].strip()
+    value = rec_perm_gen(args[-1])
+    return OncePerm(key, value)
+
+
+def make_var_perm(text: str) -> VarPerm:
+    args = split_by_comma(text)
+    if len(args) not in [1, 2]:
+        raise Exception("PERM_VAR takes 1 or 2 arguments")
+    var_name = rec_perm_gen(args[0])
+    value = rec_perm_gen(args[1]) if len(args) == 2 else None
+    return VarPerm(var_name, value)
+
+
+PERM_FACTORIES: Dict[str, Callable[[str], Perm]] = {
+    "PERM_GENERAL": lambda text: GeneralPerm(split_args(text)),
+    "PERM_ONCE": lambda text: make_once_perm(text),
+    "PERM_RANDOMIZE": lambda text: RandomizerPerm(rec_perm_gen(text)),
+    "PERM_VAR": lambda text: make_var_perm(text),
+    "PERM_LINESWAP": lambda text: LineSwapPerm(split_args_newline(text)),
+    "PERM_INT": lambda text: IntPerm(*map(int, split_args_text(text))),
+    "PERM_IGNORE": lambda text: IgnorePerm(rec_perm_gen(text)),
+    "PERM_PRETEND": lambda text: PretendPerm(rec_perm_gen(text)),
 }
 
 
-def get_parenthesis_args(s: str) -> Tuple[List[str], str]:
+def consume_arg_parens(text: str) -> Tuple[str, str]:
     level = 0
-    current = ""
-    remain = ""
-    args = []
-    for i, c in enumerate(s):
-        # Find individual args
-        if c == "," and level == 1:
-            args.append(current)
-            current = ""
-        # Track parenthesis level
-        else:
-            if c == "(":
-                level += 1
-                if level == 1:  # Ignore first parenthesis
-                    continue
-            elif c == ")":
-                level -= 1
-                if level == 0:  # Last closing parenthesis; get remaining and finish
-                    args.append(current)
-                    if i + 1 < len(s):
-                        remain = s[i + 1 :]
-                    break
-            current += c
-    assert level == 0, "Error, no closing parenthesis found"
-    return args, remain
+    for i, c in enumerate(text):
+        if c == "(":
+            level += 1
+        elif c == ")":
+            level -= 1
+            if level == -1:
+                return text[:i], text[i + 1 :]
+    raise Exception("Failed to find closing parenthesis when parsing PERM macro")
 
 
-def rec_perm_gen(input: str) -> Perm:
-    remain = input
+def rec_perm_gen(text: str) -> Perm:
+    remain = text
     macro_search = r"(PERM_.+?)\("
 
     perms: List[Perm] = []
@@ -93,25 +113,28 @@ def rec_perm_gen(input: str) -> Perm:
 
         # Get perm type and args
         perm_type = match.group(1)
-        if not perm_type in perm_create:
-            raise Exception("Could not evaluate expression:" + perm_type)
+        if perm_type not in PERM_FACTORIES:
+            raise Exception("Unrecognized PERM macro: " + perm_type)
         between = remain[: match.start()]
-        args, remain = get_parenthesis_args(remain[match.end() - 1 :])
+        args, remain = consume_arg_parens(remain[match.end() :])
 
         # Create text perm
         perms.append(TextPerm(between))
 
         # Create new perm
-        perms.append(perm_create[perm_type](args))
+        perms.append(PERM_FACTORIES[perm_type](args))
 
     if len(perms) == 1:
         return perms[0]
     return CombinePerm(perms)
 
 
-def perm_gen(input: str) -> Perm:
-    ret = rec_perm_gen(input)
+def perm_gen(text: str) -> Perm:
+    ret = rec_perm_gen(text)
     if isinstance(ret, TextPerm):
         ret = RandomizerPerm(ret)
-        print("No perm macros found. Defaulting to randomization")
+        print("No perm macros found. Defaulting to randomization.")
+    ret = RootPerm(ret)
+    if not ret.is_random():
+        print(f"Will run for {ret.perm_count} iterations.")
     return ret

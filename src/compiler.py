@@ -10,7 +10,7 @@ class Compiler:
         self.compile_cmd = compile_cmd
         self.show_errors = show_errors
 
-    def compile(self, source: str, show_errors: bool = False) -> Optional[str]:
+    def compile(self, source: str, *, show_errors: bool = False) -> Optional[str]:
         show_errors = show_errors or self.show_errors
         with tempfile.NamedTemporaryFile(
             prefix="permuter", suffix=".c", mode="w", delete=False
