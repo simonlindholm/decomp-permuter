@@ -106,9 +106,11 @@ def post_score(context: EvalContext, permuter: Permuter, result: EvalResult) -> 
     score_hash = result.hash
 
     context.iteration += 1
-    if score_value is None:
+    if score_value == permuter.scorer.PENALTY_INF:
+        disp_score = "inf"
         context.errors += 1
-    disp_score = "inf" if score_value == permuter.scorer.PENALTY_INF else score_value
+    else:
+        disp_score = str(score_value)
     timings = ""
     if context.options.show_timings:
         for stattype in profiler.time_stats:
