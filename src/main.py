@@ -46,6 +46,22 @@ class Options:
     threads: int = 1
 
 
+def restricted_float(lo: float, hi: float) -> Callable[[str], float]:
+    def convert(x: str) -> float:
+        try:
+            ret = float(x)
+        except ValueError:
+            raise argparse.ArgumentTypeError(f"invalid float value: '{x}'")
+
+        if ret < lo or ret > hi:
+            raise argparse.ArgumentTypeError(
+                f"value {x} is out of range (must be between {lo} and {hi})"
+            )
+        return ret
+
+    return convert
+
+
 @dataclass
 class EvalContext:
     options: Options
@@ -362,7 +378,7 @@ def main() -> None:
     # pickling, which mysteriously breaks with pycparser...
     # (AttributeError: 'CParser' object has no attribute 'p_abstract_declarator_opt')
     # So, for now we live with the defaults, which make multiprocessing work on Linux,
-    # where it uses fork and don't pickle arguments, and break on Windows. Sigh.
+    # where it uses fork and doesn't pickle arguments, and break on Windows. Sigh.
 
     parser = argparse.ArgumentParser(
         description="Randomly permute C files to better match a target binary."
@@ -425,10 +441,10 @@ def main() -> None:
         "--keep-prob",
         dest="keep_prob",
         metavar="PROB",
-        type=float,
+        type=restricted_float(0.0, 1.0),
         default=DEFAULT_RAND_KEEP_PROB,
         help="Continue randomizing the previous output with the given probability "
-        f"(float in 0..1, default {DEFAULT_RAND_KEEP_PROB}).",
+        f"(float in 0..1, default %(default)s).",
     )
     parser.add_argument("--seed", dest="force_seed", type=str, help=argparse.SUPPRESS)
     parser.add_argument(
