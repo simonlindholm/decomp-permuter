@@ -1425,8 +1425,9 @@ def perm_inequalities(
 def perm_add_mask(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> None:
-    """Add a mask of 0xFF[FFFFFFFFFFFFFF] to a random expression of integer type.
-    In some cases this mask is optimized out but affects regalloc."""
+    """Add a random amount of masks of 0xFF[FFFFFFFFFFFFFF] to a random expression of integer type.
+    In some cases this mask is optimized out but affects regalloc.
+    The regalloc change seems to cycle with slight differences every n masks."""
     typemap = build_typemap(ast)
 
     # Find expression to add the mask to
@@ -1447,6 +1448,10 @@ def perm_add_mask(
     mask = random.choice(masks) + random.choice(["", "u"])
 
     new_expr = ca.BinaryOp("&", expr, ca.Constant("int", mask))
+    if random_bool(random, 0.5):
+        for _ in range(random.randrange(12)):
+            new_expr = ca.BinaryOp("&", new_expr, ca.Constant("int", mask))
+
     replace_node(fn.body, expr, new_expr)
 
 
