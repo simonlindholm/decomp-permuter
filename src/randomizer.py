@@ -1448,7 +1448,7 @@ def perm_add_mask(
     mask = random.choice(masks) + random.choice(["", "u"])
 
     new_expr = ca.BinaryOp("&", expr, ca.Constant("int", mask))
-    if random_bool(random, 0.5):
+    if random_bool(random, 0.3):
         for _ in range(random.randrange(12)):
             new_expr = ca.BinaryOp("&", new_expr, ca.Constant("int", mask))
 
@@ -1867,7 +1867,7 @@ class Randomizer:
             (perm_temp_for_expr, 100),
             (perm_expand_expr, 20),
             (perm_reorder_stmts, 20),
-            (perm_add_mask, 10),
+            (perm_add_mask, 15),
             (perm_cast_simple, 10),
             (perm_refer_to_var, 10),
             (perm_float_literal, 10),
