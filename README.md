@@ -31,6 +31,12 @@ For projects with a properly configured makefile, you should be able to set thes
 where file.c contains the function to be permuted, and file.s is its assembly in a self-contained file.
 Otherwise, see USAGE.md for more details.
 
+For projects using Ninja instead of Make, add a `permuter_settings.toml` in the root or `tools/` directory of the project:
+```toml
+build_system = "ninja"
+```
+Then `import.py` should work as expected if `build.ninja` is at the root of the project.
+
 The .c file may be modified with any of the following macros which affect manual permutation:
 
 - `PERM_GENERAL(a, b, ...)` expands to any of `a`, `b`, ...
