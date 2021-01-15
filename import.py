@@ -541,8 +541,8 @@ def main() -> None:
         metavar="REGEX",
         dest="preserve_macros_regex",
         help="Regex for which macros to preserve, or empty string for no macros. "
-        f"By default, this is read from {settings_files} in the imported "
-        "file's project directory. Type information is also read from this file.",
+        f"By default, this is read from {settings_files} in a parent directory of "
+        "the imported file. Type information is also read from this file.",
     )
     args = parser.parse_args()
 
