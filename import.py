@@ -111,15 +111,18 @@ def create_directory(func_name: str) -> str:
             pass
 
 
-def find_root_dir(filename: str, pattern: List[str]) -> str:
+def find_root_dir(filename: str, pattern: List[str]) -> Optional[str]:
     old_dirname = None
     dirname = os.path.abspath(os.path.dirname(filename))
+
     while dirname and (not old_dirname or len(dirname) < len(old_dirname)):
         for fname in pattern:
             if os.path.isfile(os.path.join(dirname, fname)):
                 return dirname
         old_dirname = dirname
         dirname = os.path.dirname(dirname)
+    
+    return None
 
 
 def fixup_build_command(
@@ -160,7 +163,7 @@ def fixup_build_command(
 
 def find_build_command_line(
     root_dir: str, c_file: str, make_flags: List[str], build_system: str
-) -> Tuple[List[str], List[str], str]:
+) -> Tuple[List[str], List[str]]:
     if build_system == "make":
         build_invocation = [make_cmd, "--always-make", "--dry-run", "--debug=j", "PERMUTER=1"] + make_flags
     elif build_system == "ninja":
@@ -218,7 +221,7 @@ def find_build_command_line(
         )
         print(
             "Failed to find compile command from build script output. "
-            f"Please ensure 'make -Bn --debug=j {formatcmd(make_flags)}' "
+            f"Please ensure running '{' '.join(build_invocation)}' "
             f"contains a line with the string '{rel_c_file}'.{close_extra}",
             file=sys.stderr,
         )
@@ -227,9 +230,9 @@ def find_build_command_line(
     if len(output) > 1:
         output_lines = "\n".join(map(formatcmd, output))
         print(
-            f"Error: found multiple compile commands for {rel_c_file}:\n{output_lines}\n"
-            "Please modify the build script such that if PERMUTER = 1, "
-            "only a single compile command is included.",
+            f"Error: found multiple compile commands for {rel_c_file}:\n{output_lines}\n{close_extra}"
+            f"Please modify the build script such that '{' '.join(build_invocation)}' "
+            "produces a single compile command.",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -241,10 +244,10 @@ PreserveMacros = Tuple[Pattern[str], Callable[[str], str]]
 
 
 def build_preserve_macros(
-    cwd: str, preserve_regex: Optional[str], data: Mapping[str, object]
+    cwd: str, preserve_regex: Optional[str], settings: Mapping[str, object]
 ) -> Optional[PreserveMacros]:
 
-    subdata = data.get("preserve_macros", {})
+    subdata = settings.get("preserve_macros", {})
     assert isinstance(subdata, dict)
     regexes = []
     for regex, value in subdata.items():
@@ -561,6 +564,7 @@ def main() -> None:
             break
 
     build_system = settings.get("build_system", "make")
+    assert isinstance(build_system, str)
     make_flags = args.make_flags
 
     func_name, asm_cont = parse_asm(args.asm_file)
