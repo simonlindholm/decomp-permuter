@@ -111,18 +111,15 @@ def create_directory(func_name: str) -> str:
             pass
 
 
-def find_makefile_dir(filename: str) -> str:
+def find_root_dir(filename: str, pattern: List[str]) -> str:
     old_dirname = None
     dirname = os.path.abspath(os.path.dirname(filename))
     while dirname and (not old_dirname or len(dirname) < len(old_dirname)):
-        for fname in ["makefile", "Makefile"]:
+        for fname in pattern:
             if os.path.isfile(os.path.join(dirname, fname)):
                 return dirname
         old_dirname = dirname
         dirname = os.path.dirname(dirname)
-
-    print(f"Missing makefile for file {filename}!", file=sys.stderr)
-    sys.exit(1)
 
 
 def fixup_build_command(
@@ -162,16 +159,29 @@ def fixup_build_command(
 
 
 def find_build_command_line(
-    c_file: str, make_flags: List[str]
+    c_file: str, make_flags: List[str], build_system: str
 ) -> Tuple[List[str], List[str], str]:
-    makefile_dir = find_makefile_dir(os.path.abspath(os.path.dirname(c_file)))
-    rel_c_file = os.path.relpath(c_file, makefile_dir)
-    make_invocation = [make_cmd, "--always-make", "--dry-run", "--debug=j"] + make_flags
+    if build_system == "make":
+        root_dir = find_root_dir(os.path.abspath(os.path.dirname(c_file)), ["Makefile", "makefile"])
+        build_invocation = [make_cmd, "--always-make", "--dry-run", "--debug=j", "PERMUTER=1"] + make_flags
+    elif build_system == "ninja":
+        root_dir = find_root_dir(os.path.abspath(os.path.dirname(c_file)), ["build.ninja"])
+        build_invocation = ["ninja", "-t", "commands"] + make_flags
+    else:
+        print("Unknown build system '" + build_system + "'.")
+        sys.exit(1)
+
+    if not root_dir:
+        print(f"Can't find build script in parent directories of file {c_file}!", file=sys.stderr)
+        sys.exit(1)
+
+    rel_c_file = os.path.relpath(c_file, root_dir)
     debug_output = (
-        subprocess.check_output(make_invocation, cwd=makefile_dir)
+        subprocess.check_output(build_invocation, cwd=root_dir)
         .decode("utf-8")
         .split("\n")
     )
+
     output = []
     close_match = False
 
@@ -183,8 +193,17 @@ def find_build_command_line(
             line = line.replace("/./", "/")
         if rel_c_file not in line:
             continue
+
         close_match = True
         parts = shlex.split(line)
+
+        # extract actual command from 'bash -c "..."'
+        if parts[0] == "bash" and "-c" in parts:
+            for part in parts:
+                if rel_c_file in part:
+                    parts = shlex.split(part)
+                    break
+
         if rel_c_file not in parts:
             continue
         if "-o" not in parts:
@@ -204,7 +223,7 @@ def find_build_command_line(
             else ""
         )
         print(
-            "Failed to find compile command from makefile output. "
+            "Failed to find compile command from build script output. "
             f"Please ensure 'make -Bn --debug=j {formatcmd(make_flags)}' "
             f"contains a line with the string '{rel_c_file}'.{close_extra}",
             file=sys.stderr,
@@ -215,28 +234,21 @@ def find_build_command_line(
         output_lines = "\n".join(map(formatcmd, output))
         print(
             f"Error: found multiple compile commands for {rel_c_file}:\n{output_lines}\n"
-            "Please modify the makefile such that if PERMUTER = 1, "
+            "Please modify the build script such that if PERMUTER = 1, "
             "only a single compile command is included.",
             file=sys.stderr,
         )
         sys.exit(1)
 
-    return output[0], assembler, makefile_dir
+    return output[0], assembler, root_dir
 
 
 PreserveMacros = Tuple[Pattern[str], Callable[[str], str]]
 
 
 def build_preserve_macros(
-    cwd: str, preserve_regex: Optional[str]
+    cwd: str, preserve_regex: Optional[str], data: Mapping[str, object]
 ) -> Optional[PreserveMacros]:
-    data: Mapping[str, object] = {}
-    for filename in SETTINGS_FILES:
-        filename = os.path.join(cwd, filename)
-        if os.path.exists(filename):
-            with open(filename) as f:
-                data = toml.load(f)
-            break
 
     subdata = data.get("preserve_macros", {})
     assert isinstance(subdata, dict)
@@ -540,16 +552,27 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    make_flags = args.make_flags + ["PERMUTER=1"]
+    settings: Mapping[str, object] = {}
+    settings_dir = find_root_dir(args.c_file, SETTINGS_FILES)
+    if settings_dir is not None:
+        for filename in SETTINGS_FILES:
+            filename = os.path.join(settings_dir, filename)
+            if os.path.exists(filename):
+                with open(filename) as f:
+                    settings = toml.load(f)
+                break
+
+    build_system = settings.get("build_system", "make")
+    make_flags = args.make_flags
 
     func_name, asm_cont = parse_asm(args.asm_file)
     print(f"Function name: {func_name}")
 
-    compiler, assembler, cwd = find_build_command_line(args.c_file, make_flags)
+    compiler, assembler, cwd = find_build_command_line(args.c_file, make_flags, build_system)
     print(f"Compiler: {formatcmd(compiler)} {{input}} -o {{output}}")
     print(f"Assembler: {formatcmd(assembler)} {{input}} -o {{output}}")
 
-    preserve_macros = build_preserve_macros(cwd, args.preserve_macros_regex)
+    preserve_macros = build_preserve_macros(cwd, args.preserve_macros_regex, settings)
     source, macros = import_c_file(compiler, cwd, args.c_file, preserve_macros)
 
     dirname = create_directory(func_name)
