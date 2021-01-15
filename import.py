@@ -159,20 +159,14 @@ def fixup_build_command(
 
 
 def find_build_command_line(
-    c_file: str, make_flags: List[str], build_system: str
+    root_dir: str, c_file: str, make_flags: List[str], build_system: str
 ) -> Tuple[List[str], List[str], str]:
     if build_system == "make":
-        root_dir = find_root_dir(os.path.abspath(os.path.dirname(c_file)), ["Makefile", "makefile"])
         build_invocation = [make_cmd, "--always-make", "--dry-run", "--debug=j", "PERMUTER=1"] + make_flags
     elif build_system == "ninja":
-        root_dir = find_root_dir(os.path.abspath(os.path.dirname(c_file)), ["build.ninja"])
         build_invocation = ["ninja", "-t", "commands"] + make_flags
     else:
         print("Unknown build system '" + build_system + "'.")
-        sys.exit(1)
-
-    if not root_dir:
-        print(f"Can't find build script in parent directories of file {c_file}!", file=sys.stderr)
         sys.exit(1)
 
     rel_c_file = os.path.relpath(c_file, root_dir)
@@ -240,7 +234,7 @@ def find_build_command_line(
         )
         sys.exit(1)
 
-    return output[0], assembler, root_dir
+    return output[0], assembler
 
 
 PreserveMacros = Tuple[Pattern[str], Callable[[str], str]]
@@ -548,19 +542,23 @@ def main() -> None:
         dest="preserve_macros_regex",
         help="Regex for which macros to preserve, or empty string for no macros. "
         f"By default, this is read from {settings_files} in the imported "
-        "file's Makefile's directory. Type information is also read from this file.",
+        "file's project directory. Type information is also read from this file.",
     )
     args = parser.parse_args()
 
+    root_dir = find_root_dir(args.c_file, SETTINGS_FILES + ["Makefile", "makefile", "build.ninja"])
+
+    if not root_dir:
+        print(f"Can't find root dir of project!", file=sys.stderr)
+        sys.exit(1)
+
     settings: Mapping[str, object] = {}
-    settings_dir = find_root_dir(args.c_file, SETTINGS_FILES)
-    if settings_dir is not None:
-        for filename in SETTINGS_FILES:
-            filename = os.path.join(settings_dir, filename)
-            if os.path.exists(filename):
-                with open(filename) as f:
-                    settings = toml.load(f)
-                break
+    for filename in SETTINGS_FILES:
+        filename = os.path.join(root_dir, filename)
+        if os.path.exists(filename):
+            with open(filename) as f:
+                settings = toml.load(f)
+            break
 
     build_system = settings.get("build_system", "make")
     make_flags = args.make_flags
@@ -568,12 +566,12 @@ def main() -> None:
     func_name, asm_cont = parse_asm(args.asm_file)
     print(f"Function name: {func_name}")
 
-    compiler, assembler, cwd = find_build_command_line(args.c_file, make_flags, build_system)
+    compiler, assembler = find_build_command_line(root_dir, args.c_file, make_flags, build_system)
     print(f"Compiler: {formatcmd(compiler)} {{input}} -o {{output}}")
     print(f"Assembler: {formatcmd(assembler)} {{input}} -o {{output}}")
 
-    preserve_macros = build_preserve_macros(cwd, args.preserve_macros_regex, settings)
-    source, macros = import_c_file(compiler, cwd, args.c_file, preserve_macros)
+    preserve_macros = build_preserve_macros(root_dir, args.preserve_macros_regex, settings)
+    source, macros = import_c_file(compiler, root_dir, args.c_file, preserve_macros)
 
     dirname = create_directory(func_name)
     base_c_file = f"{dirname}/base.c"
@@ -587,9 +585,9 @@ def main() -> None:
         # try_strip_other_fns_and_write(source, func_name, base_c_file)
         write_to_file(source, base_c_file)
         write_to_file(func_name, func_name_file)
-        write_compile_command(compiler, cwd, compile_script)
+        write_compile_command(compiler, root_dir, compile_script)
         write_asm(asm_cont, target_s_file)
-        compile_asm(assembler, cwd, target_s_file, target_o_file)
+        compile_asm(assembler, root_dir, target_s_file, target_o_file)
         compile_base(compile_script, base_c_file, base_o_file)
     except:
         if not args.keep:
