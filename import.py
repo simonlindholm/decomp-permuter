@@ -230,7 +230,7 @@ def find_build_command_line(
     if len(output) > 1:
         output_lines = "\n".join(map(formatcmd, output))
         print(
-            f"Error: found multiple compile commands for {rel_c_file}:\n{output_lines}\n{close_extra}"
+            f"Error: found multiple compile commands for {rel_c_file}:\n{output_lines}\n"
             f"Please modify the build script such that '{' '.join(build_invocation)}' "
             "produces a single compile command.",
             file=sys.stderr,
