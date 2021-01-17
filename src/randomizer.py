@@ -18,7 +18,7 @@ from typing import (
     Union,
 )
 
-from pycparser import c_ast as ca, c_parser, c_generator
+from pycparser import c_ast as ca
 
 from . import ast_util
 from .ast_util import Block, Indices, Statement, Expression

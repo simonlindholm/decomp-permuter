@@ -7,6 +7,7 @@ from .perm import (
     IgnorePerm,
     IntPerm,
     LineSwapPerm,
+    LineSwapAstPerm,
     OncePerm,
     Perm,
     PretendPerm,
@@ -78,7 +79,8 @@ PERM_FACTORIES: Dict[str, Callable[[str], Perm]] = {
     "PERM_ONCE": lambda text: make_once_perm(text),
     "PERM_RANDOMIZE": lambda text: RandomizerPerm(rec_perm_gen(text)),
     "PERM_VAR": lambda text: make_var_perm(text),
-    "PERM_LINESWAP": lambda text: LineSwapPerm(split_args_newline(text)),
+    "PERM_LINESWAP_TEXT": lambda text: LineSwapPerm(split_args_newline(text)),
+    "PERM_LINESWAP": lambda text: LineSwapAstPerm(split_args_newline(text)),
     "PERM_INT": lambda text: IntPerm(*map(int, split_args_text(text))),
     "PERM_IGNORE": lambda text: IgnorePerm(rec_perm_gen(text)),
     "PERM_PRETEND": lambda text: PretendPerm(rec_perm_gen(text)),
@@ -137,4 +139,6 @@ def perm_gen(text: str) -> Perm:
     ret = RootPerm(ret)
     if not ret.is_random():
         print(f"Will run for {ret.perm_count} iterations.")
+    else:
+        print(f"Will try {ret.perm_count} different base sources.")
     return ret

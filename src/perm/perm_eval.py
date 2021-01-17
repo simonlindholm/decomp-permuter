@@ -1,5 +1,5 @@
 import random
-from typing import List, Iterable, Set
+from typing import List, Iterable, Set, Tuple
 
 from .perm import Perm, EvalState
 
@@ -31,5 +31,6 @@ def perm_gen_all_seeds(perm: Perm) -> Iterable[int]:
             break
 
 
-def perm_evaluate_one(perm: Perm) -> str:
-    return perm.evaluate(0, EvalState())
+def perm_evaluate_one(perm: Perm) -> Tuple[str, EvalState]:
+    eval_state = EvalState()
+    return perm.evaluate(0, eval_state), eval_state

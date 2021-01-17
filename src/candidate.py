@@ -10,6 +10,7 @@ from .compiler import Compiler
 from .randomizer import Randomizer
 from .scorer import Scorer
 from .perm.perm import EvalState, Perm
+from .perm.ast import apply_ast_perms
 from .helpers import try_remove
 from .profiler import Profiler
 from . import perm
@@ -38,7 +39,6 @@ class Candidate:
 
     ast: ca.FileAST
 
-    orig_fn: ca.FuncDef
     fn_index: int
     rng_seed: int
     randomizer: Randomizer
@@ -58,7 +58,9 @@ class Candidate:
         return orig_fn, fn_index, ast
 
     @staticmethod
-    def from_source(source: str, fn_name: str, rng_seed: int) -> "Candidate":
+    def from_source(
+        source: str, eval_state: EvalState, fn_name: str, rng_seed: int
+    ) -> "Candidate":
         # Use the same AST for all instances of the same original source, but
         # with the target function deeply copied. Since we never change the
         # AST outside of the target function, this is fine, and it saves us
@@ -66,10 +68,11 @@ class Candidate:
         orig_fn, fn_index, ast = Candidate._cached_shared_ast(source, fn_name)
         ast = copy.copy(ast)
         ast.ext = copy.copy(ast.ext)
-        ast.ext[fn_index] = copy.deepcopy(orig_fn)
+        fn_copy = copy.deepcopy(orig_fn)
+        ast.ext[fn_index] = fn_copy
+        apply_ast_perms(fn_copy, eval_state)
         return Candidate(
             ast=ast,
-            orig_fn=orig_fn,
             fn_index=fn_index,
             rng_seed=rng_seed,
             randomizer=Randomizer(rng_seed),
