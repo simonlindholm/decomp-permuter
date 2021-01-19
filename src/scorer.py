@@ -126,12 +126,14 @@ class Scorer:
                 for k in range(j1, j2):
                     diff_delete(self.target_seq[k].line)
 
-        common = set(deletions) & set(insertions)
-        score += len(common) * self.PENALTY_REORDERING
-        for change in deletions:
-            if change not in common:
-                score += self.PENALTY_DELETION
-        for change in insertions:
-            if change not in common:
-                score += self.PENALTY_INSERTION
+        for value in set(insertions):
+            remove_count = min([insertions.count(value), deletions.count(value)])
+            score += remove_count * self.PENALTY_REORDERING
+            for _ in range(remove_count):
+                insertions.remove(value)
+                deletions.remove(value)
+
+        score += len(deletions) * self.PENALTY_DELETION
+        score += len(insertions) * self.PENALTY_INSERTION
+
         return (score, hashlib.sha256(objdump_output.encode()).hexdigest())
