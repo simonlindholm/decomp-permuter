@@ -4,6 +4,8 @@ import hashlib
 import re
 import subprocess
 from typing import Tuple, List, Optional
+from collections import Counter
+
 
 from .objdump import objdump, sp_offset
 
@@ -132,6 +134,6 @@ class Scorer:
           ins = insertions[item]
           dels = deletions[item]
           common = min(ins, dels)
-          score += (ins - common) * self.PENALTY_INSERTION + (dels - common) * self.PENALTY_DELETION + self.PENALTY_REORDERING
+          score += (ins - common) * self.PENALTY_INSERTION + (dels - common) * self.PENALTY_DELETION + self.PENALTY_REORDERING * common
 
         return (score, hashlib.sha256(objdump_output.encode()).hexdigest())
