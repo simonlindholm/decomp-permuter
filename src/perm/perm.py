@@ -1,9 +1,15 @@
 from base64 import b64encode
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, List, Tuple, TypeVar, Optional
 import math
 import itertools
+
+from pycparser import c_ast as ca
+
+from ..ast_util import Statement
+
+T = TypeVar("T")
 
 
 @dataclass
@@ -17,6 +23,24 @@ class PreprocessState:
 class EvalState:
     vars: Dict[str, str] = field(default_factory=dict)
     once_choices: Dict[str, "Perm"] = field(default_factory=dict)
+    ast_perms: List[Tuple["Perm", int]] = field(default_factory=list)
+
+    def register_ast_perm(self, perm: "Perm", seed: int) -> int:
+        ret = len(self.ast_perms)
+        self.ast_perms.append((perm, seed))
+        return ret
+
+    def gen_ast_statement_perm(
+        self, perm: "Perm", seed: int, *, statements: List[str]
+    ) -> str:
+        perm_id = self.register_ast_perm(perm, seed)
+        lines = [
+            "{",
+            f"#pragma _permuter ast_perm {perm_id}",
+            *["{" + stmt + "}" for stmt in statements],
+            "}",
+        ]
+        return "\n".join(lines)
 
 
 class Perm:
@@ -34,6 +58,9 @@ class Perm:
 
     def evaluate(self, seed: int, state: EvalState) -> str:
         return ""
+
+    def eval_statement_ast(self, args: List[Statement], seed: int) -> List[Statement]:
+        raise NotImplementedError
 
     def preprocess(self, state: PreprocessState) -> None:
         for p in self.children:
@@ -69,6 +96,17 @@ def _eval_either(seed: int, perms: List[Perm], state: EvalState) -> str:
 
 def _count_either(perms: List[Perm]) -> int:
     return sum(p.perm_count for p in perms)
+
+
+def _shuffle(items: List[T], seed: int) -> List[T]:
+    items = items[:]
+    output = []
+    while items:
+        ind = seed % len(items)
+        seed //= len(items)
+        output.append(items[ind])
+        del items[ind]
+    return output
 
 
 class RootPerm(Perm):
@@ -219,13 +257,26 @@ class LineSwapPerm(Perm):
     def evaluate(self, seed: int, state: EvalState) -> str:
         sub_seed, variation = divmod(seed, self.own_count)
         texts = _eval_all(sub_seed, self.children, state)
-        output = []
-        while texts:
-            ind = variation % len(texts)
-            variation //= len(texts)
-            output.append(texts[ind])
-            del texts[ind]
-        return "\n".join(output)
+        return "\n".join(_shuffle(texts, variation))
+
+
+class LineSwapAstPerm(Perm):
+    def __init__(self, lines: List[Perm]) -> None:
+        self.children = lines
+        self.own_count = math.factorial(len(lines))
+        self.perm_count = self.own_count * _count_all(self.children)
+
+    def evaluate(self, seed: int, state: EvalState) -> str:
+        sub_seed, variation = divmod(seed, self.own_count)
+        texts = _eval_all(sub_seed, self.children, state)
+        return state.gen_ast_statement_perm(self, variation, statements=texts)
+
+    def eval_statement_ast(self, args: List[Statement], seed: int) -> List[Statement]:
+        ret = []
+        for item in _shuffle(args, seed):
+            assert isinstance(item, ca.Compound)
+            ret.extend(item.block_items or [])
+        return ret
 
 
 class IntPerm(Perm):

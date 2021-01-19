@@ -17,8 +17,9 @@ from typing import (
 from .candidate import Candidate, CandidateResult
 from .compiler import Compiler
 from .error import CandidateConstructionFailure
-from .perm import perm_gen, perm_eval
 from .perm.perm import EvalState
+from .perm.eval import perm_evaluate_one, perm_gen_all_seeds
+from .perm.parse import perm_parse
 from .profiler import Profiler
 from .scorer import Scorer
 
@@ -80,7 +81,7 @@ class Permuter:
             self.fn_name = fn_name
         self.unique_name = self.fn_name
 
-        self._permutations = perm_gen.perm_gen(source)
+        self._permutations = perm_parse(source)
 
         self._force_seed = force_seed
         self._force_rng_seed = force_rng_seed
@@ -101,8 +102,10 @@ class Permuter:
         self._last_score: Optional[int] = None
 
     def _create_and_score_base(self) -> Tuple[int, str, str]:
-        base_source = perm_eval.perm_evaluate_one(self._permutations)
-        base_cand = Candidate.from_source(base_source, self.fn_name, rng_seed=0)
+        base_source, eval_state = perm_evaluate_one(self._permutations)
+        base_cand = Candidate.from_source(
+            base_source, eval_state, self.fn_name, rng_seed=0
+        )
         o_file = base_cand.compile(self.compiler, show_errors=True)
         if not o_file:
             raise CandidateConstructionFailure(f"Unable to compile {self.source_file}")
@@ -137,11 +140,12 @@ class Permuter:
         # This means we're not guaranteed to test all seeds, but it doesn't really matter since
         # we're randomizing anyway.
         if not self._cur_cand or not keep:
-            cand_c = self._permutations.evaluate(seed, EvalState())
+            eval_state = EvalState()
+            cand_c = self._permutations.evaluate(seed, eval_state)
             rng_seed = self._force_rng_seed or random.randrange(1, 10 ** 20)
             self._cur_seed = (seed, rng_seed)
             self._cur_cand = Candidate.from_source(
-                cand_c, self.fn_name, rng_seed=rng_seed
+                cand_c, eval_state, self.fn_name, rng_seed=rng_seed
             )
 
         # Randomize the candidate
@@ -181,7 +185,7 @@ class Permuter:
         """Create an iterator over all seeds for this permuter. The iterator
         will be infinite if we are randomizing."""
         if self._force_seed is None:
-            return iter(perm_eval.perm_gen_all_seeds(self._permutations))
+            return iter(perm_gen_all_seeds(self._permutations))
         if self._permutations.is_random():
             return itertools.repeat(self._force_seed)
         return iter([self._force_seed])
