@@ -564,13 +564,24 @@ def main() -> None:
             break
 
     build_system = settings.get("build_system", "make")
-    assert isinstance(build_system, str)
+    compiler = settings.get("compiler_command")
+    assembler = settings.get("assembler_command")
     make_flags = args.make_flags
 
     func_name, asm_cont = parse_asm(args.asm_file)
     print(f"Function name: {func_name}")
 
-    compiler, assembler = find_build_command_line(root_dir, args.c_file, make_flags, build_system)
+    if compiler or assembler:
+        assert isinstance(compiler, str)
+        assert isinstance(assembler, str)
+        assert settings.get("build_system") is None
+
+        compiler = shlex.split(compiler)
+        assembler = shlex.split(assembler)
+    else:
+        assert isinstance(build_system, str)
+        compiler, assembler = find_build_command_line(root_dir, args.c_file, make_flags, build_system)
+
     print(f"Compiler: {formatcmd(compiler)} {{input}} -o {{output}}")
     print(f"Assembler: {formatcmd(assembler)} {{input}} -o {{output}}")
 
