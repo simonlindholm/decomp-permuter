@@ -1477,13 +1477,16 @@ def perm_float_literal(
     choices: List[str] = [value[:-1]]
     if value.endswith(".0f"):
         choices.append(value[:-3] or "0")
-        choices.append((value[:-3] or "0") + ".f")
     elif value.endswith(".f"):
         choices.append(value[:-2] or "0")
     if value.startswith("0."):
         choices.append("." + (value[2:] or "0"))
     elif value.startswith("."):
         choices.append("0" + value)
+    if value.endswith(".0f"):
+        choices.append((value[:-3] or "0") + ".f")
+    else:
+        choices.append(value[:-1] + "0f")
 
     ensure(choices)
     value = random.choice(choices)
