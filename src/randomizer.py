@@ -395,11 +395,11 @@ def random_bool(random: Random, prob: float) -> bool:
 
 
 def random_weighted(random: Random, values: Sequence[Tuple[T, float]]) -> T:
-    assert values, "Cannot pick randomly from empty set"
     sumprob = 0.0
     for (val, prob) in values:
-        assert prob > 0, "Probabilities must be positive"
+        assert prob >= 0, "Probabilities must be non-negative"
         sumprob += prob
+    assert sumprob > 0, "Cannot pick randomly from empty set"
     targetprob = random.uniform(0, sumprob)
     sumprob = 0.0
     for (val, prob) in values:
@@ -408,7 +408,10 @@ def random_weighted(random: Random, values: Sequence[Tuple[T, float]]) -> T:
             return val
 
     # Float imprecision
-    return values[0][0]
+    for (val, prob) in values:
+        if prob > 0:
+            return val
+    assert False, "unreachable"
 
 
 def random_type(random: Random) -> SimpleType:
