@@ -845,6 +845,7 @@ def perm_randomize_internal_type(
         def visit_Decl(self, decl: ca.Decl) -> None:
             if isinstance(decl.type, ca.TypeDecl) and decl.name and decl.name in names:
                 decls.append(decl)
+            self.generic_visit(decl)
 
     Visitor().visit(fn)
 
@@ -907,6 +908,7 @@ def perm_randomize_function_type(
         def visit_FuncCall(self, node: ca.FuncCall) -> None:
             if region.contains_node(node) and isinstance(node.name, ca.ID):
                 names.add(node.name.name)
+            self.generic_visit(node)
 
     IdVisitor().visit(fn)
 
@@ -1147,6 +1149,7 @@ def perm_associative(
         def visit_BinaryOp(self, node: ca.BinaryOp) -> None:
             if node.op in commutative_ops and region.contains_node(node):
                 cands.append(node)
+            self.generic_visit(node)
 
     Visitor().visit(fn.body)
     ensure(cands)
@@ -1230,6 +1233,7 @@ def perm_add_self_assignment(
         def visit_Decl(self, decl: ca.Decl) -> None:
             if decl.name:
                 vars.append(decl.name)
+            self.generic_visit(decl)
 
     Visitor().visit(fn.body)
     ensure(vars)
@@ -1354,14 +1358,14 @@ def perm_compound_assignment(
 
     class Visitor(ca.NodeVisitor):
         def visit_Assignment(self, node: ca.Assignment) -> None:
-            if not region.contains_node(node):
-                return
-            if node.op != "=" or (
-                isinstance(node.rvalue, ca.BinaryOp)
-                and ast_util.equal_ast(node.lvalue, node.rvalue.left)
-                and node.rvalue.op in operators
-            ):
-                cands.append(node)
+            if region.contains_node(node):
+                if node.op != "=" or (
+                    isinstance(node.rvalue, ca.BinaryOp)
+                    and ast_util.equal_ast(node.lvalue, node.rvalue.left)
+                    and node.rvalue.op in operators
+                ):
+                    cands.append(node)
+            self.generic_visit(node)
 
     Visitor().visit(fn.body)
     ensure(cands)
@@ -1389,6 +1393,7 @@ def perm_inequalities(
         def visit_BinaryOp(self, node: ca.BinaryOp) -> None:
             if node.op in inequalities and region.contains_node(node):
                 cands.append(node)
+            self.generic_visit(node)
 
     Visitor().visit(fn.body)
     ensure(cands)
@@ -1580,6 +1585,7 @@ def perm_struct_ref(
         def visit_StructRef(self, node: ca.StructRef) -> None:
             if region.contains_node(node):
                 cands.append(node)
+            self.generic_visit(node)
 
     Visitor().visit(fn.body)
     ensure(cands)
@@ -1722,6 +1728,7 @@ def perm_split_assignment(
                 and region.contains_node(node)
             ):
                 cands.append(node)
+            self.generic_visit(node)
 
     Visitor().visit(fn.body)
     ensure(cands)
@@ -1780,6 +1787,7 @@ def perm_remove_ast(
         def visit_Cast(self, node: ca.Cast) -> None:
             if region.contains_node(node):
                 cands.append((node, node.expr))
+            self.generic_visit(node)
 
         # Replace (a & constant) with (a).
         def visit_BinaryOp(self, node: ca.BinaryOp) -> None:
@@ -1788,23 +1796,24 @@ def perm_remove_ast(
                     cands.append((node, node.right))
                 if isinstance(node.right, ca.Constant):
                     cands.append((node, node.left))
+            self.generic_visit(node)
 
         # Remove if statements that don't have an else
         def visit_If(self, node: ca.If) -> None:
-            if node.iffalse:
-                return
-
-            if region.contains_node(node):
+            if not node.iffalse and region.contains_node(node):
                 cands.append((node, node.iftrue))
+            self.generic_visit(node)
 
         # Remove loops
         def visit_While(self, node: ca.While) -> None:
             if region.contains_node(node):
                 cands.append((node, node.stmt))
+            self.generic_visit(node)
 
         def visit_DoWhile(self, node: ca.DoWhile) -> None:
             if region.contains_node(node):
                 cands.append((node, node.stmt))
+            self.generic_visit(node)
 
     Visitor().visit(fn.body)
     ensure(cands)
@@ -1821,10 +1830,9 @@ def perm_duplicate_assignment(
 
     class Visitor(ca.NodeVisitor):
         def visit_Assignment(self, node: ca.Assignment) -> None:
-            if not region.contains_node(node):
-                return
-            if node.op == "=":
+            if region.contains_node(node) and node.op == "=":
                 cands.append(node)
+            self.generic_visit(node)
 
     Visitor().visit(fn.body)
     ensure(cands)
@@ -1848,6 +1856,7 @@ def perm_pad_var_decl(
         def visit_Decl(self, decl: ca.Decl) -> None:
             if decl.name:
                 vars.append(decl.name)
+            self.generic_visit(decl)
 
     Visitor().visit(fn.body)
 
