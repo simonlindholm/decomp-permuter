@@ -18,7 +18,7 @@ from typing import (
     Union,
 )
 
-from pycparser import c_ast as ca, c_parser, c_generator
+from pycparser import c_ast as ca
 
 from . import ast_util
 from .ast_util import Block, Indices, Statement, Expression
@@ -395,11 +395,11 @@ def random_bool(random: Random, prob: float) -> bool:
 
 
 def random_weighted(random: Random, values: Sequence[Tuple[T, float]]) -> T:
-    assert values, "Cannot pick randomly from empty set"
     sumprob = 0.0
     for (val, prob) in values:
-        assert prob > 0, "Probabilities must be positive"
+        assert prob >= 0, "Probabilities must be non-negative"
         sumprob += prob
+    assert sumprob > 0, "Cannot pick randomly from empty set"
     targetprob = random.uniform(0, sumprob)
     sumprob = 0.0
     for (val, prob) in values:
@@ -408,7 +408,10 @@ def random_weighted(random: Random, values: Sequence[Tuple[T, float]]) -> T:
             return val
 
     # Float imprecision
-    return values[0][0]
+    for (val, prob) in values:
+        if prob > 0:
+            return val
+    assert False, "unreachable"
 
 
 def random_type(random: Random) -> SimpleType:
@@ -1425,8 +1428,9 @@ def perm_inequalities(
 def perm_add_mask(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> None:
-    """Add a mask of 0xFF[FFFFFFFFFFFFFF] to a random expression of integer type.
-    In some cases this mask is optimized out but affects regalloc."""
+    """Add a random amount of masks of 0xFF[FFFFFFFFFFFFFF] to a random expression of integer type.
+    In some cases this mask is optimized out but affects regalloc.
+    The regalloc change seems to cycle with slight differences every n masks."""
     typemap = build_typemap(ast)
 
     # Find expression to add the mask to
@@ -1447,6 +1451,10 @@ def perm_add_mask(
     mask = random.choice(masks) + random.choice(["", "u"])
 
     new_expr = ca.BinaryOp("&", expr, ca.Constant("int", mask))
+    if random_bool(random, 0.3):
+        for _ in range(random.randrange(12)):
+            new_expr = ca.BinaryOp("&", new_expr, ca.Constant("int", mask))
+
     replace_node(fn.body, expr, new_expr)
 
 
@@ -1478,6 +1486,10 @@ def perm_float_literal(
         choices.append("." + (value[2:] or "0"))
     elif value.startswith("."):
         choices.append("0" + value)
+    if value.endswith(".0f"):
+        choices.append((value[:-3] or "0") + ".f")
+    else:
+        choices.append(value[:-1] + "0f")
 
     ensure(choices)
     value = random.choice(choices)
@@ -1862,7 +1874,7 @@ class Randomizer:
             (perm_temp_for_expr, 100),
             (perm_expand_expr, 20),
             (perm_reorder_stmts, 20),
-            (perm_add_mask, 10),
+            (perm_add_mask, 15),
             (perm_cast_simple, 10),
             (perm_refer_to_var, 10),
             (perm_float_literal, 10),

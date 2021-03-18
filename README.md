@@ -31,12 +31,18 @@ For projects with a properly configured makefile, you should be able to set thes
 where file.c contains the function to be permuted, and file.s is its assembly in a self-contained file.
 Otherwise, see USAGE.md for more details.
 
+For projects using Ninja instead of Make, add a `permuter_settings.toml` in the root or `tools/` directory of the project:
+```toml
+build_system = "ninja"
+```
+Then `import.py` should work as expected if `build.ninja` is at the root of the project.
+
 The .c file may be modified with any of the following macros which affect manual permutation:
 
 - `PERM_GENERAL(a, b, ...)` expands to any of `a`, `b`, ...
 - `PERM_VAR(a, b)` sets the meta-variable `a` to `b`, `PERM_VAR(a)` expands to the meta-variable `a`.
 - `PERM_RANDOMIZE(code)` expands to `code`, but allows randomization within that region. Multiple regions may be specified.
-- `PERM_LINESWAP(lines)` expands to a permutation of the ordered set of non-whitespace lines (split by `\n`). Warning: this gets slow with more than 5 lines or so!
+- `PERM_LINESWAP(lines)` expands to a permutation of the ordered set of non-whitespace lines (split by `\n`). Each line must contain zero or more complete C statements. (For incomplete statements use `PERM_LINESWAP_TEXT`, which is slower because it has to repeatedly parse C code.)
 - `PERM_INT(lo, hi)` expands to an integer between `lo` and `hi` (which must be constants).
 - `PERM_IGNORE(code)` expands to `code`, without passing it through the C parser library (pycparser)/randomizer. This can be used to avoid parse errors for non-standard C, e.g. `asm` blocks.
 - `PERM_PRETEND(code)` expands to `code` for the purpose of the C parser/randomizer, but gets removed afterwards. This can be used together with `PERM_IGNORE` to enable the permuter to deal with input it isn't designed for (e.g. inline functions, C++, non-code).

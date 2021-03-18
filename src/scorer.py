@@ -4,6 +4,8 @@ import hashlib
 import re
 import subprocess
 from typing import Tuple, List, Optional
+from collections import Counter
+
 
 from .objdump import objdump, sp_offset
 
@@ -126,12 +128,16 @@ class Scorer:
                 for k in range(j1, j2):
                     diff_delete(self.target_seq[k].line)
 
-        common = set(deletions) & set(insertions)
-        score += len(common) * self.PENALTY_REORDERING
-        for change in deletions:
-            if change not in common:
-                score += self.PENALTY_DELETION
-        for change in insertions:
-            if change not in common:
-                score += self.PENALTY_INSERTION
+        insertions_co = Counter(insertions)
+        deletions_co = Counter(deletions)
+        for item in insertions_co + deletions_co:
+            ins = insertions_co[item]
+            dels = deletions_co[item]
+            common = min(ins, dels)
+            score += (
+                (ins - common) * self.PENALTY_INSERTION
+                + (dels - common) * self.PENALTY_DELETION
+                + self.PENALTY_REORDERING * common
+            )
+
         return (score, hashlib.sha256(objdump_output.encode()).hexdigest())

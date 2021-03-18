@@ -184,6 +184,36 @@ class TestPermMacros(unittest.TestCase):
         )
         self.assertEqual(score, 0)
 
+    def test_lineswap(self) -> None:
+        score = self.go(
+            "void a(); void b(); void c(); void test(void) {",
+            "}",
+            """
+            PERM_LINESWAP(
+                a();
+                b();
+                c();
+            )
+            """,
+            "b(); a(); c();",
+        )
+        self.assertEqual(score, 0)
+
+    def test_lineswap_text(self) -> None:
+        score = self.go(
+            "void a(); void b(); void c(); void test(void) {",
+            "}",
+            """
+            PERM_LINESWAP_TEXT(
+                a();
+                b();
+                c();
+            )
+            """,
+            "b(); a(); c();",
+        )
+        self.assertEqual(score, 0)
+
     def test_randomizer(self) -> None:
         score = self.go(
             "void foo(); void bar(); void test(void) {",
