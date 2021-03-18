@@ -238,7 +238,7 @@ class ServerHandler(socketserver.BaseRequestHandler):
         msg = socket_read_fixed(sock, 4)
         version = struct.unpack(">I", msg)[0]
 
-        if version == 2**32 - 1:
+        if version == 2 ** 32 - 1:
             # Auth server ping.
             msg = socket_read_fixed(sock, 9 + 32 + 64)
             magic = verify_with_magic(b"AUTHPING", auth_ver_key, msg)
@@ -598,7 +598,11 @@ class Server:
             if isinstance(msg, PermInitFail):
                 self._remove(state)
                 self._send_io(state, IoDisconnect("failed to compile"))
-                state.output_queue.put(OutputInitFail(error=msg.error,))
+                state.output_queue.put(
+                    OutputInitFail(
+                        error=msg.error,
+                    )
+                )
 
             else:
                 state.perm_bases[perm_index] = (msg.base_score, msg.base_hash)
@@ -633,7 +637,10 @@ class Server:
                 ),
             )
             state.output_queue.put(
-                OutputWork(obj=obj, compressed_source=msg.compressed_source,)
+                OutputWork(
+                    obj=obj,
+                    compressed_source=msg.compressed_source,
+                )
             )
 
         else:
@@ -644,7 +651,10 @@ class Server:
         if state.init_state != InitState.UNINIT:
             for i in range(state.num_permuters):
                 self._evaluator_port.send_json(
-                    {"type": "remove", "id": self._to_permid(state, i),}
+                    {
+                        "type": "remove",
+                        "id": self._to_permid(state, i),
+                    }
                 )
         del self._states[state.handle]
 
@@ -784,7 +794,8 @@ class Server:
                         )
                     else:
                         resp = PermInitFail(
-                            perm_id=perm_id, error=json_prop(msg, "error", str),
+                            perm_id=perm_id,
+                            error=json_prop(msg, "error", str),
                         )
                     self._queue.put(resp)
 

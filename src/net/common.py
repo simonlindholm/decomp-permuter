@@ -8,7 +8,7 @@ import toml
 from typing import BinaryIO, List, NoReturn, Optional, Type, TypeVar, Union
 
 from nacl.encoding import HexEncoder
-from nacl.public import Box, PrivateKey, PublicKey, SealedBox
+from nacl.public import Box, PrivateKey, PublicKey
 from nacl.secret import SecretBox
 from nacl.signing import SigningKey, VerifyKey
 
