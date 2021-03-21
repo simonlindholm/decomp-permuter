@@ -1,9 +1,10 @@
-use crate::util::SimpleResult;
 use sodiumoxide::crypto::box_;
 use sodiumoxide::crypto::box_::{Nonce, PrecomputedKey};
 use std::convert::TryInto;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::{ReadHalf, WriteHalf};
+
+use pahserver::util::SimpleResult;
 
 pub struct ReadPort<'a> {
     read_half: ReadHalf<'a>,

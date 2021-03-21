@@ -1,34 +1,36 @@
 #![allow(clippy::try_err)]
 
-use crate::port::{ReadPort, WritePort};
-use crate::util::SimpleResult;
-use hex::FromHex;
-use serde::{Deserialize, Deserializer};
+use std::error::Error;
+
+use serde::Deserialize;
 use sodiumoxide::crypto::box_;
 use sodiumoxide::crypto::sign;
-use std::error::Error;
+use structopt::StructOpt;
 use tokio::fs;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::{ReadHalf, WriteHalf};
 use tokio::net::{TcpListener, TcpStream};
-use structopt::StructOpt;
+use std::sync::RwLock;
+
+use crate::port::{ReadPort, WritePort};
+use pahserver::db::{DB, HexString, UserId};
+use pahserver::util::SimpleResult;
 
 mod port;
-mod util;
 
 #[derive(StructOpt)]
 /// The permuter@home control server.
 #[structopt(name = "pahserver")]
 struct CmdOpts {
-    /// Port to listen on (0-65535)
+    /// ip:port to listen on (e.g. 0.0.0.0:1234)
     #[structopt(long)]
-    port: u16,
+    listen_on: String,
 
     /// Path to TOML configuration file
     #[structopt(long)]
     config: String,
 
-    /// Path to SQLite database
+    /// Path to JSON database
     #[structopt(long)]
     db: String,
 }
@@ -36,23 +38,13 @@ struct CmdOpts {
 #[derive(Deserialize)]
 struct Config {
     docker_image: String,
-    #[serde(deserialize_with = "seed_from_hex")]
-    priv_seed: sign::Seed,
+    priv_seed: HexString,
 }
 
 struct State {
     docker_image: String,
     sign_sk: sign::SecretKey,
-}
-
-pub fn seed_from_hex<'de, D>(deserializer: D) -> Result<sign::Seed, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    use serde::de::Error;
-    let string = String::deserialize(deserializer)?;
-    let val = Vec::from_hex(&string).map_err(|err| Error::custom(err.to_string()))?;
-    sign::Seed::from_slice(&val).ok_or_else(|| Error::custom("Seed must be 32 bytes"))
+    db: RwLock<DB>,
 }
 
 #[tokio::main]
@@ -62,13 +54,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let opts = CmdOpts::from_args();
 
     let config: Config = toml::from_str(&fs::read_to_string(&opts.config).await?)?;
-    let (_, sign_sk) = sign::keypair_from_seed(&config.priv_seed);
+    let (_, sign_sk) = sign::keypair_from_seed(&config.priv_seed.into());
+
+    let db_file = std::fs::File::open(opts.db)?;
+    let db: DB = serde_json::from_reader(&db_file)?;
+
     let state: &'static State = Box::leak(Box::new(State {
         docker_image: config.docker_image,
         sign_sk,
+        db: RwLock::new(db),
     }));
 
-    let listener = TcpListener::bind(("127.0.0.1", opts.port)).await?;
+    let listener = TcpListener::bind(opts.listen_on).await?;
 
     loop {
         // The second item contains the IP and port of the new connection.
@@ -95,7 +92,7 @@ async fn handshake<'a>(
     mut rd: ReadHalf<'a>,
     mut wr: WriteHalf<'a>,
     sign_sk: &sign::SecretKey,
-) -> SimpleResult<(ReadPort<'a>, WritePort<'a>, Box<[u8]>)> {
+) -> SimpleResult<(ReadPort<'a>, WritePort<'a>, UserId)> {
     let mut buffer = [0; 4 + 32];
     rd.read_exact(&mut buffer[..]).await?;
     let (magic, their_pk) = buffer.split_at(4);
@@ -130,13 +127,18 @@ async fn handshake<'a>(
         Err("Spoofed client signature!")?;
     }
 
-    Ok((read_port, write_port, client_signature.as_ref().into()))
+    Ok((read_port, write_port, client_ver_key.into()))
 }
 
 async fn handle_connection(mut socket: TcpStream, state: &State) -> SimpleResult<()> {
     let (rd, wr) = socket.split();
-    let (mut read_port, mut write_port, _client_id) = handshake(rd, wr, &state.sign_sk).await?;
-    // TODO: look up client_id in DB
+    let (mut read_port, mut write_port, user_id) = handshake(rd, wr, &state.sign_sk).await?;
+    {
+        let db = state.db.read().unwrap();
+        if !db.users.contains_key(&user_id) {
+            Err("Unknown client!")?;
+        }
+    }
 
     let r = tokio::try_join!(server_read(&mut read_port), server_write(&mut write_port));
     // wr.shutdown().await?;
