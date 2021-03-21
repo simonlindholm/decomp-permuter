@@ -1,7 +1,5 @@
 #![allow(clippy::try_err)]
 
-use std::error::Error;
-
 use serde::Deserialize;
 use sodiumoxide::crypto::box_;
 use sodiumoxide::crypto::sign;
@@ -10,13 +8,14 @@ use tokio::fs;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::{ReadHalf, WriteHalf};
 use tokio::net::{TcpListener, TcpStream};
-use std::sync::RwLock;
 
 use crate::port::{ReadPort, WritePort};
-use pahserver::db::{DB, HexString, UserId};
+use crate::save::{SaveableDB, SaveType};
+use pahserver::db::{HexString, UserId};
 use pahserver::util::SimpleResult;
 
 mod port;
+mod save;
 
 #[derive(StructOpt)]
 /// The permuter@home control server.
@@ -44,11 +43,11 @@ struct Config {
 struct State {
     docker_image: String,
     sign_sk: sign::SecretKey,
-    db: RwLock<DB>,
+    db: SaveableDB,
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
+async fn main() -> SimpleResult<()> {
     sodiumoxide::init().map_err(|()| "Failed to initialize cryptography library")?;
 
     let opts = CmdOpts::from_args();
@@ -56,13 +55,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let config: Config = toml::from_str(&fs::read_to_string(&opts.config).await?)?;
     let (_, sign_sk) = sign::keypair_from_seed(&config.priv_seed.into());
 
-    let db_file = std::fs::File::open(opts.db)?;
-    let db: DB = serde_json::from_reader(&db_file)?;
-
     let state: &'static State = Box::leak(Box::new(State {
         docker_image: config.docker_image,
         sign_sk,
-        db: RwLock::new(db),
+        db: SaveableDB::open(&opts.db)?,
     }));
 
     let listener = TcpListener::bind(opts.listen_on).await?;
@@ -133,11 +129,8 @@ async fn handshake<'a>(
 async fn handle_connection(mut socket: TcpStream, state: &State) -> SimpleResult<()> {
     let (rd, wr) = socket.split();
     let (mut read_port, mut write_port, user_id) = handshake(rd, wr, &state.sign_sk).await?;
-    {
-        let db = state.db.read().unwrap();
-        if !db.users.contains_key(&user_id) {
-            Err("Unknown client!")?;
-        }
+    if !state.db.read(|db| db.users.contains_key(&user_id)) {
+        Err("Unknown client!")?;
     }
 
     let r = tokio::try_join!(server_read(&mut read_port), server_write(&mut write_port));
