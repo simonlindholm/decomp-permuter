@@ -8,49 +8,58 @@ use sodiumoxide::crypto::sign;
 
 // TODO const generics
 #[derive(Debug, Hash, Eq, PartialEq)]
-pub struct HexString([u8; 32]);
+pub struct ByteString([u8; 32]);
 
-impl Serialize for HexString {
+impl ByteString {
+    fn to_hex(&self) -> String {
+        hex::encode(&self.0)
+    }
+
+    fn from_hex(string: &str) -> Result<ByteString, &'static str> {
+        Ok(ByteString(
+            Vec::from_hex(&string)
+                .map_err(|_| "not a valid hex string")?
+                .try_into()
+                .map_err(|_| "string must be 32 bytes".into())?
+        ))
+    }
+}
+
+impl Serialize for ByteString {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        serializer.serialize_str(&hex::encode(&self.0))
+        serializer.serialize_str(&self.to_hex())
     }
 }
 
-impl<'de> Deserialize<'de> for HexString {
-    fn deserialize<D>(deserializer: D) -> Result<HexString, D::Error>
+impl<'de> Deserialize<'de> for ByteString {
+    fn deserialize<D>(deserializer: D) -> Result<ByteString, D::Error>
     where
         D: Deserializer<'de>,
     {
         use serde::de::Error;
         let string = String::deserialize(deserializer)?;
-        let val = Vec::from_hex(&string).map_err(|err| Error::custom(err.to_string()))?;
-        Ok(HexString(
-            val.try_into()
-                .map_err(|_| Error::custom("string must be 32 bytes"))?,
-        ))
+        Ok(ByteString::from_hex(&string).map_err(|e| Error::custom(e))?)
     }
 }
 
-pub type UserId = HexString;
+pub type UserId = ByteString;
 
-impl From<sign::PublicKey> for UserId {
-    fn from(key: sign::PublicKey) -> UserId {
-        HexString(key.as_ref().try_into().unwrap())
+impl UserId {
+    pub fn from_pubkey(key: &sign::PublicKey) -> UserId {
+        ByteString(key.as_ref().try_into().unwrap())
+    }
+
+    pub fn to_pubkey(&self) -> sign::PublicKey {
+        sign::PublicKey::from_slice(&self.0).unwrap()
     }
 }
 
-impl From<UserId> for sign::PublicKey {
-    fn from(id: UserId) -> sign::PublicKey {
-        sign::PublicKey::from_slice(&id.0).unwrap()
-    }
-}
-
-impl From<UserId> for sign::Seed {
-    fn from(id: UserId) -> sign::Seed {
-        sign::Seed::from_slice(&id.0).unwrap()
+impl ByteString {
+    pub fn to_seed(&self) -> sign::Seed {
+        sign::Seed::from_slice(&self.0).unwrap()
     }
 }
 

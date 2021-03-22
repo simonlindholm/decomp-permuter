@@ -59,6 +59,10 @@ impl<'a> WritePort<'a> {
         self.write_half.write(&data[..]).await?;
         Ok(())
     }
+
+    pub async fn write_json(&mut self, value: &serde_json::Value) -> SimpleResult<()> {
+        self.write(&serde_json::to_vec(value)?).await
+    }
 }
 
 fn nonce_from_u64(num: u64) -> Nonce {

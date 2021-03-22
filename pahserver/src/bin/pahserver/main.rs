@@ -1,6 +1,10 @@
 #![allow(clippy::try_err)]
 
+use std::default::Default;
+
+use hex::FromHex;
 use serde::Deserialize;
+use serde_json::json;
 use sodiumoxide::crypto::box_;
 use sodiumoxide::crypto::sign;
 use structopt::StructOpt;
@@ -11,7 +15,7 @@ use tokio::net::{TcpListener, TcpStream};
 
 use crate::port::{ReadPort, WritePort};
 use crate::save::{SaveableDB, SaveType};
-use pahserver::db::{HexString, UserId};
+use pahserver::db::{ByteString, User, UserId};
 use pahserver::util::SimpleResult;
 
 mod port;
@@ -37,13 +41,20 @@ struct CmdOpts {
 #[derive(Deserialize)]
 struct Config {
     docker_image: String,
-    priv_seed: HexString,
+    priv_seed: ByteString,
 }
 
 struct State {
     docker_image: String,
     sign_sk: sign::SecretKey,
     db: SaveableDB,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "method", rename_all = "lowercase")]
+enum Request {
+    Ping,
+    Vouch { who: UserId, signed_name: String },
 }
 
 #[tokio::main]
@@ -53,7 +64,7 @@ async fn main() -> SimpleResult<()> {
     let opts = CmdOpts::from_args();
 
     let config: Config = toml::from_str(&fs::read_to_string(&opts.config).await?)?;
-    let (_, sign_sk) = sign::keypair_from_seed(&config.priv_seed.into());
+    let (_, sign_sk) = sign::keypair_from_seed(&config.priv_seed.to_seed());
 
     let state: &'static State = Box::leak(Box::new(State {
         docker_image: config.docker_image,
@@ -123,7 +134,7 @@ async fn handshake<'a>(
         Err("Spoofed client signature!")?;
     }
 
-    Ok((read_port, write_port, client_ver_key.into()))
+    Ok((read_port, write_port, UserId::from_pubkey(&client_ver_key)))
 }
 
 async fn handle_connection(mut socket: TcpStream, state: &State) -> SimpleResult<()> {
@@ -132,6 +143,30 @@ async fn handle_connection(mut socket: TcpStream, state: &State) -> SimpleResult
     if !state.db.read(|db| db.users.contains_key(&user_id)) {
         Err("Unknown client!")?;
     }
+
+    let request = read_port.read().await?;
+    let request: Request = serde_json::from_slice(&request)?;
+    match request {
+        Request::Ping => {
+            write_port.write_json(&json!({})).await?;
+        },
+        Request::Vouch { who, signed_name } => {
+            let signed_name = Vec::from_hex(&signed_name)
+                .map_err(|_| "not a valid hex string")?;
+            let name = String::from_utf8(
+                sign::verify(&signed_name, &who.to_pubkey())
+                    .map_err(|()| "bad name signature")?
+                )?;
+            state.db.write(|db| {
+                db.users.entry(who).or_insert_with(|| User {
+                    trusted_by: Some(user_id),
+                    name,
+                    client_stats: Default::default(),
+                    server_stats: Default::default(),
+                });
+            }, SaveType::Immediate);
+        },
+    };
 
     let r = tokio::try_join!(server_read(&mut read_port), server_write(&mut write_port));
     // wr.shutdown().await?;

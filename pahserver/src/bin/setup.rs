@@ -45,7 +45,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         server_stats: Default::default(),
     };
     let mut users_map: HashMap<UserId, User> = HashMap::new();
-    users_map.insert(client_pub_key.into(), root_user);
+    users_map.insert(UserId::from_pubkey(&client_pub_key), root_user);
     let db = DB {
         users: users_map,
         func_stats: HashMap::new(),
