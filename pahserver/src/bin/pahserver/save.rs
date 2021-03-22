@@ -1,6 +1,9 @@
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 
+use tempfile::NamedTempFile;
 use tokio::sync::mpsc;
 use tokio::time::timeout;
 
@@ -23,7 +26,7 @@ struct InnerSaveableDB {
 #[derive(Clone)]
 pub struct SaveableDB(Arc<RwLock<InnerSaveableDB>>);
 
-async fn save_db_loop(db: SaveableDB, save_channel: &mut mpsc::UnboundedReceiver<SaveType>) -> SimpleResult<()> {
+async fn save_db_loop(db: SaveableDB, path: &Path, save_channel: &mut mpsc::UnboundedReceiver<SaveType>) -> SimpleResult<()> {
     loop {
         match save_channel.recv().await {
             None => return Ok(()),
@@ -52,11 +55,19 @@ async fn save_db_loop(db: SaveableDB, save_channel: &mut mpsc::UnboundedReceiver
             inner.stale = false;
         }
 
-        // Actually do the save. (TODO)
-        {
-            let inner = db.0.read().unwrap();
-            println!("Save! {:?}", &inner.db);
-        }
+        // Actually do the save, by first serializing, then atomically saving
+        // the file by creating and renaming a temp file in the same directory.
+        let data = db.read(|db| serde_json::to_string(&db).unwrap());
+
+        let r: SimpleResult<()> = tokio::task::block_in_place(|| {
+            let parent_dir = path.parent().unwrap_or_else(|| Path::new("."));
+            let mut tempf = NamedTempFile::new_in(parent_dir)?;
+            tempf.write_all(data.as_bytes())?;
+            tempf.as_file().sync_all()?;
+            tempf.persist(path)?;
+            Ok(())
+        });
+        r?;
     }
 }
 
@@ -73,10 +84,11 @@ impl SaveableDB {
             save_chan: save_tx,
         })));
 
+        let path = PathBuf::from(filename);
         let db2 = saveable_db.clone();
 
         tokio::spawn(async move {
-            if let Err(e) = save_db_loop(db2, &mut save_rx).await {
+            if let Err(e) = save_db_loop(db2, &path, &mut save_rx).await {
                 eprintln!("Failed to save! {:?}", e);
                 std::process::exit(1);
             }
