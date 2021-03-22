@@ -144,6 +144,7 @@ def run_vouch(vouch_text: str) -> None:
         print("Could not parse data!")
         return
 
+    # TODO: don't allow escape codes
     if not _ask(f"Grant permuter server access to {nickname}", default=True):
         return
 
