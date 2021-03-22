@@ -14,7 +14,7 @@ use tokio::net::tcp::{ReadHalf, WriteHalf};
 use tokio::net::{TcpListener, TcpStream};
 
 use crate::port::{ReadPort, WritePort};
-use crate::save::{SaveableDB, SaveType};
+use crate::save::{SaveType, SaveableDB};
 use pahserver::db::{ByteString, User, UserId};
 use pahserver::util::SimpleResult;
 
@@ -55,6 +55,8 @@ struct State {
 enum Request {
     Ping,
     Vouch { who: UserId, signed_name: String },
+    ConnectServer,
+    ConnectClient,
 }
 
 #[tokio::main]
@@ -149,23 +151,32 @@ async fn handle_connection(mut socket: TcpStream, state: &State) -> SimpleResult
     match request {
         Request::Ping => {
             write_port.write_json(&json!({})).await?;
-        },
+        }
         Request::Vouch { who, signed_name } => {
-            let signed_name = Vec::from_hex(&signed_name)
-                .map_err(|_| "not a valid hex string")?;
+            let signed_name = Vec::from_hex(&signed_name).map_err(|_| "not a valid hex string")?;
             let name = String::from_utf8(
-                sign::verify(&signed_name, &who.to_pubkey())
-                    .map_err(|()| "bad name signature")?
-                )?;
-            state.db.write(|db| {
+                sign::verify(&signed_name, &who.to_pubkey()).map_err(|()| "bad name signature")?,
+            )?;
+            state.db.write(SaveType::Immediate, |db| {
                 db.users.entry(who).or_insert_with(|| User {
                     trusted_by: Some(user_id),
                     name,
                     client_stats: Default::default(),
                     server_stats: Default::default(),
                 });
-            }, SaveType::Immediate);
-        },
+            });
+            write_port.write_json(&json!({})).await?;
+        }
+        Request::ConnectServer => {
+            write_port
+                .write_json(&json!({
+                    "docker_image": &state.docker_image,
+                }))
+                .await?;
+        }
+        Request::ConnectClient => {
+            write_port.write_json(&json!({})).await?;
+        }
     };
 
     let r = tokio::try_join!(server_read(&mut read_port), server_write(&mut write_port));

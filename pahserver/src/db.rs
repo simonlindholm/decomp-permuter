@@ -20,7 +20,7 @@ impl ByteString {
             Vec::from_hex(&string)
                 .map_err(|_| "not a valid hex string")?
                 .try_into()
-                .map_err(|_| "string must be 32 bytes".into())?
+                .map_err(|_| "string must be 32 bytes".into())?,
         ))
     }
 }

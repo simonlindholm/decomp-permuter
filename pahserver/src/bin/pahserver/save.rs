@@ -1,7 +1,7 @@
-use std::sync::{Arc, RwLock};
-use std::time::Duration;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, RwLock};
+use std::time::Duration;
 
 use tempfile::NamedTempFile;
 use tokio::sync::mpsc;
@@ -26,22 +26,27 @@ struct InnerSaveableDB {
 #[derive(Clone)]
 pub struct SaveableDB(Arc<RwLock<InnerSaveableDB>>);
 
-async fn save_db_loop(db: SaveableDB, path: &Path, save_channel: &mut mpsc::UnboundedReceiver<SaveType>) -> SimpleResult<()> {
+async fn save_db_loop(
+    db: SaveableDB,
+    path: &Path,
+    save_channel: &mut mpsc::UnboundedReceiver<SaveType>,
+) -> SimpleResult<()> {
     loop {
         match save_channel.recv().await {
             None => return Ok(()),
-            Some(SaveType::Immediate) => {},
+            Some(SaveType::Immediate) => {}
             Some(SaveType::Delayed) => {
                 // Wait for SAVE_INTERVAL or until we receive an Immediate save.
                 let _ = timeout(SAVE_INTERVAL, async {
                     loop {
                         match save_channel.recv().await {
-                            None | Some(SaveType::Immediate) => { break },
-                            Some(SaveType::Delayed) => {},
+                            None | Some(SaveType::Immediate) => break,
+                            Some(SaveType::Delayed) => {}
                         };
                     }
-                }).await;
-            },
+                })
+                .await;
+            }
         };
 
         // Would be good to clear the queue in case more messages have stacked
@@ -102,11 +107,15 @@ impl SaveableDB {
         callback(&inner.db)
     }
 
-    pub fn write<T>(&self, callback: impl FnOnce(&mut DB) -> T, save_type: SaveType) -> T {
+    pub fn write<T>(&self, save_type: SaveType, callback: impl FnOnce(&mut DB) -> T) -> T {
         let mut inner = self.0.write().unwrap();
         let ret = callback(&mut inner.db);
         if matches!(save_type, SaveType::Immediate) || !inner.stale {
-            inner.save_chan.send(save_type).map_err(|_| ()).expect("Failed to send message to save task");
+            inner
+                .save_chan
+                .send(save_type)
+                .map_err(|_| ())
+                .expect("Failed to send message to save task");
         }
         inner.stale = true;
         ret
