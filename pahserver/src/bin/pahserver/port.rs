@@ -79,20 +79,3 @@ fn nonce_from_u64(num: u64) -> Nonce {
     let nonce_bytes = [[0; 8], [0; 8], num.to_be_bytes()].concat();
     Nonce::from_slice(&nonce_bytes).unwrap()
 }
-
-/*
-class Port(abc.ABC):
-    def send_json(self, msg: dict) -> None:
-        """Send a message in the form of a JSON dict, potentially blocking."""
-        self.send(json.dumps(msg).encode("utf-8"))
-
-    def receive_json(self) -> dict:
-        """Read a message in the form of a JSON dict, blocking."""
-        ret = json.loads(self.receive())
-        if not isinstance(ret, dict):
-            # We always pass dictionaries as messages and no other data types,
-            # to ensure future extensibility. (Other types are rare in
-            # practice, anyway.)
-            raise ValueError("Top-level JSON value must be a dictionary")
-        return ret
-*/
