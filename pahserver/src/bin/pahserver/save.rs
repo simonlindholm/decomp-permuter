@@ -4,7 +4,7 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use tempfile::NamedTempFile;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tokio::time::timeout;
 
 use pahserver::db::DB;
@@ -12,9 +12,9 @@ use pahserver::util::SimpleResult;
 
 const SAVE_INTERVAL: Duration = Duration::from_secs(30);
 
-pub enum SaveType {
+enum SaveType {
     Delayed,
-    Immediate,
+    Immediate(oneshot::Sender<()>),
 }
 
 struct InnerSaveableDB {
@@ -32,15 +32,24 @@ async fn save_db_loop(
     save_channel: &mut mpsc::UnboundedReceiver<SaveType>,
 ) -> SimpleResult<()> {
     loop {
+        let mut done_chans = Vec::new();
         match save_channel.recv().await {
             None => return Ok(()),
-            Some(SaveType::Immediate) => {}
+            Some(SaveType::Immediate(chan)) => {
+                done_chans.push(chan);
+            }
             Some(SaveType::Delayed) => {
                 // Wait for SAVE_INTERVAL or until we receive an Immediate save.
                 let _ = timeout(SAVE_INTERVAL, async {
                     loop {
                         match save_channel.recv().await {
-                            None | Some(SaveType::Immediate) => break,
+                            None => {
+                                break;
+                            }
+                            Some(SaveType::Immediate(chan)) => {
+                                done_chans.push(chan);
+                                break;
+                            }
                             Some(SaveType::Delayed) => {}
                         };
                     }
@@ -73,6 +82,10 @@ async fn save_db_loop(
             Ok(())
         });
         r?;
+
+        for chan in done_chans {
+            let _ = chan.send(());
+        }
     }
 }
 
@@ -107,17 +120,33 @@ impl SaveableDB {
         callback(&inner.db)
     }
 
-    pub fn write<T>(&self, save_type: SaveType, callback: impl FnOnce(&mut DB) -> T) -> T {
-        let mut inner = self.0.write().unwrap();
-        let ret = callback(&mut inner.db);
-        if matches!(save_type, SaveType::Immediate) || !inner.stale {
-            inner
-                .save_chan
-                .send(save_type)
-                .map_err(|_| ())
-                .expect("Failed to send message to save task");
+    pub async fn write<T>(&self, immediate: bool, callback: impl FnOnce(&mut DB) -> T) -> T {
+        let ret;
+        let rx2;
+        {
+            let mut inner = self.0.write().unwrap();
+            inner.stale = true;
+            ret = callback(&mut inner.db);
+            if immediate {
+                let (tx, rx) = oneshot::channel();
+                rx2 = rx;
+                inner
+                    .save_chan
+                    .send(SaveType::Immediate(tx))
+                    .map_err(|_| ())
+                    .expect("Failed to send message to save task");
+            } else {
+                if !inner.stale {
+                    inner
+                        .save_chan
+                        .send(SaveType::Delayed)
+                        .map_err(|_| ())
+                        .expect("Failed to send message to save task");
+                }
+                return ret;
+            }
         }
-        inner.stale = true;
+        rx2.await.expect("Failed to save!");
         ret
     }
 }

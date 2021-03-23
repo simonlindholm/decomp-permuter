@@ -1,10 +1,12 @@
 #![allow(clippy::try_err)]
 
 use std::default::Default;
+use std::sync::RwLock;
 
 use hex::FromHex;
 use serde::Deserialize;
 use serde_json::json;
+use slotmap::{DefaultKey, SlotMap};
 use sodiumoxide::crypto::box_;
 use sodiumoxide::crypto::sign;
 use structopt::StructOpt;
@@ -14,7 +16,7 @@ use tokio::net::tcp::{ReadHalf, WriteHalf};
 use tokio::net::{TcpListener, TcpStream};
 
 use crate::port::{ReadPort, WritePort};
-use crate::save::{SaveType, SaveableDB};
+use crate::save::SaveableDB;
 use pahserver::db::{ByteString, User, UserId};
 use pahserver::util::SimpleResult;
 
@@ -44,19 +46,43 @@ struct Config {
     priv_seed: ByteString,
 }
 
+struct ConnectedServer {
+    min_priority: f64,
+    num_cpus: u32,
+}
+
 struct State {
     docker_image: String,
     sign_sk: sign::SecretKey,
     db: SaveableDB,
+    servers: RwLock<SlotMap<DefaultKey, ConnectedServer>>,
 }
+
+#[derive(Deserialize)]
+struct ConnectServerData {
+    min_priority: f64,
+    num_cpus: u32,
+}
+
+#[derive(Deserialize)]
+struct ConnectClientData;
 
 #[derive(Deserialize)]
 #[serde(tag = "method", rename_all = "lowercase")]
 enum Request {
     Ping,
-    Vouch { who: UserId, signed_name: String },
-    ConnectServer,
-    ConnectClient,
+    Vouch {
+        who: UserId,
+        signed_name: String,
+    },
+    ConnectServer {
+        #[serde(flatten)]
+        data: ConnectServerData,
+    },
+    ConnectClient {
+        #[serde(flatten)]
+        data: ConnectClientData,
+    },
 }
 
 #[tokio::main]
@@ -72,6 +98,7 @@ async fn main() -> SimpleResult<()> {
         docker_image: config.docker_image,
         sign_sk,
         db: SaveableDB::open(&opts.db)?,
+        servers: RwLock::new(SlotMap::new()),
     }));
 
     let listener = TcpListener::bind(opts.listen_on).await?;
@@ -85,16 +112,6 @@ async fn main() -> SimpleResult<()> {
             }
         });
     }
-}
-
-async fn server_read(port: &mut ReadPort<'_>) -> SimpleResult<()> {
-    port.read().await?;
-    Ok(())
-}
-
-async fn server_write(port: &mut WritePort<'_>) -> SimpleResult<()> {
-    port.write(&"hello".as_bytes()).await?;
-    Ok(())
 }
 
 async fn handshake<'a>(
@@ -139,6 +156,59 @@ async fn handshake<'a>(
     Ok((read_port, write_port, UserId::from_pubkey(&client_ver_key)))
 }
 
+async fn server_read(port: &mut ReadPort<'_>) -> SimpleResult<()> {
+    port.read().await?;
+    Ok(())
+}
+
+async fn server_write(port: &mut WritePort<'_>) -> SimpleResult<()> {
+    port.write(&"hello".as_bytes()).await?;
+    Ok(())
+}
+
+async fn handle_connect_server<'a>(
+    mut read_port: ReadPort<'a>,
+    mut write_port: WritePort<'a>,
+    _who: &UserId,
+    state: &State,
+    data: ConnectServerData,
+) -> SimpleResult<()> {
+    write_port
+        .write_json(&json!({
+            "docker_image": &state.docker_image,
+        }))
+        .await?;
+
+    let key = {
+        let mut servers = state.servers.write().unwrap();
+        servers.insert(ConnectedServer {
+            min_priority: data.min_priority,
+            num_cpus: data.num_cpus,
+        })
+    };
+
+    let r = tokio::try_join!(server_read(&mut read_port), server_write(&mut write_port));
+    // wr.shutdown().await?;
+
+    {
+        let mut servers = state.servers.write().unwrap();
+        servers.remove(key);
+    }
+    r?;
+    Ok(())
+}
+
+async fn handle_connect_client<'a>(
+    _read_port: ReadPort<'a>,
+    mut write_port: WritePort<'a>,
+    _who: &UserId,
+    _state: &State,
+    _data: ConnectClientData,
+) -> SimpleResult<()> {
+    write_port.write_json(&json!({})).await?;
+    Ok(())
+}
+
 async fn handle_connection(mut socket: TcpStream, state: &State) -> SimpleResult<()> {
     let (rd, wr) = socket.split();
     let (mut read_port, mut write_port, user_id) = handshake(rd, wr, &state.sign_sk).await?;
@@ -157,30 +227,26 @@ async fn handle_connection(mut socket: TcpStream, state: &State) -> SimpleResult
             let name = String::from_utf8(
                 sign::verify(&signed_name, &who.to_pubkey()).map_err(|()| "bad name signature")?,
             )?;
-            state.db.write(SaveType::Immediate, |db| {
-                db.users.entry(who).or_insert_with(|| User {
-                    trusted_by: Some(user_id),
-                    name,
-                    client_stats: Default::default(),
-                    server_stats: Default::default(),
-                });
-            });
+            state
+                .db
+                .write(true, |db| {
+                    db.users.entry(who).or_insert_with(|| User {
+                        trusted_by: Some(user_id),
+                        name,
+                        client_stats: Default::default(),
+                        server_stats: Default::default(),
+                    });
+                })
+                .await;
             write_port.write_json(&json!({})).await?;
         }
-        Request::ConnectServer => {
-            write_port
-                .write_json(&json!({
-                    "docker_image": &state.docker_image,
-                }))
-                .await?;
+        Request::ConnectServer { data } => {
+            handle_connect_server(read_port, write_port, &user_id, state, data).await?;
         }
-        Request::ConnectClient => {
-            write_port.write_json(&json!({})).await?;
+        Request::ConnectClient { data } => {
+            handle_connect_client(read_port, write_port, &user_id, state, data).await?;
         }
     };
 
-    let r = tokio::try_join!(server_read(&mut read_port), server_write(&mut write_port));
-    // wr.shutdown().await?;
-    r?;
     Ok(())
 }
