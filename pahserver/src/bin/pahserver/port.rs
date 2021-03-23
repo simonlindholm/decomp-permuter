@@ -21,7 +21,7 @@ impl<'a> ReadPort<'a> {
         }
     }
 
-    pub async fn read(&mut self) -> SimpleResult<Box<[u8]>> {
+    pub async fn read(&mut self) -> SimpleResult<Vec<u8>> {
         let len = self.read_half.read_u64().await?;
         if len >= (1 << 48) {
             Err("Unreasonable packet length")?

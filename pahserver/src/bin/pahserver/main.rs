@@ -1,4 +1,5 @@
 #![allow(clippy::try_err)]
+#![allow(dead_code)]
 
 use std::default::Default;
 use std::sync::RwLock;
@@ -46,18 +47,6 @@ struct Config {
     priv_seed: ByteString,
 }
 
-struct ConnectedServer {
-    min_priority: f64,
-    num_cpus: u32,
-}
-
-struct State {
-    docker_image: String,
-    sign_sk: sign::SecretKey,
-    db: SaveableDB,
-    servers: RwLock<SlotMap<DefaultKey, ConnectedServer>>,
-}
-
 #[derive(Deserialize)]
 struct ConnectServerData {
     min_priority: f64,
@@ -65,7 +54,23 @@ struct ConnectServerData {
 }
 
 #[derive(Deserialize)]
-struct ConnectClientData;
+struct Permuter {
+    fn_name: String,
+    filename: String,
+    keep_prob: f64,
+    stack_differences: bool,
+    compile_script: String,
+    #[serde(skip)]
+    source: String,
+    #[serde(skip)]
+    target_o_bin: Vec<u8>,
+}
+
+#[derive(Deserialize)]
+struct ConnectClientData {
+    priority: f64,
+    permuters: Vec<Permuter>,
+}
 
 #[derive(Deserialize)]
 #[serde(tag = "method", rename_all = "lowercase")]
@@ -85,6 +90,25 @@ enum Request {
     },
 }
 
+struct ConnectedServer {
+    min_priority: f64,
+    num_cpus: u32,
+}
+
+struct ActivePermuter {
+    permuter: Permuter,
+    energy: f64,
+    energy_add: f64,
+}
+
+struct State {
+    docker_image: String,
+    sign_sk: sign::SecretKey,
+    db: SaveableDB,
+    servers: RwLock<SlotMap<DefaultKey, ConnectedServer>>,
+    permuters: RwLock<SlotMap<DefaultKey, ActivePermuter>>,
+}
+
 #[tokio::main]
 async fn main() -> SimpleResult<()> {
     sodiumoxide::init().map_err(|()| "Failed to initialize cryptography library")?;
@@ -99,6 +123,7 @@ async fn main() -> SimpleResult<()> {
         sign_sk,
         db: SaveableDB::open(&opts.db)?,
         servers: RwLock::new(SlotMap::new()),
+        permuters: RwLock::new(SlotMap::new()),
     }));
 
     let listener = TcpListener::bind(opts.listen_on).await?;
@@ -199,13 +224,39 @@ async fn handle_connect_server<'a>(
 }
 
 async fn handle_connect_client<'a>(
-    _read_port: ReadPort<'a>,
+    mut read_port: ReadPort<'a>,
     mut write_port: WritePort<'a>,
     _who: &UserId,
-    _state: &State,
-    _data: ConnectClientData,
+    state: &State,
+    mut data: ConnectClientData,
 ) -> SimpleResult<()> {
+    for permuter in &mut data.permuters {
+        permuter.source = String::from_utf8(read_port.read().await?)?;
+        permuter.target_o_bin = read_port.read().await?;
+    }
     write_port.write_json(&json!({})).await?;
+
+    let energy_add = (data.permuters.len() as f64) / data.priority;
+
+    let mut slots = Vec::new();
+    {
+        let mut permuters = state.permuters.write().unwrap();
+        for permuter in data.permuters {
+            slots.push(permuters.insert(ActivePermuter {
+                permuter,
+                energy: 0.0,
+                energy_add,
+            }));
+        }
+    }
+
+    {
+        let mut permuters = state.permuters.write().unwrap();
+        for slot in slots {
+            permuters.remove(slot);
+        }
+    }
+
     Ok(())
 }
 
