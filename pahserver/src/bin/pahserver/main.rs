@@ -2,9 +2,10 @@
 #![allow(dead_code)]
 
 use std::default::Default;
-use std::sync::RwLock;
+use std::sync::{Mutex, RwLock};
 
 use hex::FromHex;
+use ordered_float::NotNan;
 use serde::Deserialize;
 use serde_json::json;
 use slotmap::{DefaultKey, SlotMap};
@@ -108,7 +109,7 @@ struct ConnectedServer {
 
 struct ActivePermuter {
     permuter: Permuter,
-    energy: f64,
+    energy: NotNan<f64>,
     energy_add: f64,
 }
 
@@ -117,7 +118,7 @@ struct State {
     sign_sk: sign::SecretKey,
     db: SaveableDB,
     servers: RwLock<SlotMap<DefaultKey, ConnectedServer>>,
-    permuters: RwLock<SlotMap<DefaultKey, ActivePermuter>>,
+    permuters: Mutex<SlotMap<DefaultKey, ActivePermuter>>,
 }
 
 #[tokio::main]
@@ -134,7 +135,7 @@ async fn main() -> SimpleResult<()> {
         sign_sk,
         db: SaveableDB::open(&opts.db)?,
         servers: RwLock::new(SlotMap::new()),
-        permuters: RwLock::new(SlotMap::new()),
+        permuters: Mutex::new(SlotMap::new()),
     }));
 
     let listener = TcpListener::bind(opts.listen_on).await?;
@@ -212,11 +213,25 @@ async fn server_read(port: &mut ReadPort<'_>, work_queue: &mpsc::Sender<()>) -> 
 
 async fn server_write(
     port: &mut WritePort<'_>,
+    state: &State,
     mut work_queue: mpsc::Receiver<()>,
 ) -> SimpleResult<()> {
     loop {
         if matches!(work_queue.recv().await, None) {
             break;
+        }
+        {
+            let mut permuters = state.permuters.lock().unwrap();
+            // TODO: increase cost if we don't have the files from the permuter
+            let perm = match permuters.values_mut().min_by_key(|p| p.energy) {
+                Some(perm) => perm,
+                None => continue,
+            };
+            let min_energy = perm.energy;
+            perm.energy += perm.energy_add;
+            for perm in permuters.values_mut() {
+                perm.energy -= min_energy;
+            }
         }
         port.write(&"hello".as_bytes()).await?;
     }
@@ -247,9 +262,8 @@ async fn handle_connect_server<'a>(
     let (tx, rx) = mpsc::channel(SERVER_WORK_QUEUE_SIZE);
     let r = tokio::try_join!(
         server_read(&mut read_port, &tx),
-        server_write(&mut write_port, rx)
+        server_write(&mut write_port, state, rx)
     );
-    // wr.shutdown().await?;
 
     {
         let mut servers = state.servers.write().unwrap();
@@ -272,22 +286,23 @@ async fn handle_connect_client<'a>(
     }
     write_port.write_json(&json!({})).await?;
 
+    // TODO: validate that priority is sane
     let energy_add = (data.permuters.len() as f64) / data.priority;
 
     let mut slots = Vec::new();
     {
-        let mut permuters = state.permuters.write().unwrap();
+        let mut permuters = state.permuters.lock().unwrap();
         for permuter in data.permuters {
             slots.push(permuters.insert(ActivePermuter {
                 permuter,
-                energy: 0.0,
+                energy: NotNan::new(0.0).unwrap(),
                 energy_add,
             }));
         }
     }
 
     {
-        let mut permuters = state.permuters.write().unwrap();
+        let mut permuters = state.permuters.lock().unwrap();
         for slot in slots {
             permuters.remove(slot);
         }
