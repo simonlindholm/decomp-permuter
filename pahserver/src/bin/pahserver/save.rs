@@ -8,7 +8,7 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::time::timeout;
 
 use pahserver::db::DB;
-use pahserver::util::SimpleResult;
+use pahserver::util::{FutureExt, SimpleResult};
 
 const SAVE_INTERVAL: Duration = Duration::from_secs(30);
 
@@ -58,10 +58,21 @@ async fn save_db_loop(
             }
         };
 
-        // Would be good to clear the queue in case more messages have stacked
-        // up past an Immediate, but try_recv() is temporarily dead
-        // (https://github.com/tokio-rs/tokio/issues/3350). Oh well, doesn't
-        // matter much in practice.
+        // Clear the queue in case more messages have stacked up past an
+        // Immediate. Receiver::try_recv() is temporarily dead as of tokio 1.4
+        // (https://github.com/tokio-rs/tokio/issues/3350) due to a bug where
+        // messages can be delayed, but in this case that doesn't matter.
+        loop {
+            match save_channel.recv().now_or_never().await {
+                None | Some(None) => {
+                    break;
+                }
+                Some(Some(SaveType::Immediate(chan))) => {
+                    done_chans.push(chan);
+                }
+                Some(Some(SaveType::Delayed)) => {}
+            };
+        }
 
         // Mark the DB as non-stale, to start receiving save messages again.
         {
