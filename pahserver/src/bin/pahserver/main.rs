@@ -231,8 +231,8 @@ async fn handle_connect_client<'a>(
     mut data: ConnectClientData,
 ) -> SimpleResult<()> {
     for permuter in &mut data.permuters {
-        permuter.source = String::from_utf8(read_port.read().await?)?;
-        permuter.target_o_bin = read_port.read().await?;
+        permuter.source = String::from_utf8(read_port.read_compressed().await?)?;
+        permuter.target_o_bin = read_port.read_compressed().await?;
     }
     write_port.write_json(&json!({})).await?;
 

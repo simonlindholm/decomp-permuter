@@ -1,3 +1,5 @@
+use miniz_oxide::inflate::decompress_to_vec;
+use miniz_oxide::deflate::compress_to_vec;
 use sodiumoxide::crypto::box_;
 use sodiumoxide::crypto::box_::{Nonce, PrecomputedKey};
 use std::convert::TryInto;
@@ -34,6 +36,10 @@ impl<'a> ReadPort<'a> {
             box_::open_precomputed(&buffer, &nonce, &self.key).map_err(|()| "Failed to decrypt")?;
         Ok(data.into())
     }
+
+    pub async fn read_compressed(&mut self) -> SimpleResult<Vec<u8>> {
+        Ok(decompress_to_vec(&self.read().await?).map_err(|_| "Failed to decompress")?)
+    }
 }
 
 pub struct WritePort<'a> {
@@ -62,6 +68,10 @@ impl<'a> WritePort<'a> {
 
     pub async fn write_json(&mut self, value: &serde_json::Value) -> SimpleResult<()> {
         self.write(&serde_json::to_vec(value)?).await
+    }
+
+    pub async fn write_compressed(&mut self, value: &[u8]) -> SimpleResult<()> {
+        self.write(&compress_to_vec(value, 6)).await
     }
 }
 
