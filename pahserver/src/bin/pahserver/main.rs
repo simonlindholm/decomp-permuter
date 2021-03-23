@@ -15,6 +15,8 @@ use tokio::fs;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::{ReadHalf, WriteHalf};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::mpsc;
+use tokio::sync::mpsc::error::TrySendError;
 
 use crate::port::{ReadPort, WritePort};
 use crate::save::SaveableDB;
@@ -23,6 +25,8 @@ use pahserver::util::SimpleResult;
 
 mod port;
 mod save;
+
+const SERVER_WORK_QUEUE_SIZE: usize = 100;
 
 #[derive(StructOpt)]
 /// The permuter@home control server.
@@ -54,6 +58,13 @@ struct ConnectServerData {
 }
 
 #[derive(Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum ServerMessage {
+    NeedWork,
+    Result,
+}
+
+#[derive(Deserialize)]
 struct Permuter {
     fn_name: String,
     filename: String,
@@ -73,7 +84,7 @@ struct ConnectClientData {
 }
 
 #[derive(Deserialize)]
-#[serde(tag = "method", rename_all = "lowercase")]
+#[serde(tag = "method", rename_all = "snake_case")]
 enum Request {
     Ping,
     Vouch {
@@ -181,13 +192,34 @@ async fn handshake<'a>(
     Ok((read_port, write_port, UserId::from_pubkey(&client_ver_key)))
 }
 
-async fn server_read(port: &mut ReadPort<'_>) -> SimpleResult<()> {
-    port.read().await?;
+async fn server_read(port: &mut ReadPort<'_>, work_queue: &mpsc::Sender<()>) -> SimpleResult<()> {
+    loop {
+        let msg = port.read().await?;
+        let msg: ServerMessage = serde_json::from_slice(&msg)?;
+        match msg {
+            ServerMessage::NeedWork => {}
+            ServerMessage::Result => {
+                // TODO: send result on to client
+            }
+        }
+
+        if let Err(TrySendError::Closed(_)) = work_queue.try_send(()) {
+            break;
+        }
+    }
     Ok(())
 }
 
-async fn server_write(port: &mut WritePort<'_>) -> SimpleResult<()> {
-    port.write(&"hello".as_bytes()).await?;
+async fn server_write(
+    port: &mut WritePort<'_>,
+    mut work_queue: mpsc::Receiver<()>,
+) -> SimpleResult<()> {
+    loop {
+        if matches!(work_queue.recv().await, None) {
+            break;
+        }
+        port.write(&"hello".as_bytes()).await?;
+    }
     Ok(())
 }
 
@@ -212,7 +244,11 @@ async fn handle_connect_server<'a>(
         })
     };
 
-    let r = tokio::try_join!(server_read(&mut read_port), server_write(&mut write_port));
+    let (tx, rx) = mpsc::channel(SERVER_WORK_QUEUE_SIZE);
+    let r = tokio::try_join!(
+        server_read(&mut read_port, &tx),
+        server_write(&mut write_port, rx)
+    );
     // wr.shutdown().await?;
 
     {

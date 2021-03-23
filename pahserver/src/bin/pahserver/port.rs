@@ -1,5 +1,5 @@
-use miniz_oxide::inflate::decompress_to_vec;
 use miniz_oxide::deflate::compress_to_vec;
+use miniz_oxide::inflate::decompress_to_vec;
 use sodiumoxide::crypto::box_;
 use sodiumoxide::crypto::box_::{Nonce, PrecomputedKey};
 use std::convert::TryInto;
