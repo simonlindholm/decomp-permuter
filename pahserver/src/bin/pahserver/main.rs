@@ -49,7 +49,7 @@ struct CmdOpts {
 #[derive(Deserialize)]
 struct Config {
     docker_image: String,
-    priv_seed: ByteString,
+    priv_seed: ByteString<32>,
 }
 
 #[derive(Deserialize)]

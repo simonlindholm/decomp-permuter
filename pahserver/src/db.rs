@@ -6,26 +6,25 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_tuple::{Deserialize_tuple, Serialize_tuple};
 use sodiumoxide::crypto::sign;
 
-// TODO const generics
 #[derive(Debug, Hash, Eq, PartialEq)]
-pub struct ByteString([u8; 32]);
+pub struct ByteString<const SIZE: usize>([u8; SIZE]);
 
-impl ByteString {
+impl<const SIZE: usize> ByteString<SIZE> {
     fn to_hex(&self) -> String {
         hex::encode(&self.0)
     }
 
-    fn from_hex(string: &str) -> Result<ByteString, &'static str> {
+    fn from_hex(string: &str) -> Result<ByteString<SIZE>, &'static str> {
         Ok(ByteString(
             Vec::from_hex(&string)
                 .map_err(|_| "not a valid hex string")?
                 .try_into()
-                .map_err(|_| "string must be 32 bytes".into())?,
+                .map_err(|_| "byte string has wrong size".into())?,
         ))
     }
 }
 
-impl Serialize for ByteString {
+impl<const SIZE: usize> Serialize for ByteString<SIZE> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -34,8 +33,8 @@ impl Serialize for ByteString {
     }
 }
 
-impl<'de> Deserialize<'de> for ByteString {
-    fn deserialize<D>(deserializer: D) -> Result<ByteString, D::Error>
+impl<'de, const SIZE: usize> Deserialize<'de> for ByteString<SIZE> {
+    fn deserialize<D>(deserializer: D) -> Result<ByteString<SIZE>, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -45,7 +44,7 @@ impl<'de> Deserialize<'de> for ByteString {
     }
 }
 
-pub type UserId = ByteString;
+pub type UserId = ByteString<32>;
 
 impl UserId {
     pub fn from_pubkey(key: &sign::PublicKey) -> UserId {
@@ -57,7 +56,7 @@ impl UserId {
     }
 }
 
-impl ByteString {
+impl<const SIZE: usize> ByteString<SIZE> {
     pub fn to_seed(&self) -> sign::Seed {
         sign::Seed::from_slice(&self.0).unwrap()
     }

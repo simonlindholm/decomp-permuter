@@ -3,6 +3,7 @@ name = "pahserver"
 version = "0.0.1"
 edition = "2018"
 default-run = "pahserver"
+resolver = "2"
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
