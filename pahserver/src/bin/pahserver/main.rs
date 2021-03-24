@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use hex::FromHex;
 use ordered_float::NotNan;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use slotmap::{new_key_type, SlotMap, SparseSecondaryMap};
 use sodiumoxide::crypto::box_;
@@ -68,7 +68,7 @@ enum ServerMessage {
     Result,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 struct Permuter {
     fn_name: String,
     filename: String,
@@ -271,7 +271,7 @@ async fn server_write(
                 rx.await.unwrap();
             }
             let mut m = state.m.lock().unwrap();
-            let (perm_id, perm) = match m
+            let (&perm_id, perm) = match m
                 .permuters
                 .iter_mut()
                 .filter(|(_, p)| !p.stale)
@@ -288,7 +288,6 @@ async fn server_write(
                 }
             };
 
-            let perm_id = *perm_id;
             let to_send = if perm.server_state.contains_key(id) {
                 match perm.work_queue.pop_front() {
                     None => {
@@ -335,7 +334,14 @@ async fn server_write(
                 }))
                 .await?;
             }
-            ToSend::SendPermuter(_) => {}
+            ToSend::SendPermuter(permuter) => {
+                port.write_json(&json!({
+                    "type": "new",
+                    "permuter": &*permuter,
+                })).await?;
+                port.write_compressed(permuter.source.as_bytes()).await?;
+                port.write_compressed(&permuter.target_o_bin).await?;
+            }
         }
     }
     Ok(())
