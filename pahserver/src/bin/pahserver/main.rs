@@ -9,7 +9,7 @@ use hex::FromHex;
 use ordered_float::NotNan;
 use serde::Deserialize;
 use serde_json::json;
-use slotmap::{SlotMap, SparseSecondaryMap, new_key_type};
+use slotmap::{new_key_type, SlotMap, SparseSecondaryMap};
 use sodiumoxide::crypto::box_;
 use sodiumoxide::crypto::sign;
 use structopt::StructOpt;
@@ -17,9 +17,9 @@ use tokio::fs;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::{ReadHalf, WriteHalf};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::oneshot;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
+use tokio::sync::oneshot;
 
 use crate::port::{ReadPort, WritePort};
 use crate::save::SaveableDB;
@@ -240,7 +240,11 @@ async fn server_read(port: &mut ReadPort<'_>, work_queue: &mpsc::Sender<()>) -> 
 }
 
 fn permuter_cost(id: ServerId, perm: &ActivePermuter) -> NotNan<f64> {
-    let cost = if perm.server_state.contains_key(id) { SETUP_COST } else { 1.0 };
+    let cost = if perm.server_state.contains_key(id) {
+        SETUP_COST
+    } else {
+        1.0
+    };
     let ret = perm.energy + perm.energy_add * cost;
     NotNan::new(ret).unwrap()
 }
@@ -267,10 +271,12 @@ async fn server_write(
                 rx.await.unwrap();
             }
             let mut m = state.m.lock().unwrap();
-            let (perm_id, perm) = match m.permuters
-                    .iter_mut()
-                    .filter(|(_, p)| !p.stale)
-                    .min_by_key(|(_, p)| permuter_cost(id, &p)) {
+            let (perm_id, perm) = match m
+                .permuters
+                .iter_mut()
+                .filter(|(_, p)| !p.stale)
+                .min_by_key(|(_, p)| permuter_cost(id, &p))
+            {
                 Some(kv) => kv,
                 _ => {
                     // No permuters. Register to be notified when there's more
@@ -279,7 +285,7 @@ async fn server_write(
                     m.wake_on_more_work.push(tx);
                     wait_for = Some(rx);
                     continue;
-                },
+                }
             };
 
             let perm_id = *perm_id;
@@ -305,10 +311,12 @@ async fn server_write(
             // Adjust energies to be around zero, to avoid problems with float
             // imprecision, and to ensure that new permuters that come in with
             // energy zero will fit the schedule.
-            if let Some(perm) = m.permuters
-                    .values()
-                    .filter(|p| !p.stale)
-                    .min_by_key(|p| NotNan::new(p.energy).unwrap()) {
+            if let Some(perm) = m
+                .permuters
+                .values()
+                .filter(|p| !p.stale)
+                .min_by_key(|p| NotNan::new(p.energy).unwrap())
+            {
                 let min_energy = perm.energy;
                 for perm in m.permuters.values_mut() {
                     perm.energy -= min_energy;
@@ -324,11 +332,11 @@ async fn server_write(
                     "type": "work",
                     "permuter": perm_id,
                     "seed": seed,
-                })).await?;
+                }))
+                .await?;
             }
             ToSend::SendPermuter(_) => {}
         }
-
     }
     Ok(())
 }
@@ -388,14 +396,17 @@ async fn handle_connect_client<'a>(
             let id = m.next_permuter_id;
             m.next_permuter_id += 1;
             perm_ids.push(id);
-            m.permuters.insert(id, ActivePermuter {
-                permuter: permuter.into(),
-                server_state: Default::default(),
-                work_queue: VecDeque::new(),
-                stale: false,
-                energy: 0.0,
-                energy_add,
-            });
+            m.permuters.insert(
+                id,
+                ActivePermuter {
+                    permuter: permuter.into(),
+                    server_state: Default::default(),
+                    work_queue: VecDeque::new(),
+                    stale: false,
+                    energy: 0.0,
+                    energy_add,
+                },
+            );
         }
     }
 
