@@ -1,14 +1,15 @@
 #![allow(clippy::try_err)]
 #![allow(dead_code)]
 
+use std::collections::{HashMap, VecDeque};
 use std::default::Default;
-use std::sync::{Mutex, RwLock};
+use std::sync::{Arc, Mutex};
 
 use hex::FromHex;
 use ordered_float::NotNan;
 use serde::Deserialize;
 use serde_json::json;
-use slotmap::{DefaultKey, SlotMap};
+use slotmap::{SlotMap, SparseSecondaryMap, new_key_type};
 use sodiumoxide::crypto::box_;
 use sodiumoxide::crypto::sign;
 use structopt::StructOpt;
@@ -16,6 +17,7 @@ use tokio::fs;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::{ReadHalf, WriteHalf};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::oneshot;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
 
@@ -28,6 +30,7 @@ mod port;
 mod save;
 
 const SERVER_WORK_QUEUE_SIZE: usize = 100;
+const SETUP_COST: f64 = 100.0;
 
 #[derive(StructOpt)]
 /// The permuter@home control server.
@@ -107,18 +110,36 @@ struct ConnectedServer {
     num_cpus: u32,
 }
 
+#[derive(Clone, Copy)]
+struct PermuterWork {
+    seed: u128,
+}
+
+struct PermuterServerState;
+
+new_key_type! { struct ServerId; }
+
 struct ActivePermuter {
-    permuter: Permuter,
-    energy: NotNan<f64>,
+    permuter: Arc<Permuter>,
+    server_state: SparseSecondaryMap<ServerId, PermuterServerState>,
+    work_queue: VecDeque<PermuterWork>,
+    stale: bool,
+    energy: f64,
     energy_add: f64,
+}
+
+struct MutableState {
+    servers: SlotMap<ServerId, ConnectedServer>,
+    permuters: HashMap<u64, ActivePermuter>,
+    wake_on_more_work: Vec<oneshot::Sender<()>>,
+    next_permuter_id: u64,
 }
 
 struct State {
     docker_image: String,
     sign_sk: sign::SecretKey,
     db: SaveableDB,
-    servers: RwLock<SlotMap<DefaultKey, ConnectedServer>>,
-    permuters: Mutex<SlotMap<DefaultKey, ActivePermuter>>,
+    m: Mutex<MutableState>,
 }
 
 #[tokio::main]
@@ -134,8 +155,12 @@ async fn main() -> SimpleResult<()> {
         docker_image: config.docker_image,
         sign_sk,
         db: SaveableDB::open(&opts.db)?,
-        servers: RwLock::new(SlotMap::new()),
-        permuters: Mutex::new(SlotMap::new()),
+        m: Mutex::new(MutableState {
+            servers: SlotMap::with_key(),
+            permuters: HashMap::new(),
+            wake_on_more_work: Vec::new(),
+            next_permuter_id: 0,
+        }),
     }));
 
     let listener = TcpListener::bind(opts.listen_on).await?;
@@ -204,6 +229,9 @@ async fn server_read(port: &mut ReadPort<'_>, work_queue: &mpsc::Sender<()>) -> 
             }
         }
 
+        // Try requesting more work by sending a message to the writer thread.
+        // If the queue is full (because the writer thread is blocked on a
+        // send), drop the request to avoid an unbounded backlog.
         if let Err(TrySendError::Closed(_)) = work_queue.try_send(()) {
             break;
         }
@@ -211,8 +239,15 @@ async fn server_read(port: &mut ReadPort<'_>, work_queue: &mpsc::Sender<()>) -> 
     Ok(())
 }
 
+fn permuter_cost(id: ServerId, perm: &ActivePermuter) -> NotNan<f64> {
+    let cost = if perm.server_state.contains_key(id) { SETUP_COST } else { 1.0 };
+    let ret = perm.energy + perm.energy_add * cost;
+    NotNan::new(ret).unwrap()
+}
+
 async fn server_write(
     port: &mut WritePort<'_>,
+    id: ServerId,
     state: &State,
     mut work_queue: mpsc::Receiver<()>,
 ) -> SimpleResult<()> {
@@ -220,20 +255,80 @@ async fn server_write(
         if matches!(work_queue.recv().await, None) {
             break;
         }
-        {
-            let mut permuters = state.permuters.lock().unwrap();
-            // TODO: increase cost if we don't have the files from the permuter
-            let perm = match permuters.values_mut().min_by_key(|p| p.energy) {
-                Some(perm) => perm,
-                None => continue,
-            };
-            let min_energy = perm.energy;
-            perm.energy += perm.energy_add;
-            for perm in permuters.values_mut() {
-                perm.energy -= min_energy;
-            }
+
+        enum ToSend {
+            SendWork(PermuterWork),
+            SendPermuter(Arc<Permuter>),
         }
-        port.write(&"hello".as_bytes()).await?;
+
+        let mut wait_for: Option<oneshot::Receiver<()>> = None;
+        let (perm_id, to_send) = loop {
+            if let Some(rx) = wait_for {
+                rx.await.unwrap();
+            }
+            let mut m = state.m.lock().unwrap();
+            let (perm_id, perm) = match m.permuters
+                    .iter_mut()
+                    .filter(|(_, p)| !p.stale)
+                    .min_by_key(|(_, p)| permuter_cost(id, &p)) {
+                Some(kv) => kv,
+                _ => {
+                    // No permuters. Register to be notified when there's more
+                    // work and go to sleep.
+                    let (tx, rx) = oneshot::channel();
+                    m.wake_on_more_work.push(tx);
+                    wait_for = Some(rx);
+                    continue;
+                },
+            };
+
+            let perm_id = *perm_id;
+            let to_send = if perm.server_state.contains_key(id) {
+                match perm.work_queue.pop_front() {
+                    None => {
+                        // TODO: ask for more work
+                        perm.stale = true;
+                        wait_for = None;
+                        continue;
+                    }
+                    Some(work) => {
+                        perm.energy += perm.energy_add;
+                        ToSend::SendWork(work)
+                    }
+                }
+            } else {
+                perm.energy += perm.energy_add * SETUP_COST;
+                perm.server_state.insert(id, PermuterServerState {});
+                ToSend::SendPermuter(perm.permuter.clone())
+            };
+
+            // Adjust energies to be around zero, to avoid problems with float
+            // imprecision, and to ensure that new permuters that come in with
+            // energy zero will fit the schedule.
+            if let Some(perm) = m.permuters
+                    .values()
+                    .filter(|p| !p.stale)
+                    .min_by_key(|p| NotNan::new(p.energy).unwrap()) {
+                let min_energy = perm.energy;
+                for perm in m.permuters.values_mut() {
+                    perm.energy -= min_energy;
+                }
+            }
+
+            break (perm_id, to_send);
+        };
+
+        match to_send {
+            ToSend::SendWork(PermuterWork { seed }) => {
+                port.write_json(&json!({
+                    "type": "work",
+                    "permuter": perm_id,
+                    "seed": seed,
+                })).await?;
+            }
+            ToSend::SendPermuter(_) => {}
+        }
+
     }
     Ok(())
 }
@@ -251,9 +346,9 @@ async fn handle_connect_server<'a>(
         }))
         .await?;
 
-    let key = {
-        let mut servers = state.servers.write().unwrap();
-        servers.insert(ConnectedServer {
+    let id = {
+        let mut m = state.m.lock().unwrap();
+        m.servers.insert(ConnectedServer {
             min_priority: data.min_priority,
             num_cpus: data.num_cpus,
         })
@@ -262,13 +357,10 @@ async fn handle_connect_server<'a>(
     let (tx, rx) = mpsc::channel(SERVER_WORK_QUEUE_SIZE);
     let r = tokio::try_join!(
         server_read(&mut read_port, &tx),
-        server_write(&mut write_port, state, rx)
+        server_write(&mut write_port, id, state, rx)
     );
 
-    {
-        let mut servers = state.servers.write().unwrap();
-        servers.remove(key);
-    }
+    state.m.lock().unwrap().servers.remove(id);
     r?;
     Ok(())
 }
@@ -289,22 +381,31 @@ async fn handle_connect_client<'a>(
     // TODO: validate that priority is sane
     let energy_add = (data.permuters.len() as f64) / data.priority;
 
-    let mut slots = Vec::new();
+    let mut perm_ids = Vec::new();
     {
-        let mut permuters = state.permuters.lock().unwrap();
+        let mut m = state.m.lock().unwrap();
         for permuter in data.permuters {
-            slots.push(permuters.insert(ActivePermuter {
-                permuter,
-                energy: NotNan::new(0.0).unwrap(),
+            let id = m.next_permuter_id;
+            m.next_permuter_id += 1;
+            perm_ids.push(id);
+            m.permuters.insert(id, ActivePermuter {
+                permuter: permuter.into(),
+                server_state: Default::default(),
+                work_queue: VecDeque::new(),
+                stale: false,
+                energy: 0.0,
                 energy_add,
-            }));
+            });
         }
     }
 
+    // TODO: do work
+
     {
-        let mut permuters = state.permuters.lock().unwrap();
-        for slot in slots {
-            permuters.remove(slot);
+        let mut m = state.m.lock().unwrap();
+        for id in perm_ids {
+            m.permuters.remove(&id);
+            // TODO: send signal to remove from servers
         }
     }
 
