@@ -34,7 +34,7 @@ impl<'a> ReadPort<'a> {
         self.nonce += 2;
         let data =
             box_::open_precomputed(&buffer, &nonce, &self.key).map_err(|()| "Failed to decrypt")?;
-        Ok(data.into())
+        Ok(data)
     }
 
     pub async fn read_compressed(&mut self) -> SimpleResult<Vec<u8>> {

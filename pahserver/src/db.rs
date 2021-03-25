@@ -19,7 +19,7 @@ impl<const SIZE: usize> ByteString<SIZE> {
             Vec::from_hex(&string)
                 .map_err(|_| "not a valid hex string")?
                 .try_into()
-                .map_err(|_| "byte string has wrong size".into())?,
+                .map_err(|_| "byte string has wrong size")?,
         ))
     }
 }
@@ -40,7 +40,7 @@ impl<'de, const SIZE: usize> Deserialize<'de> for ByteString<SIZE> {
     {
         use serde::de::Error;
         let string = String::deserialize(deserializer)?;
-        Ok(ByteString::from_hex(&string).map_err(|e| Error::custom(e))?)
+        ByteString::from_hex(&string).map_err(Error::custom)
     }
 }
 

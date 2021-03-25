@@ -116,8 +116,7 @@ async fn choose_work(server_state: &Mutex<ServerState>, state: &State) -> (u64, 
         if let Some((&perm_id, perm)) = m
             .permuters
             .iter()
-            .filter(|(&perm_id, _)| !server_state.jobs.contains_key(&perm_id))
-            .next()
+            .find(|(&perm_id, _)| !server_state.jobs.contains_key(&perm_id))
         {
             server_state.jobs.insert(
                 perm_id,
@@ -138,11 +137,10 @@ async fn choose_work(server_state: &Mutex<ServerState>, state: &State) -> (u64, 
                 if matches!(job.state, JobState::Loaded)
                     && !perm.stale
                     && perm.priority >= min_priority
+                    && (best.is_none() || job.energy < best_cost)
                 {
-                    if best.is_none() || job.energy < best_cost {
-                        best_cost = job.energy;
-                        best = Some((perm_id, job));
-                    }
+                    best_cost = job.energy;
+                    best = Some((perm_id, job));
                 }
             } else {
                 server_state.jobs.remove(&perm_id);
