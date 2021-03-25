@@ -6,10 +6,9 @@ use std::default::Default;
 use std::sync::{Arc, Mutex};
 
 use hex::FromHex;
-use ordered_float::NotNan;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use slotmap::{new_key_type, SlotMap, SparseSecondaryMap};
+use slotmap::{new_key_type, SlotMap};
 use sodiumoxide::crypto::box_;
 use sodiumoxide::crypto::sign;
 use structopt::StructOpt;
@@ -30,7 +29,6 @@ mod port;
 mod save;
 
 const SERVER_WORK_QUEUE_SIZE: usize = 100;
-const SETUP_COST: f64 = 100.0;
 
 #[derive(StructOpt)]
 /// The permuter@home control server.
@@ -63,9 +61,20 @@ struct ConnectServerData {
 
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
+enum ServerUpdate {
+    Result,
+    InitDone,
+    InitFailed,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
 enum ServerMessage {
     NeedWork,
-    Result,
+    Update {
+        permuter_id: u64,
+        update: ServerUpdate,
+    },
 }
 
 #[derive(Deserialize, Serialize)]
@@ -105,26 +114,38 @@ enum Request {
     },
 }
 
-struct ConnectedServer {
-    min_priority: f64,
-    num_cpus: u32,
-}
-
 #[derive(Clone, Copy)]
 struct PermuterWork {
     seed: u128,
 }
 
-struct PermuterServerState;
+enum JobState {
+    Loading,
+    Loaded,
+    Failed,
+}
+
+struct Job {
+    state: JobState,
+    energy: f64,
+}
+
+struct ServerState {
+    min_priority: f64,
+    jobs: HashMap<u64, Job>,
+}
+
+struct ConnectedServer {
+    min_priority: f64,
+    num_cpus: u32,
+}
 
 new_key_type! { struct ServerId; }
 
 struct ActivePermuter {
     permuter: Arc<Permuter>,
-    server_state: SparseSecondaryMap<ServerId, PermuterServerState>,
     work_queue: VecDeque<PermuterWork>,
     stale: bool,
-    energy: f64,
     energy_add: f64,
 }
 
@@ -218,115 +239,148 @@ async fn handshake<'a>(
     Ok((read_port, write_port, UserId::from_pubkey(&client_ver_key)))
 }
 
-async fn server_read(port: &mut ReadPort<'_>, work_queue: &mpsc::Sender<()>) -> SimpleResult<()> {
+async fn server_read(
+    port: &mut ReadPort<'_>,
+    server_state: &Mutex<ServerState>,
+    _state: &State,
+    more_work_tx: mpsc::Sender<()>,
+) -> SimpleResult<()> {
     loop {
         let msg = port.read().await?;
         let msg: ServerMessage = serde_json::from_slice(&msg)?;
-        match msg {
-            ServerMessage::NeedWork => {}
-            ServerMessage::Result => {
-                // TODO: send result on to client
+        if let ServerMessage::Update {
+            permuter_id,
+            update,
+            ..
+        } = msg
+        {
+            // let mut m = state.m.lock().unwrap();
+            let mut server_state = server_state.lock().unwrap();
+
+            // If we get back a message referring to a since-removed permuter,
+            // no need to do anything.
+            if let Some(job) = server_state.jobs.get_mut(&permuter_id) {
+                match update {
+                    ServerUpdate::InitDone { .. } => {
+                        job.state = JobState::Loaded;
+                        // TODO
+                    }
+                    ServerUpdate::InitFailed { .. } => {
+                        job.state = JobState::Failed;
+                        // TODO
+                    }
+                    ServerUpdate::Result { .. } => {
+                        // TODO: send result on to client
+                    }
+                }
             }
         }
 
         // Try requesting more work by sending a message to the writer thread.
         // If the queue is full (because the writer thread is blocked on a
         // send), drop the request to avoid an unbounded backlog.
-        if let Err(TrySendError::Closed(_)) = work_queue.try_send(()) {
+        if let Err(TrySendError::Closed(_)) = more_work_tx.try_send(()) {
             break;
         }
     }
     Ok(())
 }
 
-fn permuter_cost(id: ServerId, perm: &ActivePermuter) -> NotNan<f64> {
-    let cost = if perm.server_state.contains_key(id) {
-        SETUP_COST
-    } else {
-        1.0
-    };
-    let ret = perm.energy + perm.energy_add * cost;
-    NotNan::new(ret).unwrap()
-}
-
 async fn server_write(
     port: &mut WritePort<'_>,
-    id: ServerId,
+    server_state: &Mutex<ServerState>,
     state: &State,
-    mut work_queue: mpsc::Receiver<()>,
+    mut more_work_rx: mpsc::Receiver<()>,
 ) -> SimpleResult<()> {
     loop {
-        if matches!(work_queue.recv().await, None) {
-            break;
-        }
-
         enum ToSend {
-            SendWork(PermuterWork),
-            SendPermuter(Arc<Permuter>),
+            Work(PermuterWork),
+            Add(Arc<Permuter>),
+            Remove,
         }
 
         let mut wait_for: Option<oneshot::Receiver<()>> = None;
-        let (perm_id, to_send) = loop {
+        let (perm_id, to_send) = 'choose_work: loop {
             if let Some(rx) = wait_for {
                 rx.await.unwrap();
             }
             let mut m = state.m.lock().unwrap();
-            let (&perm_id, perm) = match m
+            let mut server_state = server_state.lock().unwrap();
+
+            // If possible, send a new permuter.
+            if let Some((&perm_id, perm)) = m
                 .permuters
-                .iter_mut()
-                .filter(|(_, p)| !p.stale)
-                .min_by_key(|(_, p)| permuter_cost(id, &p))
+                .iter()
+                .filter(|(&perm_id, _)| !server_state.jobs.contains_key(&perm_id))
+                .next()
             {
-                Some(kv) => kv,
-                _ => {
-                    // No permuters. Register to be notified when there's more
-                    // work and go to sleep.
+                server_state.jobs.insert(
+                    perm_id,
+                    Job {
+                        state: JobState::Loading,
+                        energy: 0.0,
+                    },
+                );
+                break (perm_id, ToSend::Add(perm.permuter.clone()));
+            }
+
+            // If none, find an existing one to work on, or to remove.
+            let mut best_cost = 0.0;
+            let mut best: Option<(u64, &mut Job)> = None;
+            for (&perm_id, job) in server_state.jobs.iter_mut() {
+                if let Some(perm) = m.permuters.get(&perm_id) {
+                    if matches!(job.state, JobState::Loaded) && !perm.stale {
+                        if best.is_none() || job.energy < best_cost {
+                            best_cost = job.energy;
+                            best = Some((perm_id, job));
+                        }
+                    }
+                } else {
+                    server_state.jobs.remove(&perm_id);
+                    break 'choose_work (perm_id, ToSend::Remove);
+                }
+            }
+
+            let (perm_id, job) = match best {
+                None => {
+                    // Nothing to work on! Register to be notified when something happens and go to
+                    // sleep.
                     let (tx, rx) = oneshot::channel();
                     m.wake_on_more_work.push(tx);
                     wait_for = Some(rx);
                     continue;
                 }
+                Some(tup) => tup,
             };
 
-            let to_send = if perm.server_state.contains_key(id) {
-                match perm.work_queue.pop_front() {
-                    None => {
-                        // TODO: ask for more work
-                        perm.stale = true;
-                        wait_for = None;
-                        continue;
-                    }
-                    Some(work) => {
-                        perm.energy += perm.energy_add;
-                        ToSend::SendWork(work)
-                    }
+            let perm = m.permuters.get_mut(&perm_id).unwrap();
+            let work = match perm.work_queue.pop_front() {
+                None => {
+                    // Chosen permuter is out of work. Ask it for more, and mark it as
+                    // stale. When it goes unstale all sleeping writers will be notified.
+                    // TODO: ask for more work
+                    perm.stale = true;
+                    wait_for = None;
+                    continue;
                 }
-            } else {
-                perm.energy += perm.energy_add * SETUP_COST;
-                perm.server_state.insert(id, PermuterServerState {});
-                ToSend::SendPermuter(perm.permuter.clone())
+                Some(work) => work,
             };
+
+            let min_energy = job.energy;
+            job.energy += perm.energy_add;
 
             // Adjust energies to be around zero, to avoid problems with float
             // imprecision, and to ensure that new permuters that come in with
             // energy zero will fit the schedule.
-            if let Some(perm) = m
-                .permuters
-                .values()
-                .filter(|p| !p.stale)
-                .min_by_key(|p| NotNan::new(p.energy).unwrap())
-            {
-                let min_energy = perm.energy;
-                for perm in m.permuters.values_mut() {
-                    perm.energy -= min_energy;
-                }
+            for job in server_state.jobs.values_mut() {
+                job.energy -= min_energy;
             }
 
-            break (perm_id, to_send);
+            break (perm_id, ToSend::Work(work));
         };
 
         match to_send {
-            ToSend::SendWork(PermuterWork { seed }) => {
+            ToSend::Work(PermuterWork { seed }) => {
                 port.write_json(&json!({
                     "type": "work",
                     "permuter": perm_id,
@@ -334,14 +388,27 @@ async fn server_write(
                 }))
                 .await?;
             }
-            ToSend::SendPermuter(permuter) => {
+            ToSend::Add(permuter) => {
                 port.write_json(&json!({
-                    "type": "new",
-                    "permuter": &*permuter,
-                })).await?;
+                    "type": "add",
+                    "permuter": perm_id,
+                    "data": &*permuter,
+                }))
+                .await?;
                 port.write_compressed(permuter.source.as_bytes()).await?;
                 port.write_compressed(&permuter.target_o_bin).await?;
             }
+            ToSend::Remove => {
+                port.write_json(&json!({
+                    "type": "remove",
+                    "permuter": perm_id,
+                }))
+                .await?;
+            }
+        }
+
+        if matches!(more_work_rx.recv().await, None) {
+            break;
         }
     }
     Ok(())
@@ -360,6 +427,13 @@ async fn handle_connect_server<'a>(
         }))
         .await?;
 
+    let (more_work_tx, more_work_rx) = mpsc::channel(SERVER_WORK_QUEUE_SIZE);
+
+    let server_state = Mutex::new(ServerState {
+        min_priority: data.min_priority,
+        jobs: HashMap::new(),
+    });
+
     let id = {
         let mut m = state.m.lock().unwrap();
         m.servers.insert(ConnectedServer {
@@ -368,10 +442,9 @@ async fn handle_connect_server<'a>(
         })
     };
 
-    let (tx, rx) = mpsc::channel(SERVER_WORK_QUEUE_SIZE);
     let r = tokio::try_join!(
-        server_read(&mut read_port, &tx),
-        server_write(&mut write_port, id, state, rx)
+        server_read(&mut read_port, &server_state, state, more_work_tx),
+        server_write(&mut write_port, &server_state, state, more_work_rx)
     );
 
     state.m.lock().unwrap().servers.remove(id);
@@ -406,10 +479,8 @@ async fn handle_connect_client<'a>(
                 id,
                 ActivePermuter {
                     permuter: permuter.into(),
-                    server_state: Default::default(),
                     work_queue: VecDeque::new(),
                     stale: false,
-                    energy: 0.0,
                     energy_add,
                 },
             );
@@ -422,7 +493,6 @@ async fn handle_connect_client<'a>(
         let mut m = state.m.lock().unwrap();
         for id in perm_ids {
             m.permuters.remove(&id);
-            // TODO: send signal to remove from servers
         }
     }
 
