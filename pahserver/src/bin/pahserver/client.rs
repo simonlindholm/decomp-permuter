@@ -2,8 +2,8 @@ use std::collections::VecDeque;
 
 use serde_json::json;
 
-use crate::{ActivePermuter, ConnectClientData, State};
 use crate::port::{ReadPort, WritePort};
+use crate::{ActivePermuter, ConnectClientData, State};
 use pahserver::db::UserId;
 use pahserver::util::SimpleResult;
 
