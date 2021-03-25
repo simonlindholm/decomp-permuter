@@ -76,7 +76,7 @@ struct ConnectClientData {
     permuters: Vec<PermuterData>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Deserialize, Clone, Copy)]
 struct PermuterWork {
     seed: u128,
 }
@@ -115,6 +115,14 @@ struct MutableState {
     permuters: HashMap<u64, Permuter>,
     wake_on_more_work: Vec<oneshot::Sender<()>>,
     next_permuter_id: u64,
+}
+
+impl MutableState {
+    fn wake_sleepers(&mut self) {
+        for tx in self.wake_on_more_work.drain(..) {
+            let _ = tx.send(());
+        }
+    }
 }
 
 struct State {

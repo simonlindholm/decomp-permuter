@@ -1,25 +1,49 @@
 use std::collections::VecDeque;
 
+use serde::Deserialize;
 use serde_json::json;
 
 use crate::port::{ReadPort, WritePort};
-use crate::{ConnectClientData, Permuter, State};
+use crate::{ConnectClientData, Permuter, PermuterWork, State};
 use pahserver::db::UserId;
 use pahserver::util::SimpleResult;
 
-async fn client_read(
-    _port: &mut ReadPort<'_>,
-    _state: &State,
-) -> SimpleResult<()> {
-    // TODO
-    Ok(())
+#[derive(Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum ClientUpdate {
+    Work {
+        #[serde(flatten)]
+        work: PermuterWork,
+    },
 }
 
-async fn client_write(
-    _port: &mut WritePort<'_>,
-    _state: &State,
-) -> SimpleResult<()> {
+#[derive(Deserialize)]
+struct ClientMessage {
+    permuter_id: u32,
+    update: ClientUpdate,
+}
+
+async fn client_read(port: &mut ReadPort<'_>, perm_ids: &[u64], state: &State) -> SimpleResult<()> {
+    loop {
+        let msg = port.read().await?;
+        let msg: ClientMessage = serde_json::from_slice(&msg)?;
+        let ClientUpdate::Work { work } = msg.update;
+        let perm_id = perm_ids
+            .get(msg.permuter_id as usize)
+            .ok_or("Permuter index out of range")?;
+        let mut m = state.m.lock().unwrap();
+        let perm = m.permuters.get_mut(perm_id).unwrap();
+        perm.work_queue.push_back(work);
+        if perm.stale {
+            perm.stale = false;
+            m.wake_sleepers();
+        }
+    }
+}
+
+async fn client_write(_port: &mut WritePort<'_>, _state: &State) -> SimpleResult<()> {
     // TODO
+    // statistics
     Ok(())
 }
 
@@ -61,7 +85,7 @@ pub(crate) async fn handle_connect_client<'a>(
     }
 
     let r = tokio::try_join!(
-        client_read(&mut read_port, state),
+        client_read(&mut read_port, &perm_ids, state),
         client_write(&mut write_port, state)
     );
 
