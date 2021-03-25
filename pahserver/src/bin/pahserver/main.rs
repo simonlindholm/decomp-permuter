@@ -1,5 +1,4 @@
 #![allow(clippy::try_err)]
-#![allow(dead_code)]
 
 use std::collections::{HashMap, VecDeque};
 use std::default::Default;

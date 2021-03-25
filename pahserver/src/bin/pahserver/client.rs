@@ -58,7 +58,29 @@ pub(crate) async fn handle_connect_client<'a>(
         permuter_data.source = String::from_utf8(read_port.read_compressed().await?)?;
         permuter_data.target_o_bin = read_port.read_compressed().await?;
     }
-    write_port.write_json(&json!({})).await?;
+
+    let (num_servers, cpu_capacity): (u32, u32) = {
+        let m = state.m.lock().unwrap();
+        let cpu_capacity = m
+            .servers
+            .values()
+            .filter_map(|s| {
+                if data.priority >= s.min_priority {
+                    Some(s.num_cpus)
+                } else {
+                    None
+                }
+            })
+            .sum();
+        (m.servers.len() as u32, cpu_capacity)
+    };
+
+    write_port
+        .write_json(&json!({
+            "servers": num_servers,
+            "cpus": cpu_capacity,
+        }))
+        .await?;
 
     // TODO: validate that priority is sane
     let energy_add = (data.permuters.len() as f64) / data.priority;
