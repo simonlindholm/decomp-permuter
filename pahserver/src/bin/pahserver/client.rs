@@ -59,21 +59,14 @@ pub(crate) async fn handle_connect_client<'a>(
         permuter_data.target_o_bin = read_port.read_compressed().await?;
     }
 
-    let (num_servers, cpu_capacity): (u32, u32) = {
-        let m = state.m.lock().unwrap();
-        let cpu_capacity = m
-            .servers
-            .values()
-            .filter_map(|s| {
-                if data.priority >= s.min_priority {
-                    Some(s.num_cpus)
-                } else {
-                    None
-                }
-            })
-            .sum();
-        (m.servers.len() as u32, cpu_capacity)
-    };
+    let mut num_servers: u32 = 0;
+    let mut cpu_capacity: u32 = 0;
+    for server in state.m.lock().unwrap().servers.values() {
+        if data.priority >= server.min_priority {
+            num_servers += 1;
+            cpu_capacity += server.num_cpus;
+        }
+    }
 
     write_port
         .write_json(&json!({
