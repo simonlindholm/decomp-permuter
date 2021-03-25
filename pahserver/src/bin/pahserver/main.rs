@@ -81,9 +81,23 @@ struct PermuterWork {
     seed: u128,
 }
 
+#[derive(Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum ServerUpdate {
+    Result,
+    InitDone,
+    InitFailed,
+}
+
+enum PermuterResult {
+    NeedWork,
+    Result(UserId, ServerUpdate),
+}
+
 struct Permuter {
     data: Arc<PermuterData>,
     work_queue: VecDeque<PermuterWork>,
+    result_queue: VecDeque<PermuterResult>,
     stale: bool,
     priority: f64,
     energy_add: f64,

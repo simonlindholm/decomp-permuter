@@ -6,7 +6,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_tuple::{Deserialize_tuple, Serialize_tuple};
 use sodiumoxide::crypto::sign;
 
-#[derive(Debug, Hash, Eq, PartialEq)]
+#[derive(Clone, Debug, Hash, Eq, PartialEq)]
 pub struct ByteString<const SIZE: usize>([u8; SIZE]);
 
 impl<const SIZE: usize> ByteString<SIZE> {

@@ -3,9 +3,25 @@ use std::collections::VecDeque;
 use serde_json::json;
 
 use crate::port::{ReadPort, WritePort};
-use crate::{Permuter, ConnectClientData, State};
+use crate::{ConnectClientData, Permuter, State};
 use pahserver::db::UserId;
 use pahserver::util::SimpleResult;
+
+async fn client_read(
+    _port: &mut ReadPort<'_>,
+    _state: &State,
+) -> SimpleResult<()> {
+    // TODO
+    Ok(())
+}
+
+async fn client_write(
+    _port: &mut WritePort<'_>,
+    _state: &State,
+) -> SimpleResult<()> {
+    // TODO
+    Ok(())
+}
 
 pub(crate) async fn handle_connect_client<'a>(
     mut read_port: ReadPort<'a>,
@@ -35,6 +51,7 @@ pub(crate) async fn handle_connect_client<'a>(
                 Permuter {
                     data: permuter_data.into(),
                     work_queue: VecDeque::new(),
+                    result_queue: VecDeque::new(),
                     stale: false,
                     priority: data.priority,
                     energy_add,
@@ -43,7 +60,10 @@ pub(crate) async fn handle_connect_client<'a>(
         }
     }
 
-    // TODO: do work
+    let r = tokio::try_join!(
+        client_read(&mut read_port, state),
+        client_write(&mut write_port, state)
+    );
 
     {
         let mut m = state.m.lock().unwrap();
@@ -51,6 +71,6 @@ pub(crate) async fn handle_connect_client<'a>(
             m.permuters.remove(&id);
         }
     }
-
+    r?;
     Ok(())
 }

@@ -8,20 +8,15 @@ use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::oneshot;
 
 use crate::port::{ReadPort, WritePort};
-use crate::{ConnectServerData, ConnectedServer, PermuterData, PermuterWork, State};
+use crate::{
+    ConnectServerData, ConnectedServer, PermuterData, PermuterResult, PermuterWork, ServerUpdate,
+    State,
+};
 use pahserver::db::UserId;
 use pahserver::util::SimpleResult;
 
 const SERVER_WORK_QUEUE_SIZE: usize = 100;
 const TIME_COST_MS_GUESS: f64 = 100.0;
-
-#[derive(Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-enum ServerUpdate {
-    Result,
-    InitDone,
-    InitFailed,
-}
 
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -52,6 +47,7 @@ struct ServerState {
 
 async fn server_read(
     port: &mut ReadPort<'_>,
+    who: &UserId,
     server_state: &Mutex<ServerState>,
     state: &State,
     more_work_tx: mpsc::Sender<()>,
@@ -78,16 +74,14 @@ async fn server_read(
                     match update {
                         ServerUpdate::InitDone { .. } => {
                             job.state = JobState::Loaded;
-                            // TODO
                         }
                         ServerUpdate::InitFailed { .. } => {
                             job.state = JobState::Failed;
-                            // TODO
                         }
-                        ServerUpdate::Result { .. } => {
-                            // TODO: send result on to client
-                        }
+                        ServerUpdate::Result { .. } => {}
                     }
+                    perm.result_queue
+                        .push_back(PermuterResult::Result(who.clone(), update));
                 }
             }
         }
@@ -173,7 +167,7 @@ async fn choose_work(server_state: &Mutex<ServerState>, state: &State) -> (u64, 
             None => {
                 // Chosen permuter is out of work. Ask it for more, and mark it as
                 // stale. When it goes unstale all sleeping writers will be notified.
-                // TODO: ask for more work
+                perm.result_queue.push_back(PermuterResult::NeedWork);
                 perm.stale = true;
                 wait_for = None;
                 continue;
@@ -245,7 +239,7 @@ async fn server_write(
 pub(crate) async fn handle_connect_server<'a>(
     mut read_port: ReadPort<'a>,
     mut write_port: WritePort<'a>,
-    _who: &UserId,
+    who: &UserId,
     state: &State,
     data: ConnectServerData,
 ) -> SimpleResult<()> {
@@ -271,7 +265,7 @@ pub(crate) async fn handle_connect_server<'a>(
     };
 
     let r = tokio::try_join!(
-        server_read(&mut read_port, &server_state, state, more_work_tx),
+        server_read(&mut read_port, who, &server_state, state, more_work_tx),
         server_write(&mut write_port, &server_state, state, more_work_rx)
     );
 
