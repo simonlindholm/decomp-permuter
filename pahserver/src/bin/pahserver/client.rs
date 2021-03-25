@@ -104,6 +104,7 @@ pub(crate) async fn handle_connect_client<'a>(
                 },
             );
         }
+        m.wake_sleepers();
     }
 
     let r = tokio::try_join!(
