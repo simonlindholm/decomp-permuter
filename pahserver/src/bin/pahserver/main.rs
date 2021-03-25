@@ -52,7 +52,7 @@ struct Config {
 }
 
 #[derive(Deserialize, Serialize)]
-struct Permuter {
+struct PermuterData {
     fn_name: String,
     filename: String,
     keep_prob: f64,
@@ -73,7 +73,7 @@ struct ConnectServerData {
 #[derive(Deserialize)]
 struct ConnectClientData {
     priority: f64,
-    permuters: Vec<Permuter>,
+    permuters: Vec<PermuterData>,
 }
 
 #[derive(Clone, Copy)]
@@ -81,10 +81,11 @@ struct PermuterWork {
     seed: u128,
 }
 
-struct ActivePermuter {
-    permuter: Arc<Permuter>,
+struct Permuter {
+    data: Arc<PermuterData>,
     work_queue: VecDeque<PermuterWork>,
     stale: bool,
+    priority: f64,
     energy_add: f64,
 }
 
@@ -97,7 +98,7 @@ struct ConnectedServer {
 
 struct MutableState {
     servers: SlotMap<ServerId, ConnectedServer>,
-    permuters: HashMap<u64, ActivePermuter>,
+    permuters: HashMap<u64, Permuter>,
     wake_on_more_work: Vec<oneshot::Sender<()>>,
     next_permuter_id: u64,
 }

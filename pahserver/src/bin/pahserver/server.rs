@@ -8,11 +8,12 @@ use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::oneshot;
 
 use crate::port::{ReadPort, WritePort};
-use crate::{ConnectServerData, ConnectedServer, Permuter, PermuterWork, State};
+use crate::{ConnectServerData, ConnectedServer, PermuterData, PermuterWork, State};
 use pahserver::db::UserId;
 use pahserver::util::SimpleResult;
 
 const SERVER_WORK_QUEUE_SIZE: usize = 100;
+const TIME_COST_MS_GUESS: f64 = 100.0;
 
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -28,6 +29,7 @@ enum ServerMessage {
     NeedWork,
     Update {
         permuter_id: u64,
+        time_cost_ms: f64,
         update: ServerUpdate,
     },
 }
@@ -51,7 +53,7 @@ struct ServerState {
 async fn server_read(
     port: &mut ReadPort<'_>,
     server_state: &Mutex<ServerState>,
-    _state: &State,
+    state: &State,
     more_work_tx: mpsc::Sender<()>,
 ) -> SimpleResult<()> {
     loop {
@@ -60,26 +62,31 @@ async fn server_read(
         if let ServerMessage::Update {
             permuter_id,
             update,
-            ..
+            time_cost_ms,
         } = msg
         {
-            // let mut m = state.m.lock().unwrap();
+            let mut m = state.m.lock().unwrap();
             let mut server_state = server_state.lock().unwrap();
 
             // If we get back a message referring to a since-removed permuter,
             // no need to do anything.
             if let Some(job) = server_state.jobs.get_mut(&permuter_id) {
-                match update {
-                    ServerUpdate::InitDone { .. } => {
-                        job.state = JobState::Loaded;
-                        // TODO
-                    }
-                    ServerUpdate::InitFailed { .. } => {
-                        job.state = JobState::Failed;
-                        // TODO
-                    }
-                    ServerUpdate::Result { .. } => {
-                        // TODO: send result on to client
+                if let Some(perm) = m.permuters.get_mut(&permuter_id) {
+                    job.energy -= perm.energy_add * TIME_COST_MS_GUESS;
+                    job.energy += perm.energy_add * time_cost_ms;
+
+                    match update {
+                        ServerUpdate::InitDone { .. } => {
+                            job.state = JobState::Loaded;
+                            // TODO
+                        }
+                        ServerUpdate::InitFailed { .. } => {
+                            job.state = JobState::Failed;
+                            // TODO
+                        }
+                        ServerUpdate::Result { .. } => {
+                            // TODO: send result on to client
+                        }
                     }
                 }
             }
@@ -97,7 +104,7 @@ async fn server_read(
 
 enum ToSend {
     Work(PermuterWork),
-    Add(Arc<Permuter>),
+    Add(Arc<PermuterData>),
     Remove,
 }
 
@@ -125,15 +132,19 @@ async fn choose_work(server_state: &Mutex<ServerState>, state: &State) -> (u64, 
                     energy: 0.0,
                 },
             );
-            return (perm_id, ToSend::Add(perm.permuter.clone()));
+            return (perm_id, ToSend::Add(perm.data.clone()));
         }
 
         // If none, find an existing one to work on, or to remove.
         let mut best_cost = 0.0;
         let mut best: Option<(u64, &mut Job)> = None;
+        let min_priority = server_state.min_priority;
         for (&perm_id, job) in server_state.jobs.iter_mut() {
             if let Some(perm) = m.permuters.get(&perm_id) {
-                if matches!(job.state, JobState::Loaded) && !perm.stale {
+                if matches!(job.state, JobState::Loaded)
+                    && !perm.stale
+                    && perm.priority >= min_priority
+                {
                     if best.is_none() || job.energy < best_cost {
                         best_cost = job.energy;
                         best = Some((perm_id, job));
@@ -171,7 +182,7 @@ async fn choose_work(server_state: &Mutex<ServerState>, state: &State) -> (u64, 
         };
 
         let min_energy = job.energy;
-        job.energy += perm.energy_add;
+        job.energy += perm.energy_add * TIME_COST_MS_GUESS;
 
         // Adjust energies to be around zero, to avoid problems with float
         // imprecision, and to ensure that new permuters that come in with
