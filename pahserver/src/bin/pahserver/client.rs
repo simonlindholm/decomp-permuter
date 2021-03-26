@@ -51,7 +51,7 @@ async fn client_read(
         perm.work_queue.push_back(work);
         if perm.stale {
             perm.stale = false;
-            m.wake_sleepers();
+            state.new_work_notification.notify_waiters();
         }
     }
 }
@@ -136,7 +136,7 @@ pub(crate) async fn handle_connect_client<'a>(
                 },
             );
         }
-        m.wake_sleepers();
+        state.new_work_notification.notify_waiters();
     }
 
     let r = tokio::try_join!(

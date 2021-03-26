@@ -5,7 +5,6 @@ use serde::Deserialize;
 use serde_json::json;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
-use tokio::sync::oneshot;
 
 use crate::port::{ReadPort, WritePort};
 use crate::{
@@ -102,10 +101,10 @@ enum ToSend {
 }
 
 async fn choose_work(server_state: &Mutex<ServerState>, state: &State) -> (PermuterId, ToSend) {
-    let mut wait_for: Option<oneshot::Receiver<()>> = None;
+    let mut wait_for = None;
     loop {
-        if let Some(rx) = wait_for {
-            rx.await.unwrap();
+        if let Some(waiter) = wait_for {
+            waiter.await;
         }
 
         let mut m = state.m.lock().unwrap();
@@ -151,9 +150,7 @@ async fn choose_work(server_state: &Mutex<ServerState>, state: &State) -> (Permu
             None => {
                 // Nothing to work on! Register to be notified when something happens and go to
                 // sleep.
-                let (tx, rx) = oneshot::channel();
-                m.wake_on_more_work.push(tx);
-                wait_for = Some(rx);
+                wait_for = Some(state.new_work_notification.notified());
                 continue;
             }
             Some(tup) => tup,

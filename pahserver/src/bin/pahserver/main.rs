@@ -15,7 +15,7 @@ use tokio::fs;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::{ReadHalf, WriteHalf};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, Notify};
 
 use crate::port::{ReadPort, WritePort};
 use crate::save::SaveableDB;
@@ -123,22 +123,14 @@ struct ConnectedServer {
 struct MutableState {
     servers: SlotMap<ServerId, ConnectedServer>,
     permuters: HashMap<PermuterId, Permuter>,
-    wake_on_more_work: Vec<oneshot::Sender<()>>,
     next_permuter_id: PermuterId,
-}
-
-impl MutableState {
-    fn wake_sleepers(&mut self) {
-        for tx in self.wake_on_more_work.drain(..) {
-            let _ = tx.send(());
-        }
-    }
 }
 
 struct State {
     docker_image: String,
     sign_sk: sign::SecretKey,
     db: SaveableDB,
+    new_work_notification: Notify,
     m: Mutex<MutableState>,
 }
 
@@ -173,10 +165,10 @@ async fn main() -> SimpleResult<()> {
         docker_image: config.docker_image,
         sign_sk,
         db: SaveableDB::open(&opts.db)?,
+        new_work_notification: Notify::new(),
         m: Mutex::new(MutableState {
             servers: SlotMap::with_key(),
             permuters: HashMap::new(),
-            wake_on_more_work: Vec::new(),
             next_permuter_id: 0,
         }),
     }));
