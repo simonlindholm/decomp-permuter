@@ -15,7 +15,7 @@ use tokio::fs;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::{ReadHalf, WriteHalf};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot};
 
 use crate::port::{ReadPort, WritePort};
 use crate::save::SaveableDB;
@@ -93,10 +93,12 @@ enum PermuterResult {
     Result(UserId, ServerUpdate),
 }
 
+type PermuterId = u64;
+
 struct Permuter {
     data: Arc<PermuterData>,
     work_queue: VecDeque<PermuterWork>,
-    result_queue: VecDeque<PermuterResult>,
+    result_tx: mpsc::UnboundedSender<(PermuterId, PermuterResult)>,
     stale: bool,
     priority: f64,
     energy_add: f64,
@@ -111,9 +113,9 @@ struct ConnectedServer {
 
 struct MutableState {
     servers: SlotMap<ServerId, ConnectedServer>,
-    permuters: HashMap<u64, Permuter>,
+    permuters: HashMap<PermuterId, Permuter>,
     wake_on_more_work: Vec<oneshot::Sender<()>>,
-    next_permuter_id: u64,
+    next_permuter_id: PermuterId,
 }
 
 impl MutableState {

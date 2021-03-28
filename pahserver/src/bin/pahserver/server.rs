@@ -9,8 +9,8 @@ use tokio::sync::oneshot;
 
 use crate::port::{ReadPort, WritePort};
 use crate::{
-    ConnectServerData, ConnectedServer, PermuterData, PermuterResult, PermuterWork, ServerUpdate,
-    State,
+    ConnectServerData, ConnectedServer, PermuterData, PermuterId, PermuterResult, PermuterWork,
+    ServerUpdate, State,
 };
 use pahserver::db::UserId;
 use pahserver::util::SimpleResult;
@@ -23,7 +23,7 @@ const TIME_COST_MS_GUESS: f64 = 100.0;
 enum ServerMessage {
     NeedWork,
     Update {
-        permuter_id: u64,
+        permuter_id: PermuterId,
         time_cost_ms: f64,
         update: ServerUpdate,
     },
@@ -42,7 +42,7 @@ struct Job {
 
 struct ServerState {
     min_priority: f64,
-    jobs: HashMap<u64, Job>,
+    jobs: HashMap<PermuterId, Job>,
 }
 
 async fn server_read(
@@ -61,13 +61,13 @@ async fn server_read(
             time_cost_ms,
         } = msg
         {
-            let mut m = state.m.lock().unwrap();
+            let m = state.m.lock().unwrap();
             let mut server_state = server_state.lock().unwrap();
 
             // If we get back a message referring to a since-removed permuter,
             // no need to do anything.
             if let Some(job) = server_state.jobs.get_mut(&permuter_id) {
-                if let Some(perm) = m.permuters.get_mut(&permuter_id) {
+                if let Some(perm) = m.permuters.get(&permuter_id) {
                     job.energy -= perm.energy_add * TIME_COST_MS_GUESS;
                     job.energy += perm.energy_add * time_cost_ms;
 
@@ -80,8 +80,8 @@ async fn server_read(
                         }
                         ServerUpdate::Result { .. } => {}
                     }
-                    perm.result_queue
-                        .push_back(PermuterResult::Result(who.clone(), update));
+                    let res = PermuterResult::Result(who.clone(), update);
+                    let _ = perm.result_tx.send((permuter_id, res));
                 }
             }
         }
@@ -102,7 +102,7 @@ enum ToSend {
     Remove,
 }
 
-async fn choose_work(server_state: &Mutex<ServerState>, state: &State) -> (u64, ToSend) {
+async fn choose_work(server_state: &Mutex<ServerState>, state: &State) -> (PermuterId, ToSend) {
     let mut wait_for: Option<oneshot::Receiver<()>> = None;
     loop {
         if let Some(rx) = wait_for {
@@ -130,7 +130,7 @@ async fn choose_work(server_state: &Mutex<ServerState>, state: &State) -> (u64, 
 
         // If none, find an existing one to work on, or to remove.
         let mut best_cost = 0.0;
-        let mut best: Option<(u64, &mut Job)> = None;
+        let mut best: Option<(PermuterId, &mut Job)> = None;
         let min_priority = server_state.min_priority;
         for (&perm_id, job) in server_state.jobs.iter_mut() {
             if let Some(perm) = m.permuters.get(&perm_id) {
@@ -165,7 +165,7 @@ async fn choose_work(server_state: &Mutex<ServerState>, state: &State) -> (u64, 
             None => {
                 // Chosen permuter is out of work. Ask it for more, and mark it as
                 // stale. When it goes unstale all sleeping writers will be notified.
-                perm.result_queue.push_back(PermuterResult::NeedWork);
+                let _ = perm.result_tx.send((perm_id, PermuterResult::NeedWork));
                 perm.stale = true;
                 wait_for = None;
                 continue;
@@ -187,7 +187,11 @@ async fn choose_work(server_state: &Mutex<ServerState>, state: &State) -> (u64, 
     }
 }
 
-async fn send_work(port: &mut WritePort<'_>, perm_id: u64, to_send: ToSend) -> SimpleResult<()> {
+async fn send_work(
+    port: &mut WritePort<'_>,
+    perm_id: PermuterId,
+    to_send: ToSend,
+) -> SimpleResult<()> {
     match to_send {
         ToSend::Work(PermuterWork { seed }) => {
             port.write_json(&json!({

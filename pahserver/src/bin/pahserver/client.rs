@@ -2,9 +2,10 @@ use std::collections::VecDeque;
 
 use serde::Deserialize;
 use serde_json::json;
+use tokio::sync::mpsc;
 
 use crate::port::{ReadPort, WritePort};
-use crate::{ConnectClientData, Permuter, PermuterWork, State};
+use crate::{ConnectClientData, Permuter, PermuterId, PermuterResult, PermuterWork, State};
 use pahserver::db::UserId;
 use pahserver::util::SimpleResult;
 
@@ -23,7 +24,11 @@ struct ClientMessage {
     update: ClientUpdate,
 }
 
-async fn client_read(port: &mut ReadPort<'_>, perm_ids: &[u64], state: &State) -> SimpleResult<()> {
+async fn client_read(
+    port: &mut ReadPort<'_>,
+    perm_ids: &[PermuterId],
+    state: &State,
+) -> SimpleResult<()> {
     loop {
         let msg = port.read().await?;
         let msg: ClientMessage = serde_json::from_slice(&msg)?;
@@ -41,10 +46,16 @@ async fn client_read(port: &mut ReadPort<'_>, perm_ids: &[u64], state: &State) -
     }
 }
 
-async fn client_write(_port: &mut WritePort<'_>, _state: &State) -> SimpleResult<()> {
-    // TODO
-    // statistics
-    Ok(())
+async fn client_write(
+    _port: &mut WritePort<'_>,
+    _state: &State,
+    mut result_rx: mpsc::UnboundedReceiver<(PermuterId, PermuterResult)>,
+) -> SimpleResult<()> {
+    loop {
+        let _msg = result_rx.recv().await.unwrap();
+        // TODO
+        // statistics
+    }
 }
 
 pub(crate) async fn handle_connect_client<'a>(
@@ -78,6 +89,8 @@ pub(crate) async fn handle_connect_client<'a>(
     // TODO: validate that priority is sane
     let energy_add = (data.permuters.len() as f64) / data.priority;
 
+    let (result_tx, result_rx) = mpsc::unbounded_channel();
+
     let mut perm_ids = Vec::new();
     {
         let mut m = state.m.lock().unwrap();
@@ -90,7 +103,7 @@ pub(crate) async fn handle_connect_client<'a>(
                 Permuter {
                     data: permuter_data.into(),
                     work_queue: VecDeque::new(),
-                    result_queue: VecDeque::new(),
+                    result_tx: result_tx.clone(),
                     stale: false,
                     priority: data.priority,
                     energy_add,
@@ -102,7 +115,7 @@ pub(crate) async fn handle_connect_client<'a>(
 
     let r = tokio::try_join!(
         client_read(&mut read_port, &perm_ids, state),
-        client_write(&mut write_port, state)
+        client_write(&mut write_port, state, result_rx)
     );
 
     {
