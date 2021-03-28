@@ -5,23 +5,22 @@ use std::fs::OpenOptions;
 
 use sodiumoxide::crypto::sign;
 use sodiumoxide::randombytes::randombytes;
-use structopt::StructOpt;
+use argh::FromArgs;
 
 use pahserver::db::{User, UserId, DB};
 
-#[derive(StructOpt)]
+#[derive(FromArgs)]
 /// Initial setup for the permuter@home control server.
-#[structopt(name = "pahsetup")]
 struct CmdOpts {
-    /// Path to JSON database
-    #[structopt(long)]
+    /// path to JSON database
+    #[argh(option)]
     db: String,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
     sodiumoxide::init().map_err(|()| "Failed to initialize cryptography library")?;
 
-    let opts = CmdOpts::from_args();
+    let opts: CmdOpts = argh::from_env();
 
     let db_file = OpenOptions::new()
         .write(true)

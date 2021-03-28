@@ -4,13 +4,13 @@ use std::collections::{HashMap, VecDeque};
 use std::default::Default;
 use std::sync::{Arc, Mutex};
 
+use argh::FromArgs;
 use hex::FromHex;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use slotmap::{new_key_type, SlotMap};
 use sodiumoxide::crypto::box_;
 use sodiumoxide::crypto::sign;
-use structopt::StructOpt;
 use tokio::fs;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::{ReadHalf, WriteHalf};
@@ -27,20 +27,19 @@ mod port;
 mod save;
 mod server;
 
-#[derive(StructOpt)]
+#[derive(FromArgs)]
 /// The permuter@home control server.
-#[structopt(name = "pahserver")]
 struct CmdOpts {
     /// ip:port to listen on (e.g. 0.0.0.0:1234)
-    #[structopt(long)]
+    #[argh(option)]
     listen_on: String,
 
-    /// Path to TOML configuration file
-    #[structopt(long)]
+    /// path to TOML configuration file
+    #[argh(option)]
     config: String,
 
-    /// Path to JSON database
-    #[structopt(long)]
+    /// path to JSON database
+    #[argh(option)]
     db: String,
 }
 
@@ -155,7 +154,7 @@ enum Request {
 async fn main() -> SimpleResult<()> {
     sodiumoxide::init().map_err(|()| "Failed to initialize cryptography library")?;
 
-    let opts = CmdOpts::from_args();
+    let opts: CmdOpts = argh::from_env();
 
     let config: Config = toml::from_str(&fs::read_to_string(&opts.config).await?)?;
     let (_, sign_sk) = sign::keypair_from_seed(&config.priv_seed.to_seed());
