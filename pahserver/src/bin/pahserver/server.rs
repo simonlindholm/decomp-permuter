@@ -61,13 +61,13 @@ async fn server_read(
             time_cost_ms,
         } = msg
         {
-            let m = state.m.lock().unwrap();
+            let mut m = state.m.lock().unwrap();
             let mut server_state = server_state.lock().unwrap();
 
             // If we get back a message referring to a since-removed permuter,
             // no need to do anything.
             if let Some(job) = server_state.jobs.get_mut(&permuter_id) {
-                if let Some(perm) = m.permuters.get(&permuter_id) {
+                if let Some(perm) = m.permuters.get_mut(&permuter_id) {
                     job.energy -= perm.energy_add * TIME_COST_MS_GUESS;
                     job.energy += perm.energy_add * time_cost_ms;
 
@@ -80,8 +80,7 @@ async fn server_read(
                         }
                         ServerUpdate::Result { .. } => {}
                     }
-                    let res = PermuterResult::Result(who.clone(), update);
-                    let _ = perm.result_tx.send((permuter_id, res));
+                    perm.send_result(permuter_id, PermuterResult::Result(who.clone(), update));
                 }
             }
         }
@@ -165,13 +164,14 @@ async fn choose_work(server_state: &Mutex<ServerState>, state: &State) -> (Permu
             None => {
                 // Chosen permuter is out of work. Ask it for more, and mark it as
                 // stale. When it goes unstale all sleeping writers will be notified.
-                let _ = perm.result_tx.send((perm_id, PermuterResult::NeedWork));
+                perm.send_result(perm_id, PermuterResult::NeedWork);
                 perm.stale = true;
                 wait_for = None;
                 continue;
             }
             Some(work) => work,
         };
+        perm.semaphore.release();
 
         let min_energy = job.energy;
         job.energy += perm.energy_add * TIME_COST_MS_GUESS;

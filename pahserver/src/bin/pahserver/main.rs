@@ -19,6 +19,7 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::port::{ReadPort, WritePort};
 use crate::save::SaveableDB;
+use crate::flimsy_semaphore::FlimsySemaphore;
 use pahserver::db::{ByteString, User, UserId};
 use pahserver::util::SimpleResult;
 
@@ -26,6 +27,7 @@ mod client;
 mod port;
 mod save;
 mod server;
+mod flimsy_semaphore;
 
 #[derive(FromArgs)]
 /// The permuter@home control server.
@@ -98,9 +100,17 @@ struct Permuter {
     data: Arc<PermuterData>,
     work_queue: VecDeque<PermuterWork>,
     result_tx: mpsc::UnboundedSender<(PermuterId, PermuterResult)>,
+    semaphore: Arc<FlimsySemaphore>,
     stale: bool,
     priority: f64,
     energy_add: f64,
+}
+
+impl Permuter {
+    fn send_result(&mut self, from: PermuterId, res: PermuterResult) {
+        let _ = self.result_tx.send((from, res));
+        self.semaphore.acquire_ignore_limit();
+    }
 }
 
 new_key_type! { struct ServerId; }
