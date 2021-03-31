@@ -15,6 +15,8 @@ use crate::{
 };
 
 const CLIENT_MAX_QUEUES_SIZE: usize = 100;
+const MIN_PRIORITY: f64 = 0.001;
+const MAX_PRIORITY: f64 = 10.0;
 
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -164,6 +166,13 @@ pub(crate) async fn handle_connect_client<'a>(
         permuter_data.target_o_bin = read_port.recv_compressed().await?;
     }
 
+    if !(MIN_PRIORITY <= data.priority && data.priority <= MAX_PRIORITY) {
+        Err("Priority out of range")?;
+    }
+    if data.permuters.is_empty() {
+        Err("No permuters")?;
+    }
+
     let mut num_servers: u32 = 0;
     let mut cpu_capacity: u32 = 0;
     for server in state.m.lock().unwrap().servers.values() {
@@ -189,7 +198,6 @@ pub(crate) async fn handle_connect_client<'a>(
             .await?;
     }
 
-    // TODO: validate that priority is sane
     let energy_add = (data.permuters.len() as f64) / data.priority;
 
     let (result_tx, result_rx) = mpsc::unbounded_channel();
