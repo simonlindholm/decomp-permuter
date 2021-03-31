@@ -18,10 +18,7 @@ const CLIENT_MAX_QUEUES_SIZE: usize = 100;
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum ClientUpdate {
-    Work {
-        #[serde(flatten)]
-        work: PermuterWork,
-    },
+    Work(PermuterWork),
 }
 
 #[derive(Deserialize)]
@@ -39,7 +36,7 @@ async fn client_read(
     loop {
         let msg = port.recv().await?;
         let msg: ClientMessage = serde_json::from_slice(&msg)?;
-        let ClientUpdate::Work { work } = msg.update;
+        let ClientUpdate::Work(work) = msg.update;
         let perm_id = perm_ids
             .get(msg.permuter_id as usize)
             .ok_or("Permuter index out of range")?;

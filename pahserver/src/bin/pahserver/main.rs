@@ -156,14 +156,8 @@ enum Request {
         who: UserId,
         signed_name: String,
     },
-    ConnectServer {
-        #[serde(flatten)]
-        data: ConnectServerData,
-    },
-    ConnectClient {
-        #[serde(flatten)]
-        data: ConnectClientData,
-    },
+    ConnectServer(ConnectServerData),
+    ConnectClient(ConnectClientData),
 }
 
 #[tokio::main]
@@ -277,11 +271,11 @@ async fn handle_connection(mut socket: TcpStream, state: &State) -> SimpleResult
                 .await;
             write_port.send_json(&json!({})).await?;
         }
-        Request::ConnectServer { data } => {
+        Request::ConnectServer(data) => {
             server::handle_connect_server(read_port, write_port, &user_id, &name, state, data)
                 .await?;
         }
-        Request::ConnectClient { data } => {
+        Request::ConnectClient(data) => {
             client::handle_connect_client(read_port, write_port, &user_id, &name, state, data)
                 .await?;
         }
