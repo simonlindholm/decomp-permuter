@@ -109,7 +109,7 @@ struct PermuterWork {
     seed: u128,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum ServerUpdate {
     Result {
@@ -118,7 +118,8 @@ enum ServerUpdate {
         #[serde(skip)]
         compressed_source: Option<Vec<u8>>,
         has_source: bool,
-        // profiler: HashMap<String, f64>,
+        #[serde(flatten)]
+        more_props: HashMap<String, serde_json::Value>,
     },
     InitDone {
         score: i64,

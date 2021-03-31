@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::sync::mpsc;
 
@@ -26,8 +26,16 @@ enum ClientUpdate {
 
 #[derive(Deserialize)]
 struct ClientMessage {
-    permuter_id: u32,
+    permuter: u32,
     update: ClientUpdate,
+}
+
+#[derive(Serialize)]
+struct PermuterResultMessage<'a> {
+    permuter: u32,
+    server: String,
+    #[serde(flatten)]
+    update: &'a ServerUpdate,
 }
 
 async fn client_read(
@@ -41,7 +49,7 @@ async fn client_read(
         let msg: ClientMessage = serde_json::from_slice(&msg)?;
         let ClientUpdate::Work(work) = msg.update;
         let (perm_id, _) = perm_meta
-            .get(msg.permuter_id as usize)
+            .get(msg.permuter as usize)
             .ok_or("Permuter index out of range")?;
 
         // Avoid the work and result queues growing indefinitely by restricting
@@ -81,72 +89,38 @@ async fn client_write(
                 .await?;
             }
             PermuterResult::Result(server_id, server_name, server_update) => {
-                match server_update {
-                    ServerUpdate::InitDone { score, hash } => {
-                        port.send_json(&json!({
-                            "type": "connect",
-                            "permuter": local_perm_id,
-                            "server": server_name,
-                            "score": score,
-                            "hash": hash,
-                        }))
-                        .await?;
-                    }
-                    ServerUpdate::InitFailed { reason } => {
-                        port.send_json(&json!({
-                            "type": "init_failed",
-                            "permuter": local_perm_id,
-                            "server": server_name,
-                            "reason": reason,
-                        }))
-                        .await?;
-                    }
-                    ServerUpdate::Disconnect => {
-                        port.send_json(&json!({
-                            "type": "disconnect",
-                            "permuter": local_perm_id,
-                            "server": server_name,
-                        }))
-                        .await?;
-                    }
-                    ServerUpdate::Result {
-                        score,
-                        hash,
-                        compressed_source,
-                        ..
-                    } => {
-                        // TODO profiler, or generalized to extra fields, flattened?
-                        // (serialize, in that case)
-                        let has_source = compressed_source.is_some();
-                        port.send_json(&json!({
-                            "type": "result",
-                            "permuter": local_perm_id,
-                            "server": server_name,
-                            "score": score,
-                            "hash": hash,
-                            "has_source": has_source,
-                        }))
-                        .await?;
-                        if let Some(data) = compressed_source {
-                            port.send(&data).await?;
-                        }
+                port.send_json(&PermuterResultMessage {
+                    permuter: local_perm_id as u32,
+                    server: server_name,
+                    update: &server_update,
+                })
+                .await?;
 
-                        let outcome = if !has_source {
-                            stats::Outcome::Unhelpful
-                        } else if score == 0 {
-                            stats::Outcome::Matched
-                        } else {
-                            stats::Outcome::Improved
-                        };
-                        state
-                            .log_stats(stats::Record::WorkDone {
-                                server: server_id,
-                                client: client_id.clone(),
-                                fn_name: fn_name.to_string(),
-                                outcome: outcome,
-                            })
-                            .await?;
+                if let ServerUpdate::Result {
+                    score,
+                    compressed_source,
+                    ..
+                } = server_update
+                {
+                    if let Some(ref data) = compressed_source {
+                        port.send(data).await?;
                     }
+
+                    let outcome = if compressed_source.is_none() {
+                        stats::Outcome::Unhelpful
+                    } else if score == 0 {
+                        stats::Outcome::Matched
+                    } else {
+                        stats::Outcome::Improved
+                    };
+                    state
+                        .log_stats(stats::Record::WorkDone {
+                            server: server_id,
+                            client: client_id.clone(),
+                            fn_name: fn_name.to_string(),
+                            outcome,
+                        })
+                        .await?;
                 }
             }
         }

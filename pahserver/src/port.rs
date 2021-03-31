@@ -1,8 +1,10 @@
+use std::convert::TryInto;
+
 use miniz_oxide::deflate::compress_to_vec;
 use miniz_oxide::inflate::decompress_to_vec;
+use serde::Serialize;
 use sodiumoxide::crypto::box_;
 use sodiumoxide::crypto::box_::{Nonce, PrecomputedKey};
-use std::convert::TryInto;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::{ReadHalf, WriteHalf};
 
@@ -66,7 +68,10 @@ impl<'a> WritePort<'a> {
         Ok(())
     }
 
-    pub async fn send_json(&mut self, value: &serde_json::Value) -> SimpleResult<()> {
+    pub async fn send_json<T: ?Sized>(&mut self, value: &T) -> SimpleResult<()>
+    where
+        T: Serialize,
+    {
         self.send(&serde_json::to_vec(value)?).await
     }
 

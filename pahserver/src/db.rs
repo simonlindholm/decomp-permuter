@@ -100,6 +100,6 @@ impl DB {
     pub fn func_stat(&mut self, fn_name: String) -> &mut Stats {
         self.func_stats
             .entry(fn_name)
-            .or_insert_with(|| Stats::default())
+            .or_insert_with(Stats::default)
     }
 }
