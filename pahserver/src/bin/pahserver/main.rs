@@ -211,7 +211,7 @@ async fn handshake<'a>(
     let mut read_port = ReadPort::new(rd, &key);
     let write_port = WritePort::new(wr, &key);
 
-    let hello = read_port.read().await?;
+    let hello = read_port.recv().await?;
     if hello.len() != 32 + 64 {
         Err("Failed to perform secret handshake")?;
     }
@@ -235,11 +235,11 @@ async fn handle_connection(mut socket: TcpStream, state: &State) -> SimpleResult
         Err("Unknown client!")?;
     }
 
-    let request = read_port.read().await?;
+    let request = read_port.recv().await?;
     let request: Request = serde_json::from_slice(&request)?;
     match request {
         Request::Ping => {
-            write_port.write_json(&json!({})).await?;
+            write_port.send_json(&json!({})).await?;
         }
         Request::Vouch { who, signed_name } => {
             let signed_name = Vec::from_hex(&signed_name).map_err(|_| "not a valid hex string")?;
@@ -257,7 +257,7 @@ async fn handle_connection(mut socket: TcpStream, state: &State) -> SimpleResult
                     });
                 })
                 .await;
-            write_port.write_json(&json!({})).await?;
+            write_port.send_json(&json!({})).await?;
         }
         Request::ConnectServer { data } => {
             server::handle_connect_server(read_port, write_port, &user_id, state, data).await?;

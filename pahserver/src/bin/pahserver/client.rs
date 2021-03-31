@@ -35,7 +35,7 @@ async fn client_read(
     state: &State,
 ) -> SimpleResult<()> {
     loop {
-        let msg = port.read().await?;
+        let msg = port.recv().await?;
         let msg: ClientMessage = serde_json::from_slice(&msg)?;
         let ClientUpdate::Work { work } = msg.update;
         let perm_id = perm_ids
@@ -70,7 +70,7 @@ async fn client_write(
 
         match res {
             PermuterResult::NeedWork => {
-                port.write_json(&json!({
+                port.send_json(&json!({
                     "type": "need_work",
                     "permuter": local_perm_id,
                 })).await?;
@@ -90,8 +90,8 @@ pub(crate) async fn handle_connect_client<'a>(
     mut data: ConnectClientData,
 ) -> SimpleResult<()> {
     for permuter_data in &mut data.permuters {
-        permuter_data.source = String::from_utf8(read_port.read_compressed().await?)?;
-        permuter_data.target_o_bin = read_port.read_compressed().await?;
+        permuter_data.source = String::from_utf8(read_port.recv_compressed().await?)?;
+        permuter_data.target_o_bin = read_port.recv_compressed().await?;
     }
 
     let mut num_servers: u32 = 0;
@@ -104,7 +104,7 @@ pub(crate) async fn handle_connect_client<'a>(
     }
 
     write_port
-        .write_json(&json!({
+        .send_json(&json!({
             "servers": num_servers,
             "cpus": cpu_capacity,
         }))

@@ -23,7 +23,7 @@ impl<'a> ReadPort<'a> {
         }
     }
 
-    pub async fn read(&mut self) -> SimpleResult<Vec<u8>> {
+    pub async fn recv(&mut self) -> SimpleResult<Vec<u8>> {
         let len = self.read_half.read_u64().await?;
         if len >= (1 << 48) {
             Err("Unreasonable packet length")?
@@ -37,8 +37,8 @@ impl<'a> ReadPort<'a> {
         Ok(data)
     }
 
-    pub async fn read_compressed(&mut self) -> SimpleResult<Vec<u8>> {
-        Ok(decompress_to_vec(&self.read().await?).map_err(|_| "Failed to decompress")?)
+    pub async fn recv_compressed(&mut self) -> SimpleResult<Vec<u8>> {
+        Ok(decompress_to_vec(&self.recv().await?).map_err(|_| "Failed to decompress")?)
     }
 }
 
@@ -57,7 +57,7 @@ impl<'a> WritePort<'a> {
         }
     }
 
-    pub async fn write(&mut self, bytes: &[u8]) -> SimpleResult<()> {
+    pub async fn send(&mut self, bytes: &[u8]) -> SimpleResult<()> {
         let nonce = nonce_from_u64(self.nonce);
         self.nonce += 2;
         let data = box_::seal_precomputed(bytes, &nonce, &self.key);
@@ -66,12 +66,12 @@ impl<'a> WritePort<'a> {
         Ok(())
     }
 
-    pub async fn write_json(&mut self, value: &serde_json::Value) -> SimpleResult<()> {
-        self.write(&serde_json::to_vec(value)?).await
+    pub async fn send_json(&mut self, value: &serde_json::Value) -> SimpleResult<()> {
+        self.send(&serde_json::to_vec(value)?).await
     }
 
-    pub async fn write_compressed(&mut self, value: &[u8]) -> SimpleResult<()> {
-        self.write(&compress_to_vec(value, 6)).await
+    pub async fn send_compressed(&mut self, value: &[u8]) -> SimpleResult<()> {
+        self.send(&compress_to_vec(value, 6)).await
     }
 }
 

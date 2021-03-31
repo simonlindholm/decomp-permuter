@@ -52,7 +52,7 @@ async fn server_read(
     more_work_tx: mpsc::Sender<()>,
 ) -> SimpleResult<()> {
     loop {
-        let msg = port.read().await?;
+        let msg = port.recv().await?;
         let msg: ServerMessage = serde_json::from_slice(&msg)?;
         if let ServerMessage::Update {
             permuter_id,
@@ -191,7 +191,7 @@ async fn send_work(
 ) -> SimpleResult<()> {
     match to_send {
         ToSend::Work(PermuterWork { seed }) => {
-            port.write_json(&json!({
+            port.send_json(&json!({
                 "type": "work",
                 "permuter": perm_id,
                 "seed": seed,
@@ -199,17 +199,17 @@ async fn send_work(
             .await?;
         }
         ToSend::Add(permuter) => {
-            port.write_json(&json!({
+            port.send_json(&json!({
                 "type": "add",
                 "permuter": perm_id,
                 "data": &*permuter,
             }))
             .await?;
-            port.write_compressed(permuter.source.as_bytes()).await?;
-            port.write_compressed(&permuter.target_o_bin).await?;
+            port.send_compressed(permuter.source.as_bytes()).await?;
+            port.send_compressed(&permuter.target_o_bin).await?;
         }
         ToSend::Remove => {
-            port.write_json(&json!({
+            port.send_json(&json!({
                 "type": "remove",
                 "permuter": perm_id,
             }))
@@ -243,7 +243,7 @@ pub(crate) async fn handle_connect_server<'a>(
     data: ConnectServerData,
 ) -> SimpleResult<()> {
     write_port
-        .write_json(&json!({
+        .send_json(&json!({
             "docker_image": &state.docker_image,
         }))
         .await?;
