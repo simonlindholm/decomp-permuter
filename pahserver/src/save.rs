@@ -1,3 +1,4 @@
+use std::future::Future;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
@@ -29,7 +30,7 @@ pub struct SaveableDB(Arc<RwLock<InnerSaveableDB>>);
 async fn save_db_loop(
     db: SaveableDB,
     path: &Path,
-    save_channel: &mut mpsc::UnboundedReceiver<SaveType>,
+    mut save_channel: mpsc::UnboundedReceiver<SaveType>,
 ) -> SimpleResult<()> {
     loop {
         let mut done_chans = Vec::new();
@@ -101,11 +102,13 @@ async fn save_db_loop(
 }
 
 impl SaveableDB {
-    pub fn open(filename: &str) -> SimpleResult<SaveableDB> {
+    pub fn open(
+        filename: &str,
+    ) -> SimpleResult<(impl Future<Output = SimpleResult<()>>, SaveableDB)> {
         let db_file = std::fs::File::open(filename)?;
         let db: DB = serde_json::from_reader(&db_file)?;
 
-        let (save_tx, mut save_rx) = mpsc::unbounded_channel();
+        let (save_tx, save_rx) = mpsc::unbounded_channel();
 
         let saveable_db = SaveableDB(Arc::new(RwLock::new(InnerSaveableDB {
             db,
@@ -116,14 +119,8 @@ impl SaveableDB {
         let path = PathBuf::from(filename);
         let db2 = saveable_db.clone();
 
-        tokio::spawn(async move {
-            if let Err(e) = save_db_loop(db2, &path, &mut save_rx).await {
-                eprintln!("Failed to save! {:?}", e);
-                std::process::exit(1);
-            }
-        });
-
-        Ok(saveable_db)
+        let fut = async move { save_db_loop(db2, &path, save_rx).await };
+        Ok((fut, saveable_db))
     }
 
     pub fn read<T>(&self, callback: impl FnOnce(&DB) -> T) -> T {

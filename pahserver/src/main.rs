@@ -215,7 +215,14 @@ async fn run_server(opts: RunServerOpts) -> SimpleResult<()> {
     let config: Config = toml::from_str(&fs::read_to_string(&opts.config).await?)?;
     let (_, sign_sk) = sign::keypair_from_seed(&config.priv_seed.to_seed());
 
-    let db = SaveableDB::open(&opts.db)?;
+    let (save_fut, db) = SaveableDB::open(&opts.db)?;
+    tokio::spawn(async move {
+        if let Err(e) = save_fut.await {
+            eprintln!("Failed to save! {:?}", e);
+            std::process::exit(1);
+        }
+    });
+
     let (stats_fut, stats_tx) = stats::stats_thread(&db);
     tokio::spawn(stats_fut);
 
