@@ -3,9 +3,9 @@ use std::default::Default;
 use std::error::Error;
 use std::fs::OpenOptions;
 
+use argh::FromArgs;
 use sodiumoxide::crypto::sign;
 use sodiumoxide::randombytes::randombytes;
-use argh::FromArgs;
 
 use pahserver::db::{User, UserId, DB};
 

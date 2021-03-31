@@ -46,7 +46,8 @@ struct ServerState {
 
 async fn server_read(
     port: &mut ReadPort<'_>,
-    who: &UserId,
+    who_id: &UserId,
+    who_name: &str,
     server_state: &Mutex<ServerState>,
     state: &State,
     more_work_tx: mpsc::Sender<()>,
@@ -56,10 +57,18 @@ async fn server_read(
         let msg: ServerMessage = serde_json::from_slice(&msg)?;
         if let ServerMessage::Update {
             permuter_id,
-            update,
+            mut update,
             time_cost_ms,
         } = msg
         {
+            if let ServerUpdate::Result {
+                ref mut compressed_source,
+                has_source: true,
+                ..
+            } = &mut update
+            {
+                *compressed_source = Some(port.recv().await?);
+            }
             let mut m = state.m.lock().unwrap();
             let mut server_state = server_state.lock().unwrap();
 
@@ -79,7 +88,10 @@ async fn server_read(
                         }
                         ServerUpdate::Result { .. } => {}
                     }
-                    perm.send_result(permuter_id, PermuterResult::Result(who.clone(), update));
+                    perm.send_result(
+                        permuter_id,
+                        PermuterResult::Result(who_id.clone(), who_name.to_string(), update),
+                    );
                 }
             }
         }
@@ -96,7 +108,7 @@ async fn server_read(
 
 enum ToSend {
     Work(PermuterWork),
-    Add(Arc<PermuterData>),
+    Add(UserId, String, Arc<PermuterData>),
     Remove,
 }
 
@@ -123,7 +135,14 @@ async fn choose_work(server_state: &Mutex<ServerState>, state: &State) -> (Permu
                     energy: 0.0,
                 },
             );
-            return (perm_id, ToSend::Add(perm.data.clone()));
+            return (
+                perm_id,
+                ToSend::Add(
+                    perm.client_id.clone(),
+                    perm.client_name.clone(),
+                    perm.data.clone(),
+                ),
+            );
         }
 
         // If none, find an existing one to work on, or to remove.
@@ -198,10 +217,12 @@ async fn send_work(
             }))
             .await?;
         }
-        ToSend::Add(permuter) => {
+        ToSend::Add(client_id, client_name, permuter) => {
             port.send_json(&json!({
                 "type": "add",
                 "permuter": perm_id,
+                "client_id": client_id,
+                "client_name": client_name,
                 "data": &*permuter,
             }))
             .await?;
@@ -238,7 +259,8 @@ async fn server_write(
 pub(crate) async fn handle_connect_server<'a>(
     mut read_port: ReadPort<'a>,
     mut write_port: WritePort<'a>,
-    who: &UserId,
+    who_id: &UserId,
+    who_name: &str,
     state: &State,
     data: ConnectServerData,
 ) -> SimpleResult<()> {
@@ -264,10 +286,18 @@ pub(crate) async fn handle_connect_server<'a>(
     };
 
     let r = tokio::try_join!(
-        server_read(&mut read_port, who, &server_state, state, more_work_tx),
+        server_read(
+            &mut read_port,
+            who_id,
+            who_name,
+            &server_state,
+            state,
+            more_work_tx
+        ),
         server_write(&mut write_port, &server_state, state, more_work_rx)
     );
 
+    // TODO: perm.send_result(permuter_id, PermuterResult::Result(who_id.clone(), who_name.to_string(), Disconnect));
     state.m.lock().unwrap().servers.remove(id);
     r?;
     Ok(())

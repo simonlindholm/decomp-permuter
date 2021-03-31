@@ -5,9 +5,11 @@ use serde::Deserialize;
 use serde_json::json;
 use tokio::sync::mpsc;
 
-use crate::port::{ReadPort, WritePort};
 use crate::flimsy_semaphore::FlimsySemaphore;
-use crate::{ConnectClientData, Permuter, PermuterId, PermuterResult, PermuterWork, State};
+use crate::port::{ReadPort, WritePort};
+use crate::{
+    ConnectClientData, Permuter, PermuterId, PermuterResult, PermuterWork, ServerUpdate, State,
+};
 use pahserver::db::UserId;
 use pahserver::util::SimpleResult;
 
@@ -73,19 +75,63 @@ async fn client_write(
                 port.send_json(&json!({
                     "type": "need_work",
                     "permuter": local_perm_id,
-                })).await?;
+                }))
+                .await?;
             }
-            PermuterResult::Result(_server_user, _server_update) => {
-                // TODO (including statistics)
+            PermuterResult::Result(_server_id, server_name, server_update) => {
+                match server_update {
+                    ServerUpdate::InitDone { score, hash } => {
+                        port.send_json(&json!({
+                            "type": "connect",
+                            "permuter": local_perm_id,
+                            "server": server_name,
+                            "score": score,
+                            "hash": hash,
+                        }))
+                        .await?;
+                    }
+                    ServerUpdate::InitFailed { reason } => {
+                        port.send_json(&json!({
+                            "type": "init_failed",
+                            "permuter": local_perm_id,
+                            "server": server_name,
+                            "reason": reason,
+                        }))
+                        .await?;
+                    }
+                    ServerUpdate::Result {
+                        score,
+                        hash,
+                        compressed_source,
+                        ..
+                    } => {
+                        // TODO profiler, or generalized to extra fields, flattened?
+                        // (serialize, in that case)
+                        port.send_json(&json!({
+                            "type": "result",
+                            "permuter": local_perm_id,
+                            "server": server_name,
+                            "score": score,
+                            "hash": hash,
+                            "has_source": compressed_source.is_some(),
+                        }))
+                        .await?;
+                        if let Some(data) = compressed_source {
+                            port.send(&data).await?;
+                        }
+                    }
+                }
             }
         }
+        // TODO statistics
     }
 }
 
 pub(crate) async fn handle_connect_client<'a>(
     mut read_port: ReadPort<'a>,
     mut write_port: WritePort<'a>,
-    _who: &UserId,
+    who_id: &UserId,
+    who_name: &str,
     state: &State,
     mut data: ConnectClientData,
 ) -> SimpleResult<()> {
@@ -127,6 +173,8 @@ pub(crate) async fn handle_connect_client<'a>(
                 id,
                 Permuter {
                     data: permuter_data.into(),
+                    client_id: who_id.clone(),
+                    client_name: who_name.to_string(),
                     work_queue: VecDeque::new(),
                     result_tx: result_tx.clone(),
                     semaphore: semaphore.clone(),

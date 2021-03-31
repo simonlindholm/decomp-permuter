@@ -17,17 +17,17 @@ use tokio::net::tcp::{ReadHalf, WriteHalf};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, Notify};
 
+use crate::flimsy_semaphore::FlimsySemaphore;
 use crate::port::{ReadPort, WritePort};
 use crate::save::SaveableDB;
-use crate::flimsy_semaphore::FlimsySemaphore;
 use pahserver::db::{ByteString, User, UserId};
 use pahserver::util::SimpleResult;
 
 mod client;
+mod flimsy_semaphore;
 mod port;
 mod save;
 mod server;
-mod flimsy_semaphore;
 
 #[derive(FromArgs)]
 /// The permuter@home control server.
@@ -84,20 +84,34 @@ struct PermuterWork {
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum ServerUpdate {
-    Result,
-    InitDone,
-    InitFailed,
+    Result {
+        score: i64,
+        hash: String,
+        #[serde(skip)]
+        compressed_source: Option<Vec<u8>>,
+        has_source: bool,
+        // profiler: HashMap<String, f64>,
+    },
+    InitDone {
+        score: i64,
+        hash: String,
+    },
+    InitFailed {
+        reason: String,
+    },
 }
 
 enum PermuterResult {
     NeedWork,
-    Result(UserId, ServerUpdate),
+    Result(UserId, String, ServerUpdate),
 }
 
 type PermuterId = u64;
 
 struct Permuter {
     data: Arc<PermuterData>,
+    client_id: UserId,
+    client_name: String,
     work_queue: VecDeque<PermuterWork>,
     result_tx: mpsc::UnboundedSender<(PermuterId, PermuterResult)>,
     semaphore: Arc<FlimsySemaphore>,
@@ -231,9 +245,13 @@ async fn handshake<'a>(
 async fn handle_connection(mut socket: TcpStream, state: &State) -> SimpleResult<()> {
     let (rd, wr) = socket.split();
     let (mut read_port, mut write_port, user_id) = handshake(rd, wr, &state.sign_sk).await?;
-    if !state.db.read(|db| db.users.contains_key(&user_id)) {
-        Err("Unknown client!")?;
-    }
+    let name = match state.db.read(|db| {
+        let user = db.users.get(&user_id)?;
+        Some(user.name.clone())
+    }) {
+        Some(name) => name,
+        None => Err("Unknown client!")?,
+    };
 
     let request = read_port.recv().await?;
     let request: Request = serde_json::from_slice(&request)?;
@@ -260,10 +278,12 @@ async fn handle_connection(mut socket: TcpStream, state: &State) -> SimpleResult
             write_port.send_json(&json!({})).await?;
         }
         Request::ConnectServer { data } => {
-            server::handle_connect_server(read_port, write_port, &user_id, state, data).await?;
+            server::handle_connect_server(read_port, write_port, &user_id, &name, state, data)
+                .await?;
         }
         Request::ConnectClient { data } => {
-            client::handle_connect_client(read_port, write_port, &user_id, state, data).await?;
+            client::handle_connect_client(read_port, write_port, &user_id, &name, state, data)
+                .await?;
         }
     };
 
