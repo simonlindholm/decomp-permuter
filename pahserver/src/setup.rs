@@ -5,9 +5,9 @@ use std::fs::OpenOptions;
 use sodiumoxide::crypto::sign;
 use sodiumoxide::randombytes::randombytes;
 
-use crate::SetupOpts;
 use crate::db::{User, UserId, DB};
 use crate::util::SimpleResult;
+use crate::SetupOpts;
 
 pub(crate) fn run_setup(opts: SetupOpts) -> SimpleResult<()> {
     let db_file = OpenOptions::new()

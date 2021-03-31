@@ -67,6 +67,7 @@ pub struct Stats {
     pub iterations: u64,
     pub improvements: u64,
     pub matches: u64,
+    pub functions: u64,
 }
 
 impl Default for Stats {
@@ -75,6 +76,7 @@ impl Default for Stats {
             iterations: 0,
             improvements: 0,
             matches: 0,
+            functions: 0,
         }
     }
 }
@@ -92,4 +94,12 @@ pub struct DB {
     pub users: HashMap<UserId, User>,
     pub func_stats: HashMap<String, Stats>,
     pub total_stats: Stats,
+}
+
+impl DB {
+    pub fn func_stat(&mut self, fn_name: String) -> &mut Stats {
+        self.func_stats
+            .entry(fn_name)
+            .or_insert_with(|| Stats::default())
+    }
 }

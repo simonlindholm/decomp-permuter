@@ -6,13 +6,14 @@ use serde_json::json;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
 
+use crate::db::UserId;
 use crate::port::{ReadPort, WritePort};
+use crate::stats;
+use crate::util::SimpleResult;
 use crate::{
     ConnectServerData, ConnectedServer, PermuterData, PermuterId, PermuterResult, PermuterWork,
     ServerUpdate, State,
 };
-use crate::db::UserId;
-use crate::util::SimpleResult;
 
 const SERVER_WORK_QUEUE_SIZE: usize = 100;
 const TIME_COST_MS_GUESS: f64 = 100.0;
@@ -55,6 +56,7 @@ async fn server_read(
     loop {
         let msg = port.recv().await?;
         let msg: ServerMessage = serde_json::from_slice(&msg)?;
+        let mut log_new = false;
         if let ServerMessage::Update {
             permuter_id,
             mut update,
@@ -82,6 +84,7 @@ async fn server_read(
                     match update {
                         ServerUpdate::InitDone { .. } => {
                             job.state = JobState::Loaded;
+                            log_new = true;
                         }
                         ServerUpdate::InitFailed { .. } => {
                             job.state = JobState::Failed;
@@ -94,6 +97,14 @@ async fn server_read(
                     );
                 }
             }
+        }
+
+        if log_new {
+            state
+                .log_stats(stats::Record::ServerNewFunction {
+                    server: who_id.clone(),
+                })
+                .await?;
         }
 
         // Try requesting more work by sending a message to the writer thread.
@@ -167,8 +178,8 @@ async fn choose_work(server_state: &Mutex<ServerState>, state: &State) -> (Permu
 
         let (perm_id, job) = match best {
             None => {
-                // Nothing to work on! Register to be notified when something happens and go to
-                // sleep.
+                // Nothing to work on! Register to be notified when something
+                // happens and go to sleep.
                 wait_for = Some(state.new_work_notification.notified());
                 continue;
             }
@@ -178,8 +189,9 @@ async fn choose_work(server_state: &Mutex<ServerState>, state: &State) -> (Permu
         let perm = m.permuters.get_mut(&perm_id).unwrap();
         let work = match perm.work_queue.pop_front() {
             None => {
-                // Chosen permuter is out of work. Ask it for more, and mark it as
-                // stale. When it goes unstale all sleeping writers will be notified.
+                // Chosen permuter is out of work. Ask it for more, and mark it
+                // as stale. When it goes unstale all sleeping writers will be
+                // notified.
                 perm.send_result(perm_id, PermuterResult::NeedWork);
                 perm.stale = true;
                 wait_for = None;

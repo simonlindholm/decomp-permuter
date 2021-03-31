@@ -17,10 +17,10 @@ use tokio::net::tcp::{ReadHalf, WriteHalf};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, Notify};
 
+use crate::db::{ByteString, User, UserId};
 use crate::flimsy_semaphore::FlimsySemaphore;
 use crate::port::{ReadPort, WritePort};
 use crate::save::SaveableDB;
-use crate::db::{ByteString, User, UserId};
 use crate::util::SimpleResult;
 
 mod client;
@@ -30,6 +30,7 @@ mod port;
 mod save;
 mod server;
 mod setup;
+mod stats;
 mod util;
 
 #[derive(FromArgs)]
@@ -171,18 +172,25 @@ struct State {
     docker_image: String,
     sign_sk: sign::SecretKey,
     db: SaveableDB,
+    stats_tx: mpsc::Sender<stats::Record>,
     new_work_notification: Notify,
     m: Mutex<MutableState>,
+}
+
+impl State {
+    async fn log_stats(&self, record: stats::Record) -> SimpleResult<()> {
+        self.stats_tx
+            .send(record)
+            .await
+            .map_err(|_| "stats thread died".into())
+    }
 }
 
 #[derive(Deserialize)]
 #[serde(tag = "method", rename_all = "snake_case")]
 enum Request {
     Ping,
-    Vouch {
-        who: UserId,
-        signed_name: String,
-    },
+    Vouch { who: UserId, signed_name: String },
     ConnectServer(ConnectServerData),
     ConnectClient(ConnectClientData),
 }
@@ -204,10 +212,15 @@ async fn run_server(opts: RunServerOpts) -> SimpleResult<()> {
     let config: Config = toml::from_str(&fs::read_to_string(&opts.config).await?)?;
     let (_, sign_sk) = sign::keypair_from_seed(&config.priv_seed.to_seed());
 
+    let db = SaveableDB::open(&opts.db)?;
+    let (stats_fut, stats_tx) = stats::stats_thread(&db);
+    tokio::spawn(stats_fut);
+
     let state: &'static State = Box::leak(Box::new(State {
         docker_image: config.docker_image,
         sign_sk,
-        db: SaveableDB::open(&opts.db)?,
+        db,
+        stats_tx,
         new_work_notification: Notify::new(),
         m: Mutex::new(MutableState {
             servers: SlotMap::with_key(),

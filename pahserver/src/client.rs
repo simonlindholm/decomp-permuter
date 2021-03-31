@@ -5,13 +5,14 @@ use serde::Deserialize;
 use serde_json::json;
 use tokio::sync::mpsc;
 
+use crate::db::UserId;
 use crate::flimsy_semaphore::FlimsySemaphore;
 use crate::port::{ReadPort, WritePort};
+use crate::stats;
+use crate::util::SimpleResult;
 use crate::{
     ConnectClientData, Permuter, PermuterId, PermuterResult, PermuterWork, ServerUpdate, State,
 };
-use crate::db::UserId;
-use crate::util::SimpleResult;
 
 const CLIENT_MAX_QUEUES_SIZE: usize = 100;
 
@@ -29,7 +30,7 @@ struct ClientMessage {
 
 async fn client_read(
     port: &mut ReadPort<'_>,
-    perm_ids: &[PermuterId],
+    perm_meta: &[(PermuterId, String)],
     semaphore: &FlimsySemaphore,
     state: &State,
 ) -> SimpleResult<()> {
@@ -37,7 +38,7 @@ async fn client_read(
         let msg = port.recv().await?;
         let msg: ClientMessage = serde_json::from_slice(&msg)?;
         let ClientUpdate::Work(work) = msg.update;
-        let perm_id = perm_ids
+        let (perm_id, _) = perm_meta
             .get(msg.permuter_id as usize)
             .ok_or("Permuter index out of range")?;
 
@@ -57,14 +58,16 @@ async fn client_read(
 
 async fn client_write(
     port: &mut WritePort<'_>,
-    perm_ids: &[PermuterId],
+    perm_meta: &[(PermuterId, String)],
     semaphore: &FlimsySemaphore,
-    _state: &State,
+    state: &State,
     mut result_rx: mpsc::UnboundedReceiver<(PermuterId, PermuterResult)>,
+    client_id: &UserId,
 ) -> SimpleResult<()> {
     loop {
         let (perm_id, res) = result_rx.recv().await.unwrap();
-        let local_perm_id = perm_ids.iter().position(|&x| x == perm_id).unwrap();
+        let local_perm_id = perm_meta.iter().position(|&(id, _)| id == perm_id).unwrap();
+        let fn_name = &perm_meta[local_perm_id].1;
         semaphore.release();
 
         match res {
@@ -75,7 +78,7 @@ async fn client_write(
                 }))
                 .await?;
             }
-            PermuterResult::Result(_server_id, server_name, server_update) => {
+            PermuterResult::Result(server_id, server_name, server_update) => {
                 match server_update {
                     ServerUpdate::InitDone { score, hash } => {
                         port.send_json(&json!({
@@ -104,23 +107,39 @@ async fn client_write(
                     } => {
                         // TODO profiler, or generalized to extra fields, flattened?
                         // (serialize, in that case)
+                        let has_source = compressed_source.is_some();
                         port.send_json(&json!({
                             "type": "result",
                             "permuter": local_perm_id,
                             "server": server_name,
                             "score": score,
                             "hash": hash,
-                            "has_source": compressed_source.is_some(),
+                            "has_source": has_source,
                         }))
                         .await?;
                         if let Some(data) = compressed_source {
                             port.send(&data).await?;
                         }
+
+                        let outcome = if !has_source {
+                            stats::Outcome::Unhelpful
+                        } else if score == 0 {
+                            stats::Outcome::Matched
+                        } else {
+                            stats::Outcome::Improved
+                        };
+                        state
+                            .log_stats(stats::Record::WorkDone {
+                                server: server_id,
+                                client: client_id.clone(),
+                                fn_name: fn_name.to_string(),
+                                outcome: outcome,
+                            })
+                            .await?;
                     }
                 }
             }
         }
-        // TODO statistics
     }
 }
 
@@ -153,19 +172,28 @@ pub(crate) async fn handle_connect_client<'a>(
         }))
         .await?;
 
+    for permuter_data in &data.permuters {
+        state
+            .log_stats(stats::Record::ClientNewFunction {
+                client: who_id.clone(),
+                fn_name: permuter_data.fn_name.clone(),
+            })
+            .await?;
+    }
+
     // TODO: validate that priority is sane
     let energy_add = (data.permuters.len() as f64) / data.priority;
 
     let (result_tx, result_rx) = mpsc::unbounded_channel();
     let semaphore = Arc::new(FlimsySemaphore::new(CLIENT_MAX_QUEUES_SIZE));
 
-    let mut perm_ids = Vec::new();
+    let mut perm_meta = Vec::new();
     {
         let mut m = state.m.lock().unwrap();
         for permuter_data in data.permuters {
             let id = m.next_permuter_id;
             m.next_permuter_id += 1;
-            perm_ids.push(id);
+            perm_meta.push((id, permuter_data.fn_name.clone()));
             m.permuters.insert(
                 id,
                 Permuter {
@@ -185,13 +213,20 @@ pub(crate) async fn handle_connect_client<'a>(
     }
 
     let r = tokio::try_join!(
-        client_read(&mut read_port, &perm_ids, &semaphore, state),
-        client_write(&mut write_port, &perm_ids, &semaphore, state, result_rx)
+        client_read(&mut read_port, &perm_meta, &semaphore, state),
+        client_write(
+            &mut write_port,
+            &perm_meta,
+            &semaphore,
+            state,
+            result_rx,
+            who_id
+        )
     );
 
     {
         let mut m = state.m.lock().unwrap();
-        for id in perm_ids {
+        for (id, _) in perm_meta {
             m.permuters.remove(&id);
         }
     }
