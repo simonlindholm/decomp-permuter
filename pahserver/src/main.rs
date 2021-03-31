@@ -127,6 +127,8 @@ enum ServerUpdate {
     InitFailed {
         reason: String,
     },
+    #[serde(skip_deserializing)]
+    Disconnect,
 }
 
 enum PermuterResult {

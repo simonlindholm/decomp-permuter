@@ -58,7 +58,7 @@ async fn server_read(
         let msg: ServerMessage = serde_json::from_slice(&msg)?;
         let mut log_new = false;
         if let ServerMessage::Update {
-            permuter_id,
+            permuter_id: perm_id,
             mut update,
             time_cost_ms,
         } = msg
@@ -76,8 +76,8 @@ async fn server_read(
 
             // If we get back a message referring to a since-removed permuter,
             // no need to do anything.
-            if let Some(job) = server_state.jobs.get_mut(&permuter_id) {
-                if let Some(perm) = m.permuters.get_mut(&permuter_id) {
+            if let Some(job) = server_state.jobs.get_mut(&perm_id) {
+                if let Some(perm) = m.permuters.get_mut(&perm_id) {
                     job.energy -= perm.energy_add * TIME_COST_MS_GUESS;
                     job.energy += perm.energy_add * time_cost_ms;
 
@@ -90,9 +90,10 @@ async fn server_read(
                             job.state = JobState::Failed;
                         }
                         ServerUpdate::Result { .. } => {}
+                        ServerUpdate::Disconnect => unreachable!(),
                     }
                     perm.send_result(
-                        permuter_id,
+                        perm_id,
                         PermuterResult::Result(who_id.clone(), who_name.to_string(), update),
                     );
                 }
@@ -284,7 +285,7 @@ pub(crate) async fn handle_connect_server<'a>(
 
     let (more_work_tx, more_work_rx) = mpsc::channel(SERVER_WORK_QUEUE_SIZE);
 
-    let server_state = Mutex::new(ServerState {
+    let mut server_state = Mutex::new(ServerState {
         min_priority: data.min_priority,
         jobs: HashMap::new(),
     });
@@ -309,8 +310,25 @@ pub(crate) async fn handle_connect_server<'a>(
         server_write(&mut write_port, &server_state, state, more_work_rx)
     );
 
-    // TODO: perm.send_result(permuter_id, PermuterResult::Result(who_id.clone(), who_name.to_string(), Disconnect));
-    state.m.lock().unwrap().servers.remove(id);
+    {
+        let mut m = state.m.lock().unwrap();
+        for (&perm_id, job) in &server_state.get_mut().unwrap().jobs {
+            if let JobState::Loaded = job.state {
+                if let Some(perm) = m.permuters.get_mut(&perm_id) {
+                    perm.send_result(
+                        perm_id,
+                        PermuterResult::Result(
+                            who_id.clone(),
+                            who_name.to_string(),
+                            ServerUpdate::Disconnect,
+                        ),
+                    );
+                }
+            }
+        }
+
+        m.servers.remove(id);
+    }
     r?;
     Ok(())
 }

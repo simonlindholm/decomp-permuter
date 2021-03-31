@@ -99,6 +99,14 @@ async fn client_write(
                         }))
                         .await?;
                     }
+                    ServerUpdate::Disconnect => {
+                        port.send_json(&json!({
+                            "type": "disconnect",
+                            "permuter": local_perm_id,
+                            "server": server_name,
+                        }))
+                        .await?;
+                    }
                     ServerUpdate::Result {
                         score,
                         hash,
