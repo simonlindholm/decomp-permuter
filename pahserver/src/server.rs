@@ -290,13 +290,10 @@ pub(crate) async fn handle_connect_server<'a>(
         jobs: HashMap::new(),
     });
 
-    let id = {
-        let mut m = state.m.lock().unwrap();
-        m.servers.insert(ConnectedServer {
-            min_priority: data.min_priority,
-            num_cpus: data.num_cpus,
-        })
-    };
+    let id = state.m.lock().unwrap().servers.insert(ConnectedServer {
+        min_priority: data.min_priority,
+        num_cpus: data.num_cpus,
+    });
 
     let r = tokio::try_join!(
         server_read(

@@ -76,10 +76,7 @@ async fn save_db_loop(
         }
 
         // Mark the DB as non-stale, to start receiving save messages again.
-        {
-            let mut inner = db.0.write().unwrap();
-            inner.stale = false;
-        }
+        db.0.write().unwrap().stale = false;
 
         // Actually do the save, by first serializing, then atomically saving
         // the file by creating and renaming a temp file in the same directory.
