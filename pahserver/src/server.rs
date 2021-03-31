@@ -11,8 +11,8 @@ use crate::{
     ConnectServerData, ConnectedServer, PermuterData, PermuterId, PermuterResult, PermuterWork,
     ServerUpdate, State,
 };
-use pahserver::db::UserId;
-use pahserver::util::SimpleResult;
+use crate::db::UserId;
+use crate::util::SimpleResult;
 
 const SERVER_WORK_QUEUE_SIZE: usize = 100;
 const TIME_COST_MS_GUESS: f64 = 100.0;

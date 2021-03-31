@@ -10,8 +10,8 @@ use crate::port::{ReadPort, WritePort};
 use crate::{
     ConnectClientData, Permuter, PermuterId, PermuterResult, PermuterWork, ServerUpdate, State,
 };
-use pahserver::db::UserId;
-use pahserver::util::SimpleResult;
+use crate::db::UserId;
+use crate::util::SimpleResult;
 
 const CLIENT_MAX_QUEUES_SIZE: usize = 100;
 

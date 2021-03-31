@@ -1,27 +1,15 @@
 use std::collections::HashMap;
 use std::default::Default;
-use std::error::Error;
 use std::fs::OpenOptions;
 
-use argh::FromArgs;
 use sodiumoxide::crypto::sign;
 use sodiumoxide::randombytes::randombytes;
 
-use pahserver::db::{User, UserId, DB};
+use crate::SetupOpts;
+use crate::db::{User, UserId, DB};
+use crate::util::SimpleResult;
 
-#[derive(FromArgs)]
-/// Initial setup for the permuter@home control server.
-struct CmdOpts {
-    /// path to JSON database
-    #[argh(option)]
-    db: String,
-}
-
-fn main() -> Result<(), Box<dyn Error>> {
-    sodiumoxide::init().map_err(|()| "Failed to initialize cryptography library")?;
-
-    let opts: CmdOpts = argh::from_env();
-
+pub(crate) fn run_setup(opts: SetupOpts) -> SimpleResult<()> {
     let db_file = OpenOptions::new()
         .write(true)
         .create_new(true)

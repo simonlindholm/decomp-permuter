@@ -7,8 +7,8 @@ use tempfile::NamedTempFile;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::timeout;
 
-use pahserver::db::DB;
-use pahserver::util::{FutureExt, SimpleResult};
+use crate::db::DB;
+use crate::util::{FutureExt, SimpleResult};
 
 const SAVE_INTERVAL: Duration = Duration::from_secs(30);
 

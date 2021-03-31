@@ -6,7 +6,7 @@ use std::convert::TryInto;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::{ReadHalf, WriteHalf};
 
-use pahserver::util::SimpleResult;
+use crate::util::SimpleResult;
 
 pub struct ReadPort<'a> {
     read_half: ReadHalf<'a>,

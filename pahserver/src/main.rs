@@ -20,18 +20,36 @@ use tokio::sync::{mpsc, Notify};
 use crate::flimsy_semaphore::FlimsySemaphore;
 use crate::port::{ReadPort, WritePort};
 use crate::save::SaveableDB;
-use pahserver::db::{ByteString, User, UserId};
-use pahserver::util::SimpleResult;
+use crate::db::{ByteString, User, UserId};
+use crate::util::SimpleResult;
 
 mod client;
+mod db;
 mod flimsy_semaphore;
 mod port;
 mod save;
 mod server;
+mod setup;
+mod util;
 
 #[derive(FromArgs)]
 /// The permuter@home control server.
 struct CmdOpts {
+    #[argh(subcommand)]
+    sub: SubCommand,
+}
+
+#[derive(FromArgs)]
+#[argh(subcommand)]
+enum SubCommand {
+    RunServer(RunServerOpts),
+    Setup(SetupOpts),
+}
+
+#[derive(FromArgs)]
+/// Run the permuter@home control server.
+#[argh(subcommand, name = "run")]
+struct RunServerOpts {
     /// ip:port to listen on (e.g. 0.0.0.0:1234)
     #[argh(option)]
     listen_on: String,
@@ -40,6 +58,15 @@ struct CmdOpts {
     #[argh(option)]
     config: String,
 
+    /// path to JSON database
+    #[argh(option)]
+    db: String,
+}
+
+#[derive(FromArgs)]
+/// Setup initial database and config for permuter@home.
+#[argh(subcommand, name = "setup")]
+struct SetupOpts {
     /// path to JSON database
     #[argh(option)]
     db: String,
@@ -166,6 +193,14 @@ async fn main() -> SimpleResult<()> {
 
     let opts: CmdOpts = argh::from_env();
 
+    match opts.sub {
+        SubCommand::RunServer(opts) => run_server(opts).await?,
+        SubCommand::Setup(opts) => setup::run_setup(opts)?,
+    }
+    Ok(())
+}
+
+async fn run_server(opts: RunServerOpts) -> SimpleResult<()> {
     let config: Config = toml::from_str(&fs::read_to_string(&opts.config).await?)?;
     let (_, sign_sk) = sign::keypair_from_seed(&config.priv_seed.to_seed());
 
