@@ -10,6 +10,9 @@ pub struct FlimsySemaphore {
 }
 
 impl FlimsySemaphore {
+    // Invariant: if `slots` has ever become non-positive, then if positive
+    // there will be a notify token in circulation. Taking the token
+    // synchronizes with a positive `slots`.
     pub fn new(count: usize) -> FlimsySemaphore {
         FlimsySemaphore {
             notify: Notify::new(),
@@ -26,7 +29,7 @@ impl FlimsySemaphore {
         let mut val = self.slots.load(Ordering::Relaxed);
         loop {
             if val > 0 {
-                match self.slots.compare_exchange(val, val - 1, Ordering::AcqRel, Ordering::Relaxed) {
+                match self.slots.compare_exchange(val, val - 1, Ordering::Acquire, Ordering::Relaxed) {
                     Ok(_) => {
                         if was_woken && val > 1 {
                             self.notify.notify_one();
@@ -38,21 +41,15 @@ impl FlimsySemaphore {
                     }
                 }
             } else {
-                match self.slots.compare_exchange(val, val, Ordering::AcqRel, Ordering::Relaxed) {
-                    Ok(_) => {
-                        self.notify.notified().await;
-                        was_woken = true;
-                    }
-                    Err(actually) => {
-                        val = actually;
-                    }
-                }
+                self.notify.notified().await;
+                was_woken = true;
+                val = self.slots.load(Ordering::Relaxed);
             }
         }
     }
 
     pub fn release(&self) {
-        if self.slots.fetch_add(1, Ordering::AcqRel) == 0 {
+        if self.slots.fetch_add(1, Ordering::Release) == 0 {
             self.notify.notify_one();
         }
     }
