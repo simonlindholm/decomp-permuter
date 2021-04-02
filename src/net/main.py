@@ -1,7 +1,7 @@
 import abc
 from argparse import ArgumentParser, Namespace, RawDescriptionHelpFormatter
 from .server import ServerOptions
-from ..server_main import server_main
+from .server_main import server_main
 
 
 class Command(abc.ABC):

@@ -10,9 +10,9 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from PIL import Image
 import pystray
 
-from .net.auth import fetch_docker_image_name, go_online, go_offline, setup
-from .net.common import static_assert_unreachable
-from .net.server import (
+from .auth import fetch_docker_image_name, go_online, go_offline, setup
+from .common import static_assert_unreachable
+from .server import (
     IoActivity,
     IoConnect,
     IoDisconnect,
