@@ -22,7 +22,7 @@ class Command(abc.ABC):
 class RunServerCommand(Command):
     command = "run-server"
     help = (
-        "Run a permuter server, allowing anyone with access to the central -J "
+        "Run a permuter server, allowing anyone with access to the central "
         "server to run sandboxed permuter jobs on your machine."
     )
 
@@ -107,7 +107,7 @@ class SetupCommand(Command):
 
 class VouchCommand(Command):
     command = "vouch"
-    help = "Give someone access to the permuter@home server."
+    help = "Give someone access to the central server."
 
     @staticmethod
     def add_arguments(parser: ArgumentParser) -> None:
@@ -125,7 +125,7 @@ def main() -> None:
     parser = ArgumentParser(
         description="permuter@home - run the permuter across the Internet!\n\n"
         "To use p@h as a client, just pass -J when running the permuter. "
-        "This script is\nonly necessary for configuration or running a server.",
+        "This script is\nonly necessary for configuration or when running a server.",
         formatter_class=RawDescriptionHelpFormatter,
     )
 
@@ -135,18 +135,21 @@ def main() -> None:
         VouchCommand,
     ]
 
-    subparsers = parser.add_subparsers()
+    subparsers = parser.add_subparsers(metavar="<command>")
     for command in commands:
-        parser = subparsers.add_parser(
+        subparser = subparsers.add_parser(
             command.command,
             help=command.help,
             description=command.help,
         )
-        command.add_arguments(parser)
-        parser.set_defaults(func=command.run)
+        command.add_arguments(subparser)
+        subparser.set_defaults(func=command.run)
 
     args = parser.parse_args()
-    args.func(args)
+    if "func" in args:
+        args.func(args)
+    else:
+        parser.print_help()
 
 
 if __name__ == "__main__":
