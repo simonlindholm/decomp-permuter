@@ -10,7 +10,6 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from PIL import Image
 import pystray
 
-from ..auth import fetch_docker_image_name, go_online, go_offline
 from ..core import connect, static_assert_unreachable
 from ..server import (
     IoActivity,
@@ -264,7 +263,7 @@ def output_loop(output_queue: "queue.Queue[IoActivity]", systray: SystrayState) 
 
 def server_main(options: ServerOptions) -> None:
     config = connect()
-    docker_image = fetch_docker_image_name(config)
+    docker_image = ""  # TODO
 
     output_queue: "queue.Queue[IoActivity]" = queue.Queue()
 
@@ -274,7 +273,7 @@ def server_main(options: ServerOptions) -> None:
         server = Server(config, options, port, output_queue)
         server.start()
 
-        go_online(config, options.port)
+        # TODO go_online(config, options.port)
 
         # TODO: regularly check in with the auth server to maintain an up-to-date IP,
         # and to check version.
@@ -291,7 +290,7 @@ def server_main(options: ServerOptions) -> None:
         else:
             cmdline_ui(SystrayState())
 
-        go_offline(config)
+        # TODO go_offline(config)
         server.stop()
     finally:
         port.shutdown()
