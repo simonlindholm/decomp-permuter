@@ -114,8 +114,6 @@ class PortablePermuter:
 
 class Connection:
     _port: SocketPort
-    _server: RemoteServer
-    _grant: bytes
     _permuters: List[PortablePermuter]
     _task_queue: "multiprocessing.Queue[Task]"
     _feedback_queue: "multiprocessing.Queue[Feedback]"
@@ -125,34 +123,17 @@ class Connection:
     def __init__(
         self,
         port: SocketPort,
-        server: RemoteServer,
-        grant: bytes,
         permuters: List[PortablePermuter],
         task_queue: "multiprocessing.Queue[Task]",
         feedback_queue: "multiprocessing.Queue[Feedback]",
         priority: float,
     ) -> None:
         self._port = port
-        self._server = server
-        self._grant = grant
         self._permuters = permuters
         self._task_queue = task_queue
         self._feedback_queue = feedback_queue
         self._sock = None
         self._priority = priority
-
-    def _setup(self) -> SocketPort:
-        return self._port
-
-    def _init(self, port: Port) -> ServerProps:
-        """Prove to the server that our request to it is valid, by presenting
-        a grant from the auth server. Returns a bunch of server properties."""
-        port.send(self._grant)
-        obj = json.loads(port.receive())
-        return ServerProps(
-            min_priority=json_prop(obj, "min_priority", float),
-            num_cpus=json_prop(obj, "num_cpus", float),
-        )
 
     def _send_permuters(self, port: Port) -> None:
         permuter_objs = []
@@ -166,7 +147,6 @@ class Connection:
             }
             permuter_objs.append(obj)
         init_obj = {
-            "priority": self._priority,
             "permuters": permuter_objs,
         }
         port.send_json(init_obj)
@@ -178,15 +158,9 @@ class Connection:
     def run(self) -> None:
         finish_reason: Optional[str] = None
         try:
-            port = self._setup()
-            props = self._init(port)
-            if self._priority < props.min_priority:
-                finish_reason = (
-                    f"skipping due to priority requirement {props.min_priority}"
-                )
-                return
-            self._send_permuters(port)
-            msg = port.receive_json()
+            self._send_permuters(self._port)
+            msg = self._port.receive_json()
+            server_nick = json_prop(msg, "server", str)
             success = json_prop(msg, "success", bool)
             if not success:
                 error = json_prop(msg, "error", str)
@@ -207,10 +181,10 @@ class Connection:
                     )
                 if base_hash != my_base_hash:
                     self._feedback_queue.put(
-                        (Message("note: mismatching hash"), self._server.nickname)
+                        (Message("note: mismatching hash"), server_nick)
                     )
 
-            self._feedback_queue.put((NeedMoreWork(), self._server.nickname))
+            self._feedback_queue.put((NeedMoreWork(), server_nick))
             finished = False
 
             # Main loop: send messages from the queue on to the server, and
@@ -229,8 +203,8 @@ class Connection:
                 if not finished:
                     task = self._task_queue.get()
                     if isinstance(task, Finished):
-                        port.send_json({"type": "finish"})
-                        port.shutdown(socket.SHUT_WR)
+                        self._port.send_json({"type": "finish"})
+                        self._port.shutdown(socket.SHUT_WR)
                         finished = True
                     else:
                         work = {
@@ -238,16 +212,16 @@ class Connection:
                             "permuter": task[0],
                             "seed": task[1],
                         }
-                        port.send_json(work)
+                        self._port.send_json(work)
 
                 # Receive a result and send it on.
-                msg = port.receive_json()
+                msg = self._port.receive_json()
                 msg_type = json_prop(msg, "type", str)
                 if msg_type == "finish":
                     break
 
                 elif msg_type == "need_work":
-                    self._feedback_queue.put((NeedMoreWork(), self._server.nickname))
+                    self._feedback_queue.put((NeedMoreWork(), server_nick))
 
                 elif msg_type == "result":
                     permuter_index = json_prop(msg, "permuter", int)
@@ -255,11 +229,11 @@ class Connection:
                     if msg.get("has_source") == True:
                         # Source is sent separately, compressed, since it can be large
                         # (hundreds of kilobytes is not uncommon).
-                        compressed_source = port.receive()
+                        compressed_source = self._port.receive()
                         source = zlib.decompress(compressed_source).decode("utf-8")
                     result = _result_from_json(msg, source)
                     self._feedback_queue.put(
-                        (WorkDone(permuter_index, result), self._server.nickname)
+                        (WorkDone(permuter_index, result), server_nick)
                     )
 
                 else:
@@ -273,9 +247,7 @@ class Connection:
             finish_reason = f"error: {errmsg}"
 
         finally:
-            self._feedback_queue.put(
-                (Finished(reason=finish_reason), self._server.nickname)
-            )
+            self._feedback_queue.put((Finished(reason=finish_reason), None))
             if self._sock is not None:
                 socket_shutdown(self._sock, socket.SHUT_RDWR)
                 self._sock.close()
@@ -288,31 +260,32 @@ def start_client(
     feedback_queue: "multiprocessing.Queue[Feedback]",
     priority: float,
 ) -> List[threading.Thread]:
-    grant = b""
-    servers: List[RemoteServer] = []
-    threads = []
+    port.send_json(
+        {
+            "method": "client",
+            "priority": priority,
+        }
+    )
+    obj = port.receive_json()
+    if "error" in obj:
+        err = json_prop(obj, "error", str)
+        print(f"Failed to connect: {err}")
+        return []
+    num_servers = json_prop(obj, "servers", int)
+    num_cores = int(json_prop(obj, "cores", float))
+    print(f"Connected! {num_servers} servers online ({num_cores} cores)")
     portable_permuters = [PortablePermuter(p) for p in permuters]
-    if not servers:
-        print("No permuter@home servers online.")
-    else:
-        name_list = ", ".join(s.nickname for s in servers)
-        print(f"Connecting to: {name_list}")
 
-    for server in servers:
-        conn = Connection(
-            port,
-            server,
-            grant,
-            portable_permuters,
-            task_queue,
-            feedback_queue,
-            priority,
-        )
+    conn = Connection(
+        port,
+        portable_permuters,
+        task_queue,
+        feedback_queue,
+        priority,
+    )
 
-        thread = threading.Thread(target=conn.run)
-        thread.daemon = True
-        thread.start()
+    thread = threading.Thread(target=conn.run)
+    thread.daemon = True
+    thread.start()
 
-        threads.append(thread)
-
-    return threads
+    return [thread]

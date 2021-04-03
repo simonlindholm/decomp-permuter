@@ -39,6 +39,11 @@ struct PermuterResultMessage<'a> {
     update: &'a ServerUpdate,
 }
 
+#[derive(Deserialize)]
+struct LateConnectClientData {
+    permuters: Vec<PermuterData>,
+}
+
 async fn client_read(
     port: &mut ReadPort<'_>,
     perm_meta: &[(PermuterId, String)],
@@ -136,18 +141,8 @@ pub(crate) async fn handle_connect_client<'a>(
     state: &State,
     data: ConnectClientData,
 ) -> SimpleResult<()> {
-    let permuters_data = read_port.recv().await?;
-    let mut permuters: Vec<PermuterData> = serde_json::from_slice(&permuters_data)?;
-    for permuter_data in &mut permuters {
-        permuter_data.source = String::from_utf8(read_port.recv_compressed().await?)?;
-        permuter_data.target_o_bin = read_port.recv_compressed().await?;
-    }
-
     if !(MIN_PRIORITY <= data.priority && data.priority <= MAX_PRIORITY) {
         Err("Priority out of range")?;
-    }
-    if permuters.is_empty() {
-        Err("No permuters")?;
     }
 
     let mut num_servers: u32 = 0;
@@ -166,7 +161,17 @@ pub(crate) async fn handle_connect_client<'a>(
         }))
         .await?;
 
-    for permuter_data in &permuters {
+    let late_data = read_port.recv().await?;
+    let mut late_data: LateConnectClientData = serde_json::from_slice(&late_data)?;
+    for permuter_data in &mut late_data.permuters {
+        permuter_data.source = String::from_utf8(read_port.recv_compressed().await?)?;
+        permuter_data.target_o_bin = read_port.recv_compressed().await?;
+    }
+    if late_data.permuters.is_empty() {
+        Err("No permuters")?;
+    }
+
+    for permuter_data in &late_data.permuters {
         state
             .log_stats(stats::Record::ClientNewFunction {
                 client: who_id.clone(),
@@ -175,7 +180,7 @@ pub(crate) async fn handle_connect_client<'a>(
             .await?;
     }
 
-    let energy_add = (permuters.len() as f64) / data.priority;
+    let energy_add = (late_data.permuters.len() as f64) / data.priority;
 
     let (result_tx, result_rx) = mpsc::unbounded_channel();
     let semaphore = Arc::new(FlimsySemaphore::new(CLIENT_MAX_QUEUES_SIZE));
@@ -183,7 +188,7 @@ pub(crate) async fn handle_connect_client<'a>(
     let mut perm_meta = Vec::new();
     {
         let mut m = state.m.lock().unwrap();
-        for permuter_data in permuters {
+        for permuter_data in late_data.permuters {
             let id = m.next_permuter_id;
             m.next_permuter_id += 1;
             perm_meta.push((id, permuter_data.fn_name.clone()));
