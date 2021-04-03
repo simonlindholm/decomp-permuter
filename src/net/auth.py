@@ -113,45 +113,6 @@ def run_vouch(vouch_text: str) -> None:
     print(base64.b64encode(token).decode("utf-8"))
 
 
-def fetch_servers_and_grant(config: Config) -> Tuple[List[RemoteServer], bytes]:
-    print("Connecting to permuter@home...")
-    raw_resp = _post_request(
-        config,
-        "/list-servers",
-        {
-            "pubkey": config.signing_key.verify_key.encode(),
-        },
-    )
-    raw_resp = verify_with_magic(b"SERVERLIST", config.auth_verify_key, raw_resp)
-    resp = json.loads(raw_resp)
-
-    version = json_prop(resp, "version", int)
-    if version != 1:
-        print("Permuter version too old; update to use -J.")
-        sys.exit(1)
-
-    grant = base64.b64decode(json_prop(resp, "grant", str))
-    granted_request = verify_with_magic(b"GRANT", config.auth_verify_key, grant)
-    assert granted_request[:32] == config.signing_key.verify_key.encode()
-
-    server_list = json_prop(resp, "server_list", list)
-
-    ret = []
-    for obj in server_list:
-        assert isinstance(obj, dict)
-        server = RemoteServer(
-            ip=json_prop(obj, "ip", str),
-            port=json_prop(obj, "port", int),
-            nickname=json_prop(obj, "nickname", str),
-            ver_key=VerifyKey(
-                HexEncoder.decode(json_prop(obj, "verification_key", str))
-            ),
-        )
-        ret.append(server)
-
-    return ret, grant
-
-
 def fetch_docker_image_name(config: Config) -> str:
     print("Connecting to permuter@home...")
     resp = _get_request(config, "/docker")

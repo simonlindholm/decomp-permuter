@@ -266,6 +266,9 @@ def connect() -> Config:
         print()
         sys.exit(1)
 
+    print("Connecting to permuter@home...")
+    # TODO actually connect, check protocol version
+
     assert (
         raw_config.auth_verify_key and raw_config.signing_key and raw_config.auth_server
     ), "set by _initial_setup"
