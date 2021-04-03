@@ -10,8 +10,8 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from PIL import Image
 import pystray
 
-from ..auth import fetch_docker_image_name, go_online, go_offline, setup
-from ..core import static_assert_unreachable
+from ..auth import fetch_docker_image_name, go_online, go_offline
+from ..core import connect, static_assert_unreachable
 from ..server import (
     IoActivity,
     IoConnect,
@@ -263,7 +263,7 @@ def output_loop(output_queue: "queue.Queue[IoActivity]", systray: SystrayState) 
 
 
 def server_main(options: ServerOptions) -> None:
-    config = setup()
+    config = connect()
     docker_image = fetch_docker_image_name(config)
 
     output_queue: "queue.Queue[IoActivity]" = queue.Queue()

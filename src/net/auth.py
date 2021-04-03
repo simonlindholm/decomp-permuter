@@ -55,64 +55,6 @@ def _get_request(config: Config, path: str) -> bytes:
         return ret
 
 
-def setup() -> Config:
-    raw_config = read_config()
-    if (
-        not raw_config.auth_verify_key
-        or not raw_config.signing_key
-        or not raw_config.auth_server
-    ):
-        print(
-            "Using permuter@home requires someone to give you access to a central -J server.\n"
-            "Run `./pah.py setup` to set this up."
-        )
-        sys.exit(1)
-
-    assert (
-        raw_config.auth_verify_key and raw_config.signing_key and raw_config.auth_server
-    ), "set by _initial_setup"
-    return Config(
-        auth_server=raw_config.auth_server,
-        auth_verify_key=raw_config.auth_verify_key,
-        signing_key=raw_config.signing_key,
-    )
-
-
-def run_vouch(vouch_text: str) -> None:
-    config = setup()
-
-    try:
-        vouch_data = base64.b64decode(vouch_text.encode("utf-8"))
-        verify_key = VerifyKey(vouch_data[:32])
-        signed_nickname = vouch_data[32:]
-        msg = verify_with_magic(b"NICK", verify_key, signed_nickname)
-        nickname = msg.decode("utf-8")
-    except Exception:
-        print("Could not parse data!")
-        return
-
-    # TODO: don't allow escape codes
-    if not _ask(f"Grant permuter server access to {nickname}", default=True):
-        return
-
-    _post_request(
-        config,
-        "/vouch",
-        {
-            "pubkey": config.signing_key.verify_key.encode(),
-            "vouched_pubkey": verify_key.encode(),
-            "signed_nickname": signed_nickname,
-        },
-    )
-
-    data = config.auth_verify_key.encode() + config.auth_server.encode("utf-8")
-    token = SealedBox(verify_key.to_curve25519_public_key()).encrypt(data)
-    print("Granted!")
-    print()
-    print("Send them the following token:")
-    print(base64.b64encode(token).decode("utf-8"))
-
-
 def fetch_docker_image_name(config: Config) -> str:
     print("Connecting to permuter@home...")
     resp = _get_request(config, "/docker")
