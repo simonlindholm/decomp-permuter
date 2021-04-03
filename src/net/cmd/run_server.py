@@ -262,7 +262,7 @@ def output_loop(output_queue: "queue.Queue[IoActivity]", systray: SystrayState) 
 
 
 def server_main(options: ServerOptions) -> None:
-    config = connect()
+    net_port = connect()
     docker_image = ""  # TODO
 
     output_queue: "queue.Queue[IoActivity]" = queue.Queue()
@@ -270,7 +270,7 @@ def server_main(options: ServerOptions) -> None:
     port = start_evaluator(docker_image, options)
 
     try:
-        server = Server(config, options, port, output_queue)
+        server = Server(net_port, options, port, output_queue)
         server.start()
 
         # TODO go_online(config, options.port)

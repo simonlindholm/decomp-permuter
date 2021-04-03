@@ -343,9 +343,10 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         # Connect to network and create client threads
         net_threads: List[threading.Thread] = []
         if options.use_network:
-            config = connect()
+            print("Connecting to permuter@home...")
+            port = connect()
             net_threads = start_client(
-                config,
+                port,
                 context.permuters,
                 task_queue,
                 feedback_queue,

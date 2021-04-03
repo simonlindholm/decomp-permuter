@@ -33,18 +33,11 @@ class RemoteServer:
 
 
 @dataclass
-class RawConfig:
+class Config:
     server_address: Optional[str] = None
     server_verify_key: Optional[VerifyKey] = None
     signing_key: Optional[SigningKey] = None
     initial_setup_nickname: Optional[str] = None
-
-
-@dataclass
-class Config:
-    server_address: Tuple[str, int]
-    server_verify_key: VerifyKey
-    signing_key: SigningKey
 
 
 def static_assert_unreachable(x: NoReturn) -> NoReturn:
@@ -55,8 +48,8 @@ def exception_to_string(e: object) -> str:
     return str(e) or e.__class__.__name__
 
 
-def read_config() -> RawConfig:
-    config = RawConfig()
+def read_config() -> Config:
+    config = Config()
     try:
         with open(CONFIG_FILENAME) as f:
             obj = toml.load(f)
@@ -81,7 +74,7 @@ def read_config() -> RawConfig:
     return config
 
 
-def write_config(config: RawConfig) -> None:
+def write_config(config: Config) -> None:
     obj = {}
 
     def write(key: str, val: Union[None, str, int]) -> None:
@@ -255,12 +248,16 @@ class FilePort(Port):
         return file_read_fixed(self._inf, length)
 
 
-def connect() -> Config:
-    raw_config = read_config()
+@dataclass
+class GracefulConnectionError(Exception):
+    message: str
+
+
+def _do_connect(config: Config) -> SocketPort:
     if (
-        not raw_config.server_verify_key
-        or not raw_config.signing_key
-        or not raw_config.server_address
+        not config.server_verify_key
+        or not config.signing_key
+        or not config.server_address
     ):
         print(
             "Using permuter@home requires someone to give you access to a central -J server.\n"
@@ -269,32 +266,8 @@ def connect() -> Config:
         print()
         sys.exit(1)
 
-    assert (
-        raw_config.server_verify_key
-        and raw_config.server_address
-        and raw_config.signing_key
-    ), "set by _initial_setup"
-
-    host, port_str = raw_config.server_address.split(":")
-    port = int(port_str)
-
-    # TODO actually connect, check protocol version. Return a Port
-
-    return Config(
-        server_address=(host, port),
-        server_verify_key=raw_config.server_verify_key,
-        signing_key=raw_config.signing_key,
-    )
-
-
-@dataclass
-class GracefulConnectionError(Exception):
-    message: str
-
-
-def _do_connect() -> Port:
-    config = connect()
-    sock = socket.create_connection(config.server_address)
+    host, port_str = config.server_address.split(":")
+    sock = socket.create_connection((host, int(port_str)))
 
     # Send over the protocol version and an ephemeral encryption key which we
     # are going to use for all communication.
@@ -335,18 +308,11 @@ def _do_connect() -> Port:
     return port
 
 
-def connect2(method: str, request: dict) -> Port:
-    print("Connecting to permuter@home...")
+def connect(config: Optional[Config] = None) -> SocketPort:
     try:
-        port = _do_connect()
-        port.send_json(
-            {
-                "version": PERMUTER_VERSION,
-                "method": method,
-                **request,
-            }
-        )
-        return port
+        if not config:
+            config = read_config()
+        return _do_connect(config)
     except GracefulConnectionError as e:
         print(f"Failed to connect: {e.message}")
         sys.exit(1)

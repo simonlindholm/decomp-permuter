@@ -1,6 +1,6 @@
 from argparse import ArgumentParser, Namespace
 
-from ..core import connect2
+from ..core import connect
 from .base import Command
 
 
@@ -18,6 +18,7 @@ class StatsCommand(Command):
 
 
 def run_stats() -> None:
-    port = connect2("ping", {})
+    port = connect()
+    port.send_json({"method": "ping"})
     port.receive_json()
-    print("Success!")
+    print("Connected! TODO: actually print stats")

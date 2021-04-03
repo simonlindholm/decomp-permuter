@@ -1,10 +1,11 @@
 from argparse import ArgumentParser, Namespace
 import base64
 
+from nacl.encoding import HexEncoder
 from nacl.public import SealedBox
 from nacl.signing import VerifyKey
 
-from ..core import connect, verify_with_magic
+from ..core import connect, read_config, verify_with_magic
 from .base import Command
 from .util import ask
 
@@ -26,8 +27,6 @@ class VouchCommand(Command):
 
 
 def run_vouch(magic: str) -> None:
-    config = connect()
-
     try:
         vouch_data = base64.b64decode(magic.encode("utf-8"))
         verify_key = VerifyKey(vouch_data[:32])
@@ -38,20 +37,24 @@ def run_vouch(magic: str) -> None:
         print("Could not parse data!")
         return
 
+    config = read_config()
+    port = connect(config)
     # TODO pre-check (server check to not allow escape codes, e.g.)
 
     if not ask(f"Grant permuter server access to {nickname}", default=True):
         return
 
-    # TODO send vouch request to server
-    # {
-    #     "pubkey": config.signing_key.verify_key.encode(),
-    #     "vouched_pubkey": verify_key.encode(),
-    #     "signed_nickname": signed_nickname,
-    # }
+    port.send_json(
+        {
+            "method": "vouch",
+            "who": verify_key.encode(HexEncoder),
+            "signed_nickname": HexEncoder.decode(signed_nickname),
+        }
+    )
 
-    server_address = ":".join(map(str, config.auth_server))
-    data = config.auth_verify_key.encode() + server_address.encode("utf-8")
+    assert config.server_address, "checked by connect"
+    assert config.server_verify_key, "checked by connect"
+    data = config.server_verify_key.encode() + config.server_address.encode("utf-8")
     token = SealedBox(verify_key.to_curve25519_public_key()).encrypt(data)
     print("Granted!")
     print()

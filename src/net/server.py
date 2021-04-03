@@ -25,7 +25,6 @@ from nacl.signing import SigningKey, VerifyKey
 import nacl.utils
 
 from .core import (
-    Config,
     MAX_PRIO,
     MIN_PRIO,
     Port,
@@ -217,7 +216,6 @@ class ServerOptions:
 
 @dataclass
 class SharedServerData:
-    config: Config
     options: ServerOptions
     queue: "queue.Queue[Activity]"
 
@@ -356,8 +354,8 @@ class ServerHandler(socketserver.BaseRequestHandler):
 
     def handle(self) -> None:
         shared: SharedServerData = getattr(self.server, "shared")
-        signing_key = shared.config.signing_key
-        auth_ver_key = shared.config.auth_verify_key
+        signing_key = SigningKey()
+        auth_ver_key = VerifyKey()
 
         try:
             client_ver_key, port = self._setup(signing_key, auth_ver_key)
@@ -492,7 +490,6 @@ class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
 
 
 class Server:
-    _config: Config
     _options: ServerOptions
     _evaluator_port: Port
     _queue: "queue.Queue[Activity]"
@@ -504,12 +501,11 @@ class Server:
 
     def __init__(
         self,
-        config: Config,
+        net_port: Port,
         options: ServerOptions,
         evaluator_port: Port,
         io_queue: "queue.Queue[IoActivity]",
     ) -> None:
-        self._config = config
         self._options = options
         self._evaluator_port = evaluator_port
         self._queue = queue.Queue()
@@ -520,7 +516,7 @@ class Server:
         self._state = "notstarted"
         self._states = {}
 
-        shared = SharedServerData(config=config, options=options, queue=self._queue)
+        shared = SharedServerData(options=options, queue=self._queue)
         setattr(self._tcp_server, "shared", shared)
 
     def _to_permid(self, state: ClientState, index: int) -> str:

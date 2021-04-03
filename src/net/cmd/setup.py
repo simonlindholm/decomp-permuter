@@ -11,7 +11,7 @@ from nacl.public import SealedBox
 from nacl.signing import SigningKey, VerifyKey
 
 from .base import Command
-from ..core import RawConfig, read_config, sign_with_magic, write_config
+from ..core import connect, Config, read_config, sign_with_magic, write_config
 from .util import ask
 
 
@@ -28,15 +28,15 @@ class SetupCommand(Command):
 
     @staticmethod
     def run(args: Namespace) -> None:
-        config = read_config()
-        _run_initial_setup(config)
+        _run_initial_setup()
 
 
 def _random_name() -> str:
     return "".join(random.choice(string.ascii_lowercase) for _ in range(5))
 
 
-def _run_initial_setup(config: RawConfig) -> None:
+def _run_initial_setup() -> None:
+    config = read_config()
     signing_key: Optional[SigningKey] = config.signing_key
     if not signing_key or not ask("Keep previous secret key", default=True):
         signing_key = SigningKey.generate()
@@ -66,17 +66,16 @@ def _run_initial_setup(config: RawConfig) -> None:
     try:
         token = base64.b64decode(inp.encode("utf-8"))
         data = SealedBox(signing_key.to_curve25519_private_key()).decrypt(token)
-        auth_verify_key = VerifyKey(data[:32])
-        auth_server = data[32:].decode("utf-8")
-        print(f"Server: {auth_server}")
-        print("Testing connection...")
-        time.sleep(1)
-
-        # TODO: verify that contacting auth server works and signs its messages
-
-        config.auth_server = auth_server
-        config.auth_verify_key = auth_verify_key
+        config.server_address = data[32:].decode("utf-8")
+        config.server_verify_key = VerifyKey(data[:32])
         config.initial_setup_nickname = None
+        print(f"Server: {config.server_address}")
+        print("Testing connection...")
+
+        port = connect(config)
+        port.send_json({"method": "ping"})
+        port.receive_json()
+
         write_config(config)
         print("permuter@home successfully set up!")
     except Exception:

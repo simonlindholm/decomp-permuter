@@ -25,7 +25,6 @@ from ..permuter import (
 )
 from ..profiler import Profiler
 from .core import (
-    Config,
     Port,
     RemoteServer,
     SocketPort,
@@ -114,7 +113,7 @@ class PortablePermuter:
 
 
 class Connection:
-    _config: Config
+    _port: SocketPort
     _server: RemoteServer
     _grant: bytes
     _permuters: List[PortablePermuter]
@@ -125,7 +124,7 @@ class Connection:
 
     def __init__(
         self,
-        config: Config,
+        port: SocketPort,
         server: RemoteServer,
         grant: bytes,
         permuters: List[PortablePermuter],
@@ -133,7 +132,7 @@ class Connection:
         feedback_queue: "multiprocessing.Queue[Feedback]",
         priority: float,
     ) -> None:
-        self._config = config
+        self._port = port
         self._server = server
         self._grant = grant
         self._permuters = permuters
@@ -143,39 +142,7 @@ class Connection:
         self._priority = priority
 
     def _setup(self) -> SocketPort:
-        """Set up a secure connection with the server."""
-        sock = socket.create_connection((self._server.ip, self._server.port))
-        self._sock = sock
-
-        # Decrease network latency by disabling Nagle's algorithm.
-        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-
-        # Send over the protocol version, a verification key for our signatures,
-        # and an ephemeral encryption key which we are going to use for all
-        # communication.
-        ephemeral_key = PrivateKey.generate()
-        PROTOCOL_VERSION = 1
-        sock.sendall(
-            struct.pack(">I", PROTOCOL_VERSION)
-            + self._config.signing_key.verify_key.encode()
-            + sign_with_magic(
-                b"CLIENT", self._config.signing_key, ephemeral_key.public_key.encode()
-            )
-        )
-
-        # Receive the server's encryption key, verifying that it's correctly
-        # signed. Use it to set up a communication port.
-        msg = socket_read_fixed(sock, 7 + 32 + 64)
-        inner_msg = verify_with_magic(b"SERVER", self._server.ver_key, msg)
-        server_enc_key = PublicKey(inner_msg)
-        box = Box(ephemeral_key, server_enc_key)
-        port = SocketPort(sock, box, is_client=True)
-
-        # Receive a dummy message on the encrypted connection, just to verify
-        # that this isn't a replay attack.
-        port.receive()
-
-        return port
+        return self._port
 
     def _init(self, port: Port) -> ServerProps:
         """Prove to the server that our request to it is valid, by presenting
@@ -315,7 +282,7 @@ class Connection:
 
 
 def start_client(
-    config: Config,
+    port: SocketPort,
     permuters: List[Permuter],
     task_queue: "multiprocessing.Queue[Task]",
     feedback_queue: "multiprocessing.Queue[Feedback]",
@@ -333,7 +300,7 @@ def start_client(
 
     for server in servers:
         conn = Connection(
-            config,
+            port,
             server,
             grant,
             portable_permuters,
