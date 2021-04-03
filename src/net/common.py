@@ -250,3 +250,27 @@ class FilePort(Port):
 
     def _receive(self, length: int) -> bytes:
         return file_read_fixed(self._inf, length)
+
+
+def connect() -> Config:
+    raw_config = read_config()
+    if (
+        not raw_config.auth_verify_key
+        or not raw_config.signing_key
+        or not raw_config.auth_server
+    ):
+        print(
+            "Using permuter@home requires someone to give you access to a central -J server.\n"
+            "Run `./pah.py setup` to set this up."
+        )
+        print()
+        sys.exit(1)
+
+    assert (
+        raw_config.auth_verify_key and raw_config.signing_key and raw_config.auth_server
+    ), "set by _initial_setup"
+    return Config(
+        auth_server=raw_config.auth_server,
+        auth_verify_key=raw_config.auth_verify_key,
+        signing_key=raw_config.signing_key,
+    )

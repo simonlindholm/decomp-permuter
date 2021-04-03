@@ -314,15 +314,15 @@ class Connection:
                 self._sock.close()
 
 
-def connect_to_servers(
+def start_client(
     config: Config,
-    servers: List[RemoteServer],
-    grant: bytes,
     permuters: List[Permuter],
     task_queue: "multiprocessing.Queue[Task]",
     feedback_queue: "multiprocessing.Queue[Feedback]",
     priority: float,
 ) -> List[threading.Thread]:
+    grant = b""
+    servers: List[RemoteServer] = []
     threads = []
     portable_permuters = [PortablePermuter(p) for p in permuters]
     if not servers:

@@ -21,9 +21,8 @@ from typing import (
 from .candidate import CandidateResult
 from .compiler import Compiler
 from .error import CandidateConstructionFailure
-from .net.auth import fetch_servers_and_grant, run_vouch, setup
-from .net.client import connect_to_servers
-from .net.common import MAX_PRIO, MIN_PRIO
+from .net.client import start_client
+from .net.common import connect, MAX_PRIO, MIN_PRIO
 from .permuter import (
     EvalError,
     EvalResult,
@@ -344,12 +343,9 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         # Connect to network and create client threads
         net_threads: List[threading.Thread] = []
         if options.use_network:
-            config = setup()
-            servers, grant = fetch_servers_and_grant(config)
-            net_threads = connect_to_servers(
+            config = connect()
+            net_threads = start_client(
                 config,
-                servers,
-                grant,
                 context.permuters,
                 task_queue,
                 feedback_queue,
@@ -557,10 +553,6 @@ def main() -> None:
     threads = args.threads
     if not threads and not args.use_network:
         threads = 1
-
-    if args.vouch:
-        run_vouch(args.directories[0])
-        return
 
     options = Options(
         directories=args.directories,
