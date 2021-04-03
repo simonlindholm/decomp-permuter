@@ -106,8 +106,10 @@ def file_read_fixed(inf: BinaryIO, n: int) -> bytes:
             ret.append(data)
             n -= len(data)
         return b"".join(ret)
-    except Exception:
-        raise EOFError
+    except EOFError:
+        raise
+    except Exception as e:
+        raise EOFError from e
 
 
 def socket_read_fixed(sock: socket.socket, n: int) -> bytes:
@@ -120,8 +122,10 @@ def socket_read_fixed(sock: socket.socket, n: int) -> bytes:
             ret.append(data)
             n -= len(data)
         return b"".join(ret)
-    except Exception:
-        raise EOFError
+    except EOFError:
+        raise
+    except Exception as e:
+        raise EOFError from e
 
 
 def socket_shutdown(sock: socket.socket, how: int) -> None:

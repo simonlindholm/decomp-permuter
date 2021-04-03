@@ -3,6 +3,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::convert::TryInto;
 use std::default::Default;
+use std::str;
 use std::sync::{Arc, Mutex};
 
 use argh::FromArgs;
@@ -260,6 +261,19 @@ fn concat3<T: Clone>(a: &[T], b: &[T], c: &[T]) -> Vec<T> {
     a.iter().chain(b).chain(c).cloned().collect()
 }
 
+fn verify_with_magic<'a>(magic: &[u8], data: &'a [u8], key: &sign::PublicKey) -> SimpleResult<&'a [u8]> {
+    if data.len() < 64 {
+        Err("signature too short")?;
+    }
+    let (signature, data) = data.split_at(64);
+    let signed_data = concat(magic, data);
+    let signature = sign::Signature::from_slice(signature).unwrap();
+    if !sign::verify_detached(&signature, &signed_data, key) {
+        Err("bad signature")?;
+    }
+    Ok(data)
+}
+
 async fn handshake<'a>(
     mut rd: ReadHalf<'a>,
     mut wr: WriteHalf<'a>,
@@ -333,15 +347,15 @@ async fn handle_connection(mut socket: TcpStream, state: &State) -> SimpleResult
         }
         Request::Vouch { who, signed_name } => {
             let signed_name = Vec::from_hex(&signed_name).map_err(|_| "not a valid hex string")?;
-            let name = String::from_utf8(
-                sign::verify(&signed_name, &who.to_pubkey()).map_err(|()| "bad name signature")?,
+            let name = str::from_utf8(
+                verify_with_magic(b"NAME:", &signed_name, &who.to_pubkey())?
             )?;
             state
                 .db
                 .write(true, |db| {
                     db.users.entry(who).or_insert_with(|| User {
                         trusted_by: Some(user_id),
-                        name,
+                        name: name.to_string(),
                         client_stats: Default::default(),
                         server_stats: Default::default(),
                     });

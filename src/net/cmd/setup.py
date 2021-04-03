@@ -53,12 +53,12 @@ def _run_initial_setup() -> None:
         config.initial_setup_nickname = nickname
         write_config(config)
 
-    signed_nickname = sign_with_magic(b"NICK", signing_key, nickname.encode("utf-8"))
+    signed_nickname = sign_with_magic(b"NAME", signing_key, nickname.encode("utf-8"))
 
     vouch_data = verify_key.encode() + signed_nickname
     vouch_text = base64.b64encode(vouch_data).decode("utf-8")
     print("Ask someone to run the following command:")
-    print(f"./permuter.py --vouch {vouch_text}")
+    print(f"./pah.py vouch {vouch_text}")
     print()
     print("They should give you a token back in return. Paste that here:")
     inp = input().strip()

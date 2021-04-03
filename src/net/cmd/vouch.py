@@ -31,7 +31,7 @@ def run_vouch(magic: str) -> None:
         vouch_data = base64.b64decode(magic.encode("utf-8"))
         verify_key = VerifyKey(vouch_data[:32])
         signed_nickname = vouch_data[32:]
-        msg = verify_with_magic(b"NICK", verify_key, signed_nickname)
+        msg = verify_with_magic(b"NAME", verify_key, signed_nickname)
         nickname = msg.decode("utf-8")
     except Exception:
         print("Could not parse data!")
@@ -47,10 +47,11 @@ def run_vouch(magic: str) -> None:
     port.send_json(
         {
             "method": "vouch",
-            "who": verify_key.encode(HexEncoder),
-            "signed_nickname": HexEncoder.decode(signed_nickname),
+            "who": verify_key.encode(HexEncoder).decode("utf-8"),
+            "signed_name": HexEncoder.encode(signed_nickname).decode("utf-8"),
         }
     )
+    port.receive_json()
 
     assert config.server_address, "checked by connect"
     assert config.server_verify_key, "checked by connect"
