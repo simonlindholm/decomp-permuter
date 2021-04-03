@@ -8,9 +8,6 @@ import threading
 from typing import List, Optional, Tuple, TypeVar
 import zlib
 
-from nacl.public import Box, PrivateKey, PublicKey
-from nacl.signing import SigningKey, VerifyKey
-
 from ..candidate import CandidateResult
 from ..permuter import (
     EvalError,
@@ -26,15 +23,10 @@ from ..permuter import (
 from ..profiler import Profiler
 from .core import (
     Port,
-    RemoteServer,
     SocketPort,
     exception_to_string,
     json_array,
     json_prop,
-    sign_with_magic,
-    socket_read_fixed,
-    socket_shutdown,
-    verify_with_magic,
 )
 
 
@@ -117,8 +109,6 @@ class Connection:
     _permuters: List[PortablePermuter]
     _task_queue: "multiprocessing.Queue[Task]"
     _feedback_queue: "multiprocessing.Queue[Feedback]"
-    _sock: Optional[socket.socket]
-    _priority: float
 
     def __init__(
         self,
@@ -126,16 +116,13 @@ class Connection:
         permuters: List[PortablePermuter],
         task_queue: "multiprocessing.Queue[Task]",
         feedback_queue: "multiprocessing.Queue[Feedback]",
-        priority: float,
     ) -> None:
         self._port = port
         self._permuters = permuters
         self._task_queue = task_queue
         self._feedback_queue = feedback_queue
-        self._sock = None
-        self._priority = priority
 
-    def _send_permuters(self, port: Port) -> None:
+    def _send_permuters(self) -> None:
         permuter_objs = []
         for permuter in self._permuters:
             obj = {
@@ -149,16 +136,16 @@ class Connection:
         init_obj = {
             "permuters": permuter_objs,
         }
-        port.send_json(init_obj)
+        self._port.send_json(init_obj)
 
         for permuter in self._permuters:
-            port.send(permuter.compressed_source)
-            port.send(permuter.target_o_bin)
+            self._port.send(permuter.compressed_source)
+            self._port.send(permuter.target_o_bin)
 
     def run(self) -> None:
         finish_reason: Optional[str] = None
         try:
-            self._send_permuters(self._port)
+            self._send_permuters()
             msg = self._port.receive_json()
             server_nick = json_prop(msg, "server", str)
             success = json_prop(msg, "success", bool)
@@ -248,9 +235,8 @@ class Connection:
 
         finally:
             self._feedback_queue.put((Finished(reason=finish_reason), None))
-            if self._sock is not None:
-                socket_shutdown(self._sock, socket.SHUT_RDWR)
-                self._sock.close()
+            self._port.shutdown()
+            self._port.close()
 
 
 def start_client(
@@ -281,7 +267,6 @@ def start_client(
         portable_permuters,
         task_queue,
         feedback_queue,
-        priority,
     )
 
     thread = threading.Thread(target=conn.run)
