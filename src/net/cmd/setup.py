@@ -11,7 +11,7 @@ from nacl.public import SealedBox
 from nacl.signing import SigningKey, VerifyKey
 
 from .base import Command
-from ..common import RawConfig, read_config, sign_with_magic, write_config
+from ..core import RawConfig, read_config, sign_with_magic, write_config
 from .util import ask
 
 

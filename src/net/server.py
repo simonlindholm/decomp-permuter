@@ -24,7 +24,7 @@ from nacl.secret import SecretBox
 from nacl.signing import SigningKey, VerifyKey
 import nacl.utils
 
-from .common import (
+from .core import (
     Config,
     MAX_PRIO,
     MIN_PRIO,

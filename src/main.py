@@ -22,7 +22,7 @@ from .candidate import CandidateResult
 from .compiler import Compiler
 from .error import CandidateConstructionFailure
 from .net.client import start_client
-from .net.common import connect, MAX_PRIO, MIN_PRIO
+from .net.core import connect, MAX_PRIO, MIN_PRIO
 from .permuter import (
     EvalError,
     EvalResult,

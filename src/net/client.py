@@ -24,7 +24,7 @@ from ..permuter import (
     WorkDone,
 )
 from ..profiler import Profiler
-from .common import (
+from .core import (
     Config,
     PROTOCOL_VERSION,
     Port,

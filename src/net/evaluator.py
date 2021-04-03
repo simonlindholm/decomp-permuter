@@ -21,7 +21,7 @@ from ..error import CandidateConstructionFailure
 from ..permuter import EvalError, EvalResult, Permuter
 from ..profiler import Profiler
 from ..scorer import Scorer
-from .common import (
+from .core import (
     FilePort,
     Port,
     exception_to_string,

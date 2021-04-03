@@ -11,7 +11,7 @@ from PIL import Image
 import pystray
 
 from .auth import fetch_docker_image_name, go_online, go_offline, setup
-from .common import static_assert_unreachable
+from .core import static_assert_unreachable
 from .server import (
     IoActivity,
     IoConnect,

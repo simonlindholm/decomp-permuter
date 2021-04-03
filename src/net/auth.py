@@ -15,7 +15,7 @@ from nacl.exceptions import BadSignatureError
 from nacl.public import PublicKey, SealedBox
 from nacl.signing import SigningKey, VerifyKey
 
-from .common import (
+from .core import (
     Config,
     RawConfig,
     RemoteServer,
