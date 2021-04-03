@@ -5,7 +5,8 @@ import socket
 import struct
 import sys
 import toml
-from typing import BinaryIO, List, NoReturn, Optional, Type, TypeVar, Union
+import traceback
+from typing import BinaryIO, List, NoReturn, Optional, Tuple, Type, TypeVar, Union
 
 from nacl.encoding import HexEncoder
 from nacl.public import Box, PrivateKey, PublicKey
@@ -15,7 +16,7 @@ from nacl.signing import SigningKey, VerifyKey
 T = TypeVar("T")
 AnyBox = Union[Box, SecretBox]
 
-PROTOCOL_VERSION = 1
+PERMUTER_VERSION = 1
 
 CONFIG_FILENAME = "pah.conf"
 
@@ -33,16 +34,16 @@ class RemoteServer:
 
 @dataclass
 class RawConfig:
-    auth_server: Optional[str] = None
-    auth_verify_key: Optional[VerifyKey] = None
+    server_address: Optional[str] = None
+    server_verify_key: Optional[VerifyKey] = None
     signing_key: Optional[SigningKey] = None
     initial_setup_nickname: Optional[str] = None
 
 
 @dataclass
 class Config:
-    auth_server: str
-    auth_verify_key: VerifyKey
+    server_address: Tuple[str, int]
+    server_verify_key: VerifyKey
     signing_key: SigningKey
 
 
@@ -64,14 +65,14 @@ def read_config() -> RawConfig:
             ret = obj.get(key)
             return ret if isinstance(ret, t) else None
 
-        temp = read("auth_public_key", str)
+        temp = read("server_public_key", str)
         if temp:
-            config.auth_verify_key = VerifyKey(HexEncoder.decode(temp))
+            config.server_verify_key = VerifyKey(HexEncoder.decode(temp))
         temp = read("secret_key", str)
         if temp:
             config.signing_key = SigningKey(HexEncoder.decode(temp))
         config.initial_setup_nickname = read("initial_setup_nickname", str)
-        config.auth_server = read("auth_server", str)
+        config.server_address = read("server_address", str)
     except FileNotFoundError:
         pass
     except Exception:
@@ -88,12 +89,12 @@ def write_config(config: RawConfig) -> None:
             obj[key] = val
 
     write("initial_setup_nickname", config.initial_setup_nickname)
-    write("auth_server", config.auth_server)
+    write("server_address", config.server_address)
 
     key_hex: bytes
-    if config.auth_verify_key:
-        key_hex = config.auth_verify_key.encode(HexEncoder)
-        write("auth_public_key", key_hex.decode("utf-8"))
+    if config.server_verify_key:
+        key_hex = config.server_verify_key.encode(HexEncoder)
+        write("server_public_key", key_hex.decode("utf-8"))
     if config.signing_key:
         key_hex = config.signing_key.encode(HexEncoder)
         write("secret_key", key_hex.decode("utf-8"))
@@ -156,15 +157,17 @@ def json_array(obj: list, t: Type[T]) -> List[T]:
 
 
 def sign_with_magic(magic: bytes, signing_key: SigningKey, data: bytes) -> bytes:
-    ret: bytes = signing_key.sign(magic + b":" + data)
-    return ret
+    signature: bytes = signing_key.sign(magic + b":" + data).signature
+    return signature + data
 
 
 def verify_with_magic(magic: bytes, verify_key: VerifyKey, data: bytes) -> bytes:
-    verified_data: bytes = verify_key.verify(data)
-    if not verified_data.startswith(magic + b":"):
-        raise ValueError("Bad magic")
-    return verified_data[len(magic) + 1 :]
+    if len(data) < 64:
+        raise ValueError("String is too small to contain a signature")
+    signature = data[:64]
+    data = data[64:]
+    verify_key.verify(magic + b":" + data, signature)
+    return data
 
 
 class Port(abc.ABC):
@@ -255,9 +258,9 @@ class FilePort(Port):
 def connect() -> Config:
     raw_config = read_config()
     if (
-        not raw_config.auth_verify_key
+        not raw_config.server_verify_key
         or not raw_config.signing_key
-        or not raw_config.auth_server
+        or not raw_config.server_address
     ):
         print(
             "Using permuter@home requires someone to give you access to a central -J server.\n"
@@ -266,14 +269,89 @@ def connect() -> Config:
         print()
         sys.exit(1)
 
-    print("Connecting to permuter@home...")
-    # TODO actually connect, check protocol version
-
     assert (
-        raw_config.auth_verify_key and raw_config.signing_key and raw_config.auth_server
+        raw_config.server_verify_key
+        and raw_config.server_address
+        and raw_config.signing_key
     ), "set by _initial_setup"
+
+    host, port_str = raw_config.server_address.split(":")
+    port = int(port_str)
+
+    # TODO actually connect, check protocol version. Return a Port
+
     return Config(
-        auth_server=raw_config.auth_server,
-        auth_verify_key=raw_config.auth_verify_key,
+        server_address=(host, port),
+        server_verify_key=raw_config.server_verify_key,
         signing_key=raw_config.signing_key,
     )
+
+
+@dataclass
+class GracefulConnectionError(Exception):
+    message: str
+
+
+def _do_connect() -> Port:
+    config = connect()
+    sock = socket.create_connection(config.server_address)
+
+    # Send over the protocol version and an ephemeral encryption key which we
+    # are going to use for all communication.
+    ephemeral_key = PrivateKey.generate()
+    ephemeral_key_data = ephemeral_key.public_key.encode()
+    sock.sendall(b"p@h0" + ephemeral_key_data)
+
+    # Receive the server's encryption key, plus a signature of it and our own
+    # ephemeral key -- this guarantees that we are talking to the server and
+    # aren't victim to a replay attack. Use it to set up a communication port.
+    msg = socket_read_fixed(sock, 32 + 64)
+    server_enc_key_data = msg[:32]
+    config.server_verify_key.verify(
+        b"HELLO:" + ephemeral_key_data + server_enc_key_data, msg[32:]
+    )
+    box = Box(ephemeral_key, PublicKey(server_enc_key_data))
+    port = SocketPort(sock, box, is_client=True)
+
+    # Use the encrypted port to send over our public key, proof that we are
+    # able to sign new things with it, as well as permuter version.
+    signature: bytes = config.signing_key.sign(
+        b"WORLD:" + server_enc_key_data
+    ).signature
+    port.send(
+        config.signing_key.verify_key.encode()
+        + signature
+        + struct.pack(">I", PERMUTER_VERSION)
+    )
+
+    # Get an acknowledgement that the server wants to talk to us.
+    obj = port.receive_json()
+
+    if "error" in obj:
+        raise GracefulConnectionError(obj["error"])
+    if "message" in obj:
+        print(obj["message"])
+
+    return port
+
+
+def connect2(method: str, request: dict) -> Port:
+    print("Connecting to permuter@home...")
+    try:
+        port = _do_connect()
+        port.send_json(
+            {
+                "version": PERMUTER_VERSION,
+                "method": method,
+                **request,
+            }
+        )
+        return port
+    except GracefulConnectionError as e:
+        print(f"Failed to connect: {e.message}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"Failed to connect.")
+        traceback.print_exc()
+        sys.exit(1)
+    print("Connected!")

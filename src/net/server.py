@@ -28,7 +28,6 @@ from .core import (
     Config,
     MAX_PRIO,
     MIN_PRIO,
-    PROTOCOL_VERSION,
     Port,
     SocketPort,
     file_read_fixed,
@@ -250,6 +249,7 @@ class ServerHandler(socketserver.BaseRequestHandler):
             sock.close()
             raise EOFError
 
+        PROTOCOL_VERSION = 1
         if version != PROTOCOL_VERSION:
             raise ValueError(f"Bad protocol version: {version} vs {PROTOCOL_VERSION}")
 

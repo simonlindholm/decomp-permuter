@@ -31,7 +31,7 @@ impl<'a> ReadPort<'a> {
             Err("Unreasonable packet length")?
         }
         let mut buffer = vec![0; len.try_into()?];
-        self.read_half.read_exact(&mut buffer[..]).await?;
+        self.read_half.read_exact(&mut buffer).await?;
         let nonce = nonce_from_u64(self.nonce);
         self.nonce += 2;
         let data =
@@ -64,7 +64,7 @@ impl<'a> WritePort<'a> {
         self.nonce += 2;
         let data = box_::seal_precomputed(bytes, &nonce, &self.key);
         self.write_half.write_u64(data.len() as u64).await?;
-        self.write_half.write(&data[..]).await?;
+        self.write_half.write(&data).await?;
         Ok(())
     }
 

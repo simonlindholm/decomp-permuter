@@ -26,7 +26,6 @@ from ..permuter import (
 from ..profiler import Profiler
 from .core import (
     Config,
-    PROTOCOL_VERSION,
     Port,
     RemoteServer,
     SocketPort,
@@ -155,6 +154,7 @@ class Connection:
         # and an ephemeral encryption key which we are going to use for all
         # communication.
         ephemeral_key = PrivateKey.generate()
+        PROTOCOL_VERSION = 1
         sock.sendall(
             struct.pack(">I", PROTOCOL_VERSION)
             + self._config.signing_key.verify_key.encode()

@@ -19,8 +19,8 @@ pub(crate) fn run_setup(opts: SetupOpts) -> SimpleResult<()> {
             std::process::exit(1);
         });
 
-    let server_seed = sign::Seed::from_slice(&randombytes(32)[..]).unwrap();
-    let client_seed = sign::Seed::from_slice(&randombytes(32)[..]).unwrap();
+    let server_seed = sign::Seed::from_slice(&randombytes(32)).unwrap();
+    let client_seed = sign::Seed::from_slice(&randombytes(32)).unwrap();
 
     let (server_pub_key, _) = sign::keypair_from_seed(&server_seed);
     let (client_pub_key, _) = sign::keypair_from_seed(&client_seed);

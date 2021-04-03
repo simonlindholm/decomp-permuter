@@ -50,7 +50,8 @@ def run_vouch(magic: str) -> None:
     #     "signed_nickname": signed_nickname,
     # }
 
-    data = config.auth_verify_key.encode() + config.auth_server.encode("utf-8")
+    server_address = ":".join(map(str, config.auth_server))
+    data = config.auth_verify_key.encode() + server_address.encode("utf-8")
     token = SealedBox(verify_key.to_curve25519_public_key()).encrypt(data)
     print("Granted!")
     print()

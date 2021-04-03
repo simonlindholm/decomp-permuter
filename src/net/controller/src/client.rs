@@ -11,7 +11,8 @@ use crate::port::{ReadPort, WritePort};
 use crate::stats;
 use crate::util::SimpleResult;
 use crate::{
-    ConnectClientData, Permuter, PermuterId, PermuterResult, PermuterWork, ServerUpdate, State,
+    ConnectClientData, Permuter, PermuterData, PermuterId, PermuterResult, PermuterWork,
+    ServerUpdate, State,
 };
 
 const CLIENT_MAX_QUEUES_SIZE: usize = 100;
@@ -133,9 +134,11 @@ pub(crate) async fn handle_connect_client<'a>(
     who_id: &UserId,
     who_name: &str,
     state: &State,
-    mut data: ConnectClientData,
+    data: ConnectClientData,
 ) -> SimpleResult<()> {
-    for permuter_data in &mut data.permuters {
+    let permuters_data = read_port.recv().await?;
+    let mut permuters: Vec<PermuterData> = serde_json::from_slice(&permuters_data)?;
+    for permuter_data in &mut permuters {
         permuter_data.source = String::from_utf8(read_port.recv_compressed().await?)?;
         permuter_data.target_o_bin = read_port.recv_compressed().await?;
     }
@@ -143,7 +146,7 @@ pub(crate) async fn handle_connect_client<'a>(
     if !(MIN_PRIORITY <= data.priority && data.priority <= MAX_PRIORITY) {
         Err("Priority out of range")?;
     }
-    if data.permuters.is_empty() {
+    if permuters.is_empty() {
         Err("No permuters")?;
     }
 
@@ -163,7 +166,7 @@ pub(crate) async fn handle_connect_client<'a>(
         }))
         .await?;
 
-    for permuter_data in &data.permuters {
+    for permuter_data in &permuters {
         state
             .log_stats(stats::Record::ClientNewFunction {
                 client: who_id.clone(),
@@ -172,7 +175,7 @@ pub(crate) async fn handle_connect_client<'a>(
             .await?;
     }
 
-    let energy_add = (data.permuters.len() as f64) / data.priority;
+    let energy_add = (permuters.len() as f64) / data.priority;
 
     let (result_tx, result_rx) = mpsc::unbounded_channel();
     let semaphore = Arc::new(FlimsySemaphore::new(CLIENT_MAX_QUEUES_SIZE));
@@ -180,7 +183,7 @@ pub(crate) async fn handle_connect_client<'a>(
     let mut perm_meta = Vec::new();
     {
         let mut m = state.m.lock().unwrap();
-        for permuter_data in data.permuters {
+        for permuter_data in permuters {
             let id = m.next_permuter_id;
             m.next_permuter_id += 1;
             perm_meta.push((id, permuter_data.fn_name.clone()));

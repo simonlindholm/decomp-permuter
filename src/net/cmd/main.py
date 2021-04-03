@@ -2,6 +2,7 @@ from argparse import ArgumentParser, RawDescriptionHelpFormatter
 
 from .run_server import RunServerCommand
 from .setup import SetupCommand
+from .stats import StatsCommand
 from .vouch import VouchCommand
 
 
@@ -16,6 +17,7 @@ def main() -> None:
     commands = [
         RunServerCommand,
         SetupCommand,
+        StatsCommand,
         VouchCommand,
     ]
 

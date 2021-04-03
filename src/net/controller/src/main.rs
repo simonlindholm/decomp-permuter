@@ -1,6 +1,7 @@
 #![allow(clippy::try_err)]
 
 use std::collections::{HashMap, VecDeque};
+use std::convert::TryInto;
 use std::default::Default;
 use std::sync::{Arc, Mutex};
 
@@ -101,7 +102,6 @@ struct ConnectServerData {
 #[derive(Deserialize)]
 struct ConnectClientData {
     priority: f64,
-    permuters: Vec<PermuterData>,
 }
 
 #[derive(Deserialize, Clone, Copy)]
@@ -252,13 +252,21 @@ async fn run_server(opts: RunServerOpts) -> SimpleResult<()> {
     }
 }
 
+fn concat<T: Clone>(a: &[T], b: &[T]) -> Vec<T> {
+    a.iter().chain(b).cloned().collect()
+}
+
+fn concat3<T: Clone>(a: &[T], b: &[T], c: &[T]) -> Vec<T> {
+    a.iter().chain(b).chain(c).cloned().collect()
+}
+
 async fn handshake<'a>(
     mut rd: ReadHalf<'a>,
     mut wr: WriteHalf<'a>,
     sign_sk: &sign::SecretKey,
-) -> SimpleResult<(ReadPort<'a>, WritePort<'a>, UserId)> {
+) -> SimpleResult<(ReadPort<'a>, WritePort<'a>, UserId, u32)> {
     let mut buffer = [0; 4 + 32];
-    rd.read_exact(&mut buffer[..]).await?;
+    rd.read_exact(&mut buffer).await?;
     let (magic, their_pk) = buffer.split_at(4);
     if magic != b"p@h0" {
         Err("Invalid protocol version")?;
@@ -266,44 +274,56 @@ async fn handshake<'a>(
     let their_pk = box_::PublicKey::from_slice(&their_pk).unwrap();
 
     let (our_pk, our_sk) = box_::gen_keypair();
-    let mut msg = Vec::with_capacity(6 + 32 + 32);
-    msg.extend(b"HELLO:");
-    msg.extend(their_pk.as_ref());
-    msg.extend(our_pk.as_ref());
-    let buffer = sign::sign(&msg[..], sign_sk);
-    wr.write(&buffer[..]).await?;
+    let signed_data = concat3(b"HELLO:", their_pk.as_ref(), our_pk.as_ref());
+    let signature = sign::sign_detached(&signed_data, &sign_sk);
+    wr.write(&concat(our_pk.as_ref(), signature.as_ref()))
+        .await?;
 
     let key = box_::precompute(&their_pk, &our_sk);
     let mut read_port = ReadPort::new(rd, &key);
     let write_port = WritePort::new(wr, &key);
 
-    let hello = read_port.recv().await?;
-    if hello.len() != 32 + 64 {
+    let reply = read_port.recv().await?;
+    if reply.len() != 32 + 64 + 4 {
         Err("Failed to perform secret handshake")?;
     }
-    let (client_ver_key, client_signature) = hello.split_at(32);
+    let (client_ver_key, rest) = reply.split_at(32);
+    let (client_signature, permuter_version) = rest.split_at(64);
     let client_ver_key = sign::PublicKey::from_slice(client_ver_key).unwrap();
     let client_signature = sign::Signature::from_slice(client_signature).unwrap();
-    let mut msg = Vec::with_capacity(6 + 32);
-    msg.extend(b"WORLD:");
-    msg.extend(our_pk.as_ref());
-    if !sign::verify_detached(&client_signature, &msg[..], &client_ver_key) {
+    let permuter_version = u32::from_be_bytes(permuter_version.try_into().unwrap());
+    let signed_data = concat(b"WORLD:", our_pk.as_ref());
+    if !sign::verify_detached(&client_signature, &signed_data, &client_ver_key) {
         Err("Spoofed client signature!")?;
     }
 
-    Ok((read_port, write_port, UserId::from_pubkey(&client_ver_key)))
+    Ok((
+        read_port,
+        write_port,
+        UserId::from_pubkey(&client_ver_key),
+        permuter_version,
+    ))
 }
 
 async fn handle_connection(mut socket: TcpStream, state: &State) -> SimpleResult<()> {
     let (rd, wr) = socket.split();
-    let (mut read_port, mut write_port, user_id) = handshake(rd, wr, &state.sign_sk).await?;
+    let (mut read_port, mut write_port, user_id, _permuter_version) =
+        handshake(rd, wr, &state.sign_sk).await?;
     let name = match state.db.read(|db| {
         let user = db.users.get(&user_id)?;
         Some(user.name.clone())
     }) {
         Some(name) => name,
-        None => Err("Unknown client!")?,
+        None => {
+            write_port
+                .send_json(&json!({
+                    "error": "Access denied!",
+                }))
+                .await?;
+            Err("Unknown client!")?
+        }
     };
+    write_port.send_json(&json!({})).await?;
 
     let request = read_port.recv().await?;
     let request: Request = serde_json::from_slice(&request)?;

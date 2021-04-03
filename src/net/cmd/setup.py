@@ -68,18 +68,17 @@ def _run_initial_setup(config: RawConfig) -> None:
         data = SealedBox(signing_key.to_curve25519_private_key()).decrypt(token)
         auth_verify_key = VerifyKey(data[:32])
         auth_server = data[32:].decode("utf-8")
-        print(f"Server URL: {auth_server}")
+        print(f"Server: {auth_server}")
         print("Testing connection...")
         time.sleep(1)
 
         # TODO: verify that contacting auth server works and signs its messages
 
-        print("permuter@home successfully set up!")
-        print()
         config.auth_server = auth_server
         config.auth_verify_key = auth_verify_key
         config.initial_setup_nickname = None
         write_config(config)
+        print("permuter@home successfully set up!")
     except Exception:
         print("Invalid token!")
         sys.exit(1)
