@@ -261,7 +261,11 @@ fn concat3<T: Clone>(a: &[T], b: &[T], c: &[T]) -> Vec<T> {
     a.iter().chain(b).chain(c).cloned().collect()
 }
 
-fn verify_with_magic<'a>(magic: &[u8], data: &'a [u8], key: &sign::PublicKey) -> SimpleResult<&'a [u8]> {
+fn verify_with_magic<'a>(
+    magic: &[u8],
+    data: &'a [u8],
+    key: &sign::PublicKey,
+) -> SimpleResult<&'a [u8]> {
     if data.len() < 64 {
         Err("signature too short")?;
     }
@@ -347,9 +351,8 @@ async fn handle_connection(mut socket: TcpStream, state: &State) -> SimpleResult
         }
         Request::Vouch { who, signed_name } => {
             let signed_name = Vec::from_hex(&signed_name).map_err(|_| "not a valid hex string")?;
-            let name = str::from_utf8(
-                verify_with_magic(b"NAME:", &signed_name, &who.to_pubkey())?
-            )?;
+            let name =
+                str::from_utf8(verify_with_magic(b"NAME:", &signed_name, &who.to_pubkey())?)?;
             state
                 .db
                 .write(true, |db| {
