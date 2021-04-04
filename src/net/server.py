@@ -44,6 +44,8 @@ HANG_TIMEOUT = 5 * 60
 
 @dataclass
 class PermuterData:
+    score: int
+    hash: str
     fn_name: str
     filename: str
     keep_prob: float
@@ -208,7 +210,7 @@ IoActivity = Union[Tuple[str, str, IoMessage], IoGlobalMessage]
 class ServerOptions:
     host: str
     port: int
-    num_cpus: float
+    num_cores: float
     max_memory_gb: float
     min_priority: float
     systray: bool
@@ -311,7 +313,7 @@ class ServerHandler(socketserver.BaseRequestHandler):
         props = {
             "version": 1,
             "min_priority": options.min_priority,
-            "num_cpus": options.num_cpus,
+            "num_cores": options.num_cores,
         }
         port.send_json(props)
 
@@ -332,6 +334,8 @@ class ServerHandler(socketserver.BaseRequestHandler):
 
             permuters.append(
                 PermuterData(
+                    score=json_prop(obj, "score", int),
+                    hash=json_prop(obj, "hash", str),
                     fn_name=json_prop(obj, "fn_name", str),
                     filename=json_prop(obj, "filename", str),
                     keep_prob=json_prop(obj, "keep_prob", float),
@@ -816,7 +820,7 @@ class Server:
             pass
 
     def _main_loop(self) -> None:
-        max_work = int(self._options.num_cpus) * 2 + 4
+        max_work = int(self._options.num_cores) * 2 + 4
         while True:
             msg = self._queue.get()
             if isinstance(msg, Shutdown):
@@ -952,7 +956,7 @@ def start_evaluator(docker_image: str, options: ServerOptions) -> DockerPort:
     also have a Docker-less mode, where we leave the sandboxing to some other
     tool, e.g. https://github.com/ioi/isolate/."""
     print("Starting docker...")
-    num_threads = int(options.num_cpus + 0.5) + 1
+    num_threads = int(options.num_cores + 0.5) + 1
     command = ["python3", "-m", "src.net.evaluator", str(num_threads)]
     secret = nacl.utils.random(32)
     box = SecretBox(secret)
@@ -980,7 +984,7 @@ def start_evaluator(docker_image: str, options: ServerOptions) -> DockerPort:
         environment={"SECRET": enc_secret},
         volumes={src_path: {"bind": "/src", "mode": "ro"}},
         tmpfs={"/tmp": "size=1G,exec"},
-        nano_cpus=int(options.num_cpus * 1e9),
+        nano_cpus=int(options.num_cores * 1e9),
         mem_limit=int(options.max_memory_gb * 2 ** 30),
         read_only=True,
         network_disabled=True,

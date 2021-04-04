@@ -53,12 +53,12 @@ class RunServerCommand(Command):
             help="Port to listen on.",
         )
         parser.add_argument(
-            "--cpus",
-            dest="num_cpus",
-            metavar="CPUS",
+            "--cores",
+            dest="num_cores",
+            metavar="CORES",
             type=float,
             required=True,
-            help="Number of CPUs to use (float).",
+            help="Number of cores to use (float).",
         )
         parser.add_argument(
             "--memory",
@@ -91,7 +91,7 @@ class RunServerCommand(Command):
         options = ServerOptions(
             host=args.host,
             port=args.port,
-            num_cpus=args.num_cpus,
+            num_cores=args.num_cores,
             max_memory_gb=args.max_memory_gb,
             min_priority=args.min_priority,
             systray=args.systray,

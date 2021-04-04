@@ -83,6 +83,8 @@ struct Config {
 
 #[derive(Deserialize, Serialize)]
 struct PermuterData {
+    score: i64,
+    hash: String,
     fn_name: String,
     filename: String,
     keep_prob: f64,
@@ -121,7 +123,6 @@ enum ServerUpdate {
         more_props: HashMap<String, serde_json::Value>,
     },
     InitDone {
-        score: i64,
         hash: String,
     },
     InitFailed {
