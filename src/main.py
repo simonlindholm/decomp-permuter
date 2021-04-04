@@ -364,7 +364,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
                 )
                 net_conns.append((thread, queue))
             num_servers, num_cores = stats
-            print(f"Connected! {num_servers} servers online ({num_cores} cores)")
+            print(f"Connected! {num_servers} servers online ({int(num_cores)} cores)")
 
         # Start local worker threads
         processes: List[multiprocessing.Process] = []

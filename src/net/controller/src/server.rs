@@ -239,8 +239,8 @@ async fn send_work(
                 "data": &*permuter,
             }))
             .await?;
-            port.send_compressed(permuter.source.as_bytes()).await?;
-            port.send_compressed(&permuter.target_o_bin).await?;
+            port.send(&permuter.compressed_source).await?;
+            port.send(&permuter.compressed_target_o_bin).await?;
         }
         ToSend::Remove => {
             port.send_json(&json!({

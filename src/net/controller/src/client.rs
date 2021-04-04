@@ -149,8 +149,8 @@ pub(crate) async fn handle_connect_client<'a>(
 
     let permuter_data = read_port.recv().await?;
     let mut permuter_data: PermuterData = serde_json::from_slice(&permuter_data)?;
-    permuter_data.source = String::from_utf8(read_port.recv_compressed().await?)?;
-    permuter_data.target_o_bin = read_port.recv_compressed().await?;
+    permuter_data.compressed_source = read_port.recv().await?;
+    permuter_data.compressed_target_o_bin = read_port.recv().await?;
     write_port.send_json(&json!({})).await?;
 
     state

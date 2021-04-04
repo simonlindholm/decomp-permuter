@@ -89,9 +89,9 @@ struct PermuterData {
     stack_differences: bool,
     compile_script: String,
     #[serde(skip)]
-    source: String,
+    compressed_source: Vec<u8>,
     #[serde(skip)]
-    target_o_bin: Vec<u8>,
+    compressed_target_o_bin: Vec<u8>,
 }
 
 #[derive(Deserialize)]

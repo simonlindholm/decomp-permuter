@@ -98,7 +98,7 @@ class PortablePermuter:
         self.base_hash = permuter.base_hash
 
         with open(permuter.scorer.target_o, "rb") as f:
-            self.target_o_bin = f.read()
+            self.compressed_target_o_bin = zlib.compress(f.read())
 
         with open(permuter.compiler.compile_cmd, "r") as f2:
             self.compile_script = _make_script_portable(f2.read())
@@ -136,7 +136,7 @@ class Connection:
         }
         self._port.send_json(obj)
         self._port.send(permuter.compressed_source)
-        self._port.send(permuter.target_o_bin)
+        self._port.send(permuter.compressed_target_o_bin)
 
     def run(self) -> None:
         finish_reason: Optional[str] = None
@@ -249,7 +249,7 @@ def start_client(
 ) -> "Tuple[threading.Thread, Queue[Task], Tuple[int, float]]":
     port.send_json(
         {
-            "method": "client",
+            "method": "connect_client",
             "priority": priority,
         }
     )
