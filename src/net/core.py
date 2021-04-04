@@ -13,6 +13,8 @@ from nacl.public import Box, PrivateKey, PublicKey
 from nacl.secret import SecretBox
 from nacl.signing import SigningKey, VerifyKey
 
+from ..error import ServerError
+
 T = TypeVar("T")
 AnyBox = Union[Box, SecretBox]
 
@@ -22,14 +24,6 @@ CONFIG_FILENAME = "pah.conf"
 
 MIN_PRIO = 0.01
 MAX_PRIO = 2.0
-
-
-@dataclass
-class RemoteServer:
-    ip: str
-    port: int
-    nickname: str
-    ver_key: VerifyKey
 
 
 @dataclass
@@ -210,6 +204,9 @@ class Port(abc.ABC):
     def receive_json(self) -> dict:
         """Read a message in the form of a JSON dict, blocking."""
         ret = json.loads(self.receive())
+        if isinstance(ret, str):
+            # Raw strings indicate errors.
+            raise ServerError(ret)
         if not isinstance(ret, dict):
             # We always pass dictionaries as messages and no other data types,
             # to ensure future extensibility. (Other types are rare in
@@ -250,11 +247,6 @@ class FilePort(Port):
 
     def _receive(self, length: int) -> bytes:
         return file_read_fixed(self._inf, length)
-
-
-@dataclass
-class GracefulConnectionError(Exception):
-    message: str
 
 
 def _do_connect(config: Config) -> SocketPort:
@@ -304,8 +296,6 @@ def _do_connect(config: Config) -> SocketPort:
     # Get an acknowledgement that the server wants to talk to us.
     obj = port.receive_json()
 
-    if "error" in obj:
-        raise GracefulConnectionError(obj["error"])
     if "message" in obj:
         print(obj["message"])
 
@@ -317,7 +307,7 @@ def connect(config: Optional[Config] = None) -> SocketPort:
         if not config:
             config = read_config()
         return _do_connect(config)
-    except GracefulConnectionError as e:
+    except ServerError as e:
         print(f"Failed to connect: {e.message}")
         sys.exit(1)
     except Exception as e:

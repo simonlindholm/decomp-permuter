@@ -322,6 +322,19 @@ async fn handshake<'a>(
     ))
 }
 
+fn parse_signed_name(signed_name: &str, who: &UserId) -> SimpleResult<String> {
+    let signed_name = Vec::from_hex(signed_name).map_err(|_| "not a valid hex string")?;
+    let name_bytes = verify_with_magic(b"NAME:", &signed_name, &who.to_pubkey())?;
+    let name = str::from_utf8(name_bytes)?;
+    if name.is_empty() {
+        Err("name is empty")?;
+    }
+    if name.chars().any(char::is_control) {
+        Err("name cannot contain control characters")?;
+    }
+    Ok(name.to_string())
+}
+
 async fn handle_connection(mut socket: TcpStream, state: &State) -> SimpleResult<()> {
     let (rd, wr) = socket.split();
     let (mut read_port, mut write_port, user_id, _permuter_version) =
@@ -332,11 +345,7 @@ async fn handle_connection(mut socket: TcpStream, state: &State) -> SimpleResult
     }) {
         Some(name) => name,
         None => {
-            write_port
-                .send_json(&json!({
-                    "error": "Access denied!",
-                }))
-                .await?;
+            write_port.send_error("Access denied!").await?;
             Err("Unknown client!")?
         }
     };
@@ -349,15 +358,21 @@ async fn handle_connection(mut socket: TcpStream, state: &State) -> SimpleResult
             write_port.send_json(&json!({})).await?;
         }
         Request::Vouch { who, signed_name } => {
-            let signed_name = Vec::from_hex(&signed_name).map_err(|_| "not a valid hex string")?;
-            let name =
-                str::from_utf8(verify_with_magic(b"NAME:", &signed_name, &who.to_pubkey())?)?;
+            let name = match parse_signed_name(&signed_name, &who) {
+                Ok(name) => name,
+                Err(e) => {
+                    write_port.send_error(&format!("{}", &e)).await?;
+                    Err(e)?
+                }
+            };
+            write_port.send_json(&json!({})).await?;
+            read_port.recv().await?;
             state
                 .db
                 .write(true, |db| {
                     db.users.entry(who).or_insert_with(|| User {
                         trusted_by: Some(user_id),
-                        name: name.to_string(),
+                        name,
                         client_stats: Default::default(),
                         server_stats: Default::default(),
                     });

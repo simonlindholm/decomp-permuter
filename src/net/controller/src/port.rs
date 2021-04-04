@@ -68,6 +68,10 @@ impl<'a> WritePort<'a> {
     {
         self.send(&serde_json::to_vec(value)?).await
     }
+
+    pub async fn send_error(&mut self, message: &str) -> SimpleResult<()> {
+        self.send_json(message).await
+    }
 }
 
 fn nonce_from_u64(num: u64) -> Nonce {

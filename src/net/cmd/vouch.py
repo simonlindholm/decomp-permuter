@@ -1,10 +1,12 @@
 from argparse import ArgumentParser, Namespace
 import base64
+import sys
 
 from nacl.encoding import HexEncoder
 from nacl.public import SealedBox
 from nacl.signing import VerifyKey
 
+from ...error import ServerError
 from ..core import connect, read_config, verify_with_magic
 from .base import Command
 from .util import ask
@@ -35,23 +37,32 @@ def run_vouch(magic: str) -> None:
         nickname = msg.decode("utf-8")
     except Exception:
         print("Could not parse data!")
-        return
+        sys.exit(1)
 
-    config = read_config()
-    port = connect(config)
-    # TODO pre-check (server check to not allow escape codes, e.g.)
+    try:
+        config = read_config()
+        port = connect(config)
+        port.send_json(
+            {
+                "method": "vouch",
+                "who": verify_key.encode(HexEncoder).decode("utf-8"),
+                "signed_name": HexEncoder.encode(signed_nickname).decode("utf-8"),
+            }
+        )
+        port.receive_json()
+    except ServerError as e:
+        print(f"Error: {e}")
+        sys.exit(1)
 
     if not ask(f"Grant permuter server access to {nickname}", default=True):
         return
 
-    port.send_json(
-        {
-            "method": "vouch",
-            "who": verify_key.encode(HexEncoder).decode("utf-8"),
-            "signed_name": HexEncoder.encode(signed_nickname).decode("utf-8"),
-        }
-    )
-    port.receive_json()
+    try:
+        port.send_json({})
+        port.receive_json()
+    except ServerError as e:
+        print(f"Failed to grant access: {e}")
+        sys.exit(1)
 
     assert config.server_address, "checked by connect"
     assert config.server_verify_key, "checked by connect"
