@@ -13,6 +13,7 @@ from ..permuter import (
     EvalError,
     EvalResult,
     Feedback,
+    FeedbackItem,
     Finished,
     Message,
     NeedMoreWork,
@@ -138,6 +139,12 @@ class Connection:
         self._port.send(permuter.compressed_source)
         self._port.send(permuter.compressed_target_o_bin)
 
+    def _feedback(self, feedback: FeedbackItem, server_nick: Optional[str]) -> None:
+        self._feedback_queue.put((feedback, self._perm_index, server_nick))
+
+    def _need_work(self) -> None:
+        self._feedback_queue.put((NeedMoreWork(), self._perm_index, None))
+
     def run(self) -> None:
         finish_reason: Optional[str] = None
         try:
@@ -145,67 +152,44 @@ class Connection:
             self._port.receive_json()
             msg = self._port.receive_json()
 
-            # server_nick = json_prop(msg, "server", str)
-            # success = json_prop(msg, "success", bool)
-            # if not success:
-            #     error = json_prop(msg, "error", str)
-            #     finish_reason = f"failed to compile: {error}"
-            #     return
-            # bases = json_array(json_prop(msg, "perm_bases", list), dict)
-            # if len(bases) != len(self._permuters):
-            #     raise ValueError("perm_bases has wrong size")
-            # for i, base in enumerate(bases):
-            #     base_score = json_prop(base, "base_score", int)
-            #     base_hash = json_prop(base, "base_hash", str)
-            #     my_base_score = self._permuters[i].base_score
-            #     my_base_hash = self._permuters[i].base_hash
-            #     if base_score != my_base_score:
-            #         raise ValueError(
-            #             "mismatching base score! "
-            #             f"({base_score} instead of {my_base_score})"
-            #         )
-            #     if base_hash != my_base_hash:
-            #         self._feedback_queue.put(
-            #             (Message("note: mismatching hash"), server_nick)
-            #         )
-            # self._feedback_queue.put((NeedMoreWork(permuter_index), server_nick))
             finished = False
 
             # Main loop: send messages from the queue on to the server, and
-            # vice versa. We could decrease latency a bit by doing the two in
-            # parallel, but we currently don't, instead preferring to alternate
-            # between the two directions. This is done for a few reasons:
-            # - it's simpler
-            # - in practice, sending messages from the queue to the server will
-            #   never block, since "need_work" messages make sure there is
-            #   enough work in the queue, and the messages we send are small.
-            # - this method ensures that we don't build up arbitrarily large
-            #   queues.
+            # vice versa. Currently we are being lazy and alternate between
+            # sending and receiving; this is nicely simple and keeps us on a
+            # single thread, however it could cause deadlocks if the server
+            # receiver stops reading because we aren't reading fast enough.
             while True:
                 # Receive a result/progress message and send it on.
                 msg = self._port.receive_json()
                 msg_type = json_prop(msg, "type", str)
-                permuter_index = json_prop(msg, "permuter", int)
                 if msg_type == "need_work":
-                    self._feedback_queue.put((NeedMoreWork(), self._perm_index, None))
+                    self._need_work()
 
                 else:
                     server_nick = json_prop(msg, "server", str)
-                    if msg_type == "result":
+                    if msg_type == "init_done":
+                        base_hash = json_prop(msg, "hash", str)
+                        my_base_hash = self._permuter.base_hash
+                        text = "connected"
+                        if base_hash != my_base_hash:
+                            text += " (note: mismatching hash)"
+                        self._feedback(Message(text), server_nick)
+                        self._need_work()
+                    elif msg_type == "init_failed":
+                        text = "failed to initialize: " + json_prop(msg, "reason", str)
+                        self._feedback(Message(text), server_nick)
+                    elif msg_type == "disconnect":
+                        self._feedback(Message("disconnected"), server_nick)
+                    elif msg_type == "result":
                         source: Optional[str] = None
                         if msg.get("has_source") == True:
-                            # Source is sent separately, compressed, since it can be large
-                            # (hundreds of kilobytes is not uncommon).
+                            # Source is sent separately, compressed, since it can be
+                            # large (hundreds of kilobytes is not uncommon).
                             compressed_source = self._port.receive()
                             source = zlib.decompress(compressed_source).decode("utf-8")
                         result = _result_from_json(msg, source)
-                        self._feedback_queue.put(
-                            (
-                                WorkDone(permuter_index, result),
-                                self._perm_index,
-                                server_nick,
-                            )
-                        )
+                        self._feedback(WorkDone(self._perm_index, result), server_nick)
 
                     else:
                         raise ValueError(f"Invalid message type {msg_type}")
@@ -214,13 +198,17 @@ class Connection:
                 if not finished:
                     task = self._task_queue.get()
                     if isinstance(task, Finished):
-                        self._port.send_json({"type": "finish"})
-                        self._port.shutdown(socket.SHUT_WR)
+                        # We don't have a way of indicating to the server that
+                        # all is done: the server currently doesn't track
+                        # outstanding work so it doesn't know when to close
+                        # the connection. (Even with this fixed we'll have the
+                        # problem that servers may disconnect, losing work, so
+                        # the task never truly finishes. But it might work well
+                        # enough in practice.)
                         finished = True
                     else:
                         work = {
                             "type": "work",
-                            "permuter": task[0],
                             "seed": task[1],
                         }
                         self._port.send_json(work)
@@ -233,9 +221,7 @@ class Connection:
             finish_reason = f"error: {errmsg}"
 
         finally:
-            self._feedback_queue.put(
-                (Finished(reason=finish_reason), self._perm_index, None)
-            )
+            self._feedback(Finished(reason=finish_reason), None)
             self._port.shutdown()
             self._port.close()
 

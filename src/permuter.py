@@ -58,7 +58,8 @@ class WorkDone:
 
 
 Task = Union[Finished, Tuple[int, int]]
-Feedback = Tuple[Union[Finished, Message, NeedMoreWork, WorkDone], int, Optional[str]]
+FeedbackItem = Union[Finished, Message, NeedMoreWork, WorkDone]
+Feedback = Tuple[FeedbackItem, int, Optional[str]]
 
 
 class Permuter:
