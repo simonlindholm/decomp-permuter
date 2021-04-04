@@ -384,12 +384,17 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             print("No workers available! Exiting.")
             sys.exit(1)
 
-        def process_finish(finish: Finished, who: Optional[str]) -> None:
+        def process_finish(finish: Finished, source: int) -> None:
             nonlocal active_workers
 
             if finish.reason:
-                context.printer.print(finish.reason, None, who, keep_progress=True)
-            active_workers -= 1
+                permuter: Optional[Permuter] = None
+                if source != -1 and len(context.permuters) > 1:
+                    permuter = context.permuters[source]
+                context.printer.print(finish.reason, permuter, None, keep_progress=True)
+
+            if source == -1:
+                active_workers -= 1
 
         def process_result(work: WorkDone, who: Optional[str]) -> bool:
             permuter = context.permuters[work.perm_index]
@@ -424,7 +429,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             heartbeat()
             feedback, source, who = feedback_queue.get()
             if isinstance(feedback, Finished):
-                assert False, "haven't sent a finish signal yet"
+                process_finish(feedback, source)
             elif isinstance(feedback, Message):
                 context.printer.print(feedback.text, None, who, keep_progress=True)
             elif isinstance(feedback, WorkDone):
@@ -443,16 +448,19 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             else:
                 static_assert_unreachable(feedback)
 
-        # Signal local workers to stop.
+        # Signal workers to stop.
         for i in range(active_workers):
             worker_task_queue.put(Finished())
+
+        for conn in net_conns:
+            conn[1].put(Finished())
 
         # Await final results.
         while active_workers > 0 or net_conns:
             heartbeat()
             feedback, source, who = feedback_queue.get()
             if isinstance(feedback, Finished):
-                process_finish(feedback, who)
+                process_finish(feedback, source)
             elif isinstance(feedback, Message):
                 context.printer.print(feedback.text, None, who, keep_progress=True)
             elif isinstance(feedback, WorkDone):

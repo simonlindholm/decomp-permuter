@@ -226,11 +226,11 @@ class Connection:
                         self._port.send_json(work)
 
         except EOFError:
-            finish_reason = f"disconnected"
+            finish_reason = "disconnected from permuter@home"
 
         except Exception as e:
             errmsg = exception_to_string(e)
-            finish_reason = f"error: {errmsg}"
+            finish_reason = f"permuter@home error: {errmsg}"
 
         finally:
             self._feedback(Finished(reason=finish_reason), None)
