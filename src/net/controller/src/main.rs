@@ -83,17 +83,13 @@ struct Config {
 
 #[derive(Deserialize, Serialize)]
 struct PermuterData {
-    score: i64,
-    hash: String,
     fn_name: String,
-    filename: String,
-    keep_prob: f64,
-    stack_differences: bool,
-    compile_script: String,
     #[serde(skip)]
     compressed_source: Vec<u8>,
     #[serde(skip)]
     compressed_target_o_bin: Vec<u8>,
+    #[serde(flatten)]
+    more_props: HashMap<String, serde_json::Value>,
 }
 
 #[derive(Deserialize)]
