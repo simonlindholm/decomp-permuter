@@ -22,6 +22,7 @@ from typing import (
 from .candidate import CandidateResult
 from .compiler import Compiler
 from .error import CandidateConstructionFailure
+from .helpers import static_assert_unreachable
 from .net.client import start_client
 from .net.core import connect, MAX_PRIO, MIN_PRIO
 from .permuter import (
@@ -206,9 +207,9 @@ def multiprocess_worker(
             # Read a work item from the queue. If none is immediately available,
             # tell the main thread to fill the queues more, and then block on
             # the queue.
-            queue_item = input_queue.get(block=False)
+            queue_item: Optional[Task] = input_queue.get(block=False)
             if queue_item is None:
-                output_queue.put((NeedMoreWork(), None))
+                output_queue.put((NeedMoreWork(), -1, None))
                 queue_item = input_queue.get()
             if isinstance(queue_item, Finished):
                 output_queue.put((queue_item, -1, None))
@@ -220,6 +221,7 @@ def multiprocess_worker(
             if isinstance(result, CandidateResult) and permuter.should_output(result):
                 permuter.record_result(result)
             output_queue.put((WorkDone(permuter_index, result), -1, None))
+            output_queue.put((NeedMoreWork(), -1, None))
     except KeyboardInterrupt:
         # Don't clutter the output with stack traces; Ctrl+C is the expected
         # way to quit and sends KeyboardInterrupt to all processes.
@@ -423,25 +425,23 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             feedback, source, who = feedback_queue.get()
             if isinstance(feedback, Finished):
                 assert False, "haven't sent a finish signal yet"
-                continue
-            if isinstance(feedback, Message):
+            elif isinstance(feedback, Message):
                 context.printer.print(feedback.text, None, who, keep_progress=True)
-                continue
-            if isinstance(feedback, NeedMoreWork):
-                # No result to process, just put a task in the queue.
-                pass
-            elif process_result(feedback, who):
-                # Found score 0!
-                found_zero = True
-                if options.stop_on_zero:
-                    break
-
-            task = get_task(source)
-            if task is not None:
-                if source == -1:
-                    worker_task_queue.put(task)
-                else:
-                    net_conns[source][1].put(task)
+            elif isinstance(feedback, WorkDone):
+                if process_result(feedback, who):
+                    # Found score 0!
+                    found_zero = True
+                    if options.stop_on_zero:
+                        break
+            elif isinstance(feedback, NeedMoreWork):
+                task = get_task(source)
+                if task is not None:
+                    if source == -1:
+                        worker_task_queue.put(task)
+                    else:
+                        net_conns[source][1].put(task)
+            else:
+                static_assert_unreachable(feedback)
 
         # Signal local workers to stop.
         for i in range(active_workers):
@@ -455,11 +455,14 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
                 process_finish(feedback, who)
             elif isinstance(feedback, Message):
                 context.printer.print(feedback.text, None, who, keep_progress=True)
+            elif isinstance(feedback, WorkDone):
+                if not (options.stop_on_zero and found_zero):
+                    if process_result(feedback, who):
+                        found_zero = True
             elif isinstance(feedback, NeedMoreWork):
                 pass
-            elif not (options.stop_on_zero and found_zero):
-                if process_result(feedback, who):
-                    found_zero = True
+            else:
+                static_assert_unreachable(feedback)
 
         # Wait for workers to finish.
         for p in processes:

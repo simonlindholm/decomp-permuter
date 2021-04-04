@@ -31,12 +31,6 @@ from .core import (
 )
 
 
-@dataclass
-class ServerProps:
-    min_priority: float
-    num_cpus: float
-
-
 def _profiler_from_json(obj: dict) -> Profiler:
     ret = Profiler()
     for key in obj:
@@ -145,6 +139,55 @@ class Connection:
     def _need_work(self) -> None:
         self._feedback_queue.put((NeedMoreWork(), self._perm_index, None))
 
+    def _receive_one(self) -> bool:
+        """Receive a result/progress message and send it on. Returns true if
+        more work should be requested."""
+        msg = self._port.receive_json()
+        msg_type = json_prop(msg, "type", str)
+        if msg_type == "need_work":
+            return True
+
+        server_nick = json_prop(msg, "server", str)
+        if msg_type == "init_done":
+            base_hash = json_prop(msg, "hash", str)
+            my_base_hash = self._permuter.base_hash
+            text = "connected"
+            if base_hash != my_base_hash:
+                text += " (note: mismatching hash)"
+            self._feedback(Message(text), server_nick)
+            return True
+
+        if msg_type == "init_failed":
+            text = "failed to initialize: " + json_prop(msg, "reason", str)
+            self._feedback(Message(text), server_nick)
+            return False
+
+        if msg_type == "disconnect":
+            self._feedback(Message("disconnected"), server_nick)
+            return False
+
+        if msg_type == "result":
+            source: Optional[str] = None
+            if msg.get("has_source") == True:
+                # Source is sent separately, compressed, since it can be
+                # large (hundreds of kilobytes is not uncommon).
+                compressed_source = self._port.receive()
+                try:
+                    source = zlib.decompress(compressed_source).decode("utf-8")
+                except Exception as e:
+                    text = "failed to decompress: " + exception_to_string(e)
+                    self._feedback(Message(text), server_nick)
+                    return True
+            try:
+                result = _result_from_json(msg, source)
+                self._feedback(WorkDone(self._perm_index, result), server_nick)
+            except Exception as e:
+                text = "failed to parse result message: " + exception_to_string(e)
+                self._feedback(Message(text), server_nick)
+            return True
+
+        raise ValueError(f"Invalid message type {msg_type}")
+
     def run(self) -> None:
         finish_reason: Optional[str] = None
         try:
@@ -160,39 +203,9 @@ class Connection:
             # single thread, however it could cause deadlocks if the server
             # receiver stops reading because we aren't reading fast enough.
             while True:
-                # Receive a result/progress message and send it on.
-                msg = self._port.receive_json()
-                msg_type = json_prop(msg, "type", str)
-                if msg_type == "need_work":
-                    self._need_work()
-
-                else:
-                    server_nick = json_prop(msg, "server", str)
-                    if msg_type == "init_done":
-                        base_hash = json_prop(msg, "hash", str)
-                        my_base_hash = self._permuter.base_hash
-                        text = "connected"
-                        if base_hash != my_base_hash:
-                            text += " (note: mismatching hash)"
-                        self._feedback(Message(text), server_nick)
-                        self._need_work()
-                    elif msg_type == "init_failed":
-                        text = "failed to initialize: " + json_prop(msg, "reason", str)
-                        self._feedback(Message(text), server_nick)
-                    elif msg_type == "disconnect":
-                        self._feedback(Message("disconnected"), server_nick)
-                    elif msg_type == "result":
-                        source: Optional[str] = None
-                        if msg.get("has_source") == True:
-                            # Source is sent separately, compressed, since it can be
-                            # large (hundreds of kilobytes is not uncommon).
-                            compressed_source = self._port.receive()
-                            source = zlib.decompress(compressed_source).decode("utf-8")
-                        result = _result_from_json(msg, source)
-                        self._feedback(WorkDone(self._perm_index, result), server_nick)
-
-                    else:
-                        raise ValueError(f"Invalid message type {msg_type}")
+                if not self._receive_one():
+                    continue
+                self._need_work()
 
                 # Read a task and send it on, unless there are no more tasks.
                 if not finished:

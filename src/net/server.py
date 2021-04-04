@@ -24,6 +24,7 @@ from nacl.secret import SecretBox
 from nacl.signing import SigningKey, VerifyKey
 import nacl.utils
 
+from ..helpers import static_assert_unreachable
 from .core import (
     MAX_PRIO,
     MIN_PRIO,
@@ -33,7 +34,6 @@ from .core import (
     json_prop,
     sign_with_magic,
     socket_read_fixed,
-    static_assert_unreachable,
     verify_with_magic,
 )
 

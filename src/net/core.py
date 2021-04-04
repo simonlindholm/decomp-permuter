@@ -6,7 +6,7 @@ import struct
 import sys
 import toml
 import traceback
-from typing import BinaryIO, List, NoReturn, Optional, Tuple, Type, TypeVar, Union
+from typing import BinaryIO, List, Optional, Tuple, Type, TypeVar, Union
 
 from nacl.encoding import HexEncoder
 from nacl.public import Box, PrivateKey, PublicKey
@@ -32,10 +32,6 @@ class Config:
     server_verify_key: Optional[VerifyKey] = None
     signing_key: Optional[SigningKey] = None
     initial_setup_nickname: Optional[str] = None
-
-
-def static_assert_unreachable(x: NoReturn) -> NoReturn:
-    raise Exception("Unreachable! " + repr(x))
 
 
 def exception_to_string(e: object) -> str:

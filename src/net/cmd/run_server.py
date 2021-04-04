@@ -10,7 +10,8 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from PIL import Image
 import pystray
 
-from ..core import connect, static_assert_unreachable
+from ...helpers import static_assert_unreachable
+from ..core import connect
 from ..server import (
     IoActivity,
     IoConnect,

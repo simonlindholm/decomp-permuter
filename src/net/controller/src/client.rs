@@ -89,8 +89,8 @@ async fn client_write(
                 .await?;
 
                 if let ServerUpdate::Result {
-                    score,
                     compressed_source,
+                    ref more_props,
                     ..
                 } = server_update
                 {
@@ -98,9 +98,10 @@ async fn client_write(
                         port.send(data).await?;
                     }
 
+                    let score = more_props.get("score").and_then(|score| score.as_i64());
                     let outcome = if compressed_source.is_none() {
                         stats::Outcome::Unhelpful
-                    } else if score == 0 {
+                    } else if matches!(score, Some(0)) {
                         stats::Outcome::Matched
                     } else {
                         stats::Outcome::Improved

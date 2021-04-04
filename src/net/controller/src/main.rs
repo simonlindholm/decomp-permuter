@@ -114,8 +114,6 @@ struct PermuterWork {
 #[serde(tag = "type", rename_all = "snake_case")]
 enum ServerUpdate {
     Result {
-        score: i64,
-        hash: String,
         #[serde(skip)]
         compressed_source: Option<Vec<u8>>,
         has_source: bool,
