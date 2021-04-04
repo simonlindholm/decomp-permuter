@@ -97,7 +97,7 @@ struct PermuterData {
 #[derive(Deserialize)]
 struct ConnectServerData {
     min_priority: f64,
-    num_cpus: u32,
+    num_cores: f64,
 }
 
 #[derive(Deserialize)]
@@ -129,7 +129,6 @@ enum ServerUpdate {
     InitFailed {
         reason: String,
     },
-    #[serde(skip_deserializing)]
     Disconnect,
 }
 
@@ -145,7 +144,7 @@ struct Permuter {
     client_id: UserId,
     client_name: String,
     work_queue: VecDeque<PermuterWork>,
-    result_tx: mpsc::UnboundedSender<(PermuterId, PermuterResult)>,
+    result_tx: mpsc::UnboundedSender<PermuterResult>,
     semaphore: Arc<FlimsySemaphore>,
     stale: bool,
     priority: f64,
@@ -153,8 +152,8 @@ struct Permuter {
 }
 
 impl Permuter {
-    fn send_result(&mut self, from: PermuterId, res: PermuterResult) {
-        let _ = self.result_tx.send((from, res));
+    fn send_result(&mut self, res: PermuterResult) {
+        let _ = self.result_tx.send(res);
         self.semaphore.acquire_ignore_limit();
     }
 }
@@ -163,7 +162,7 @@ new_key_type! { struct ServerId; }
 
 struct ConnectedServer {
     min_priority: f64,
-    num_cpus: u32,
+    num_cores: f64,
 }
 
 struct MutableState {

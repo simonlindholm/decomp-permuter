@@ -86,16 +86,16 @@ async fn server_read(
                             job.state = JobState::Loaded;
                             log_new = true;
                         }
-                        ServerUpdate::InitFailed { .. } => {
+                        ServerUpdate::InitFailed { .. } | ServerUpdate::Disconnect => {
                             job.state = JobState::Failed;
                         }
                         ServerUpdate::Result { .. } => {}
-                        ServerUpdate::Disconnect => unreachable!(),
                     }
-                    perm.send_result(
-                        perm_id,
-                        PermuterResult::Result(who_id.clone(), who_name.to_string(), update),
-                    );
+                    perm.send_result(PermuterResult::Result(
+                        who_id.clone(),
+                        who_name.to_string(),
+                        update,
+                    ));
                 }
             }
         }
@@ -193,7 +193,7 @@ async fn choose_work(server_state: &Mutex<ServerState>, state: &State) -> (Permu
                 // Chosen permuter is out of work. Ask it for more, and mark it
                 // as stale. When it goes unstale all sleeping writers will be
                 // notified.
-                perm.send_result(perm_id, PermuterResult::NeedWork);
+                perm.send_result(PermuterResult::NeedWork);
                 perm.stale = true;
                 wait_for = None;
                 continue;
@@ -292,7 +292,7 @@ pub(crate) async fn handle_connect_server<'a>(
 
     let id = state.m.lock().unwrap().servers.insert(ConnectedServer {
         min_priority: data.min_priority,
-        num_cpus: data.num_cpus,
+        num_cores: data.num_cores,
     });
 
     let r = tokio::try_join!(
@@ -312,14 +312,11 @@ pub(crate) async fn handle_connect_server<'a>(
         for (&perm_id, job) in &server_state.get_mut().unwrap().jobs {
             if let JobState::Loaded = job.state {
                 if let Some(perm) = m.permuters.get_mut(&perm_id) {
-                    perm.send_result(
-                        perm_id,
-                        PermuterResult::Result(
-                            who_id.clone(),
-                            who_name.to_string(),
-                            ServerUpdate::Disconnect,
-                        ),
-                    );
+                    perm.send_result(PermuterResult::Result(
+                        who_id.clone(),
+                        who_name.to_string(),
+                        ServerUpdate::Disconnect,
+                    ));
                 }
             }
         }

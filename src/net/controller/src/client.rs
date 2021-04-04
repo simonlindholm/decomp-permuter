@@ -27,26 +27,19 @@ enum ClientUpdate {
 
 #[derive(Deserialize)]
 struct ClientMessage {
-    permuter: u32,
     update: ClientUpdate,
 }
 
 #[derive(Serialize)]
 struct PermuterResultMessage<'a> {
-    permuter: u32,
     server: String,
     #[serde(flatten)]
     update: &'a ServerUpdate,
 }
 
-#[derive(Deserialize)]
-struct LateConnectClientData {
-    permuters: Vec<PermuterData>,
-}
-
 async fn client_read(
     port: &mut ReadPort<'_>,
-    perm_meta: &[(PermuterId, String)],
+    perm_id: &PermuterId,
     semaphore: &FlimsySemaphore,
     state: &State,
 ) -> SimpleResult<()> {
@@ -54,9 +47,6 @@ async fn client_read(
         let msg = port.recv().await?;
         let msg: ClientMessage = serde_json::from_slice(&msg)?;
         let ClientUpdate::Work(work) = msg.update;
-        let (perm_id, _) = perm_meta
-            .get(msg.permuter as usize)
-            .ok_or("Permuter index out of range")?;
 
         // Avoid the work and result queues growing indefinitely by restricting
         // their combined size with a semaphore.
@@ -74,29 +64,25 @@ async fn client_read(
 
 async fn client_write(
     port: &mut WritePort<'_>,
-    perm_meta: &[(PermuterId, String)],
+    fn_name: &str,
     semaphore: &FlimsySemaphore,
     state: &State,
-    mut result_rx: mpsc::UnboundedReceiver<(PermuterId, PermuterResult)>,
+    mut result_rx: mpsc::UnboundedReceiver<PermuterResult>,
     client_id: &UserId,
 ) -> SimpleResult<()> {
     loop {
-        let (perm_id, res) = result_rx.recv().await.unwrap();
-        let local_perm_id = perm_meta.iter().position(|&(id, _)| id == perm_id).unwrap();
-        let fn_name = &perm_meta[local_perm_id].1;
+        let res = result_rx.recv().await.unwrap();
         semaphore.release();
 
         match res {
             PermuterResult::NeedWork => {
                 port.send_json(&json!({
                     "type": "need_work",
-                    "permuter": local_perm_id,
                 }))
                 .await?;
             }
             PermuterResult::Result(server_id, server_name, server_update) => {
                 port.send_json(&PermuterResultMessage {
-                    permuter: local_perm_id as u32,
                     server: server_name,
                     update: &server_update,
                 })
@@ -146,75 +132,67 @@ pub(crate) async fn handle_connect_client<'a>(
     }
 
     let mut num_servers: u32 = 0;
-    let mut cpu_capacity: u32 = 0;
+    let mut num_cores: f64 = 0.0;
     for server in state.m.lock().unwrap().servers.values() {
         if data.priority >= server.min_priority {
             num_servers += 1;
-            cpu_capacity += server.num_cpus;
+            num_cores += server.num_cores;
         }
     }
 
     write_port
         .send_json(&json!({
             "servers": num_servers,
-            "cpus": cpu_capacity,
+            "cores": num_cores,
         }))
         .await?;
 
-    let late_data = read_port.recv().await?;
-    let mut late_data: LateConnectClientData = serde_json::from_slice(&late_data)?;
-    for permuter_data in &mut late_data.permuters {
-        permuter_data.source = String::from_utf8(read_port.recv_compressed().await?)?;
-        permuter_data.target_o_bin = read_port.recv_compressed().await?;
-    }
-    if late_data.permuters.is_empty() {
-        Err("No permuters")?;
-    }
+    let permuter_data = read_port.recv().await?;
+    let mut permuter_data: PermuterData = serde_json::from_slice(&permuter_data)?;
+    permuter_data.source = String::from_utf8(read_port.recv_compressed().await?)?;
+    permuter_data.target_o_bin = read_port.recv_compressed().await?;
+    write_port.send_json(&json!({})).await?;
 
-    for permuter_data in &late_data.permuters {
-        state
-            .log_stats(stats::Record::ClientNewFunction {
-                client: who_id.clone(),
-                fn_name: permuter_data.fn_name.clone(),
-            })
-            .await?;
-    }
+    state
+        .log_stats(stats::Record::ClientNewFunction {
+            client: who_id.clone(),
+            fn_name: permuter_data.fn_name.clone(),
+        })
+        .await?;
 
-    let energy_add = (late_data.permuters.len() as f64) / data.priority;
+    let energy_add = 1.0 / data.priority;
+    let fn_name = permuter_data.fn_name.clone();
 
     let (result_tx, result_rx) = mpsc::unbounded_channel();
     let semaphore = Arc::new(FlimsySemaphore::new(CLIENT_MAX_QUEUES_SIZE));
 
-    let mut perm_meta = Vec::new();
-    {
+    let perm_id = {
         let mut m = state.m.lock().unwrap();
-        for permuter_data in late_data.permuters {
-            let id = m.next_permuter_id;
-            m.next_permuter_id += 1;
-            perm_meta.push((id, permuter_data.fn_name.clone()));
-            m.permuters.insert(
-                id,
-                Permuter {
-                    data: permuter_data.into(),
-                    client_id: who_id.clone(),
-                    client_name: who_name.to_string(),
-                    work_queue: VecDeque::new(),
-                    result_tx: result_tx.clone(),
-                    semaphore: semaphore.clone(),
-                    stale: false,
-                    priority: data.priority,
-                    energy_add,
-                },
-            );
-        }
+        let id = m.next_permuter_id;
+        m.next_permuter_id += 1;
+        m.permuters.insert(
+            id,
+            Permuter {
+                data: permuter_data.into(),
+                client_id: who_id.clone(),
+                client_name: who_name.to_string(),
+                work_queue: VecDeque::new(),
+                result_tx: result_tx.clone(),
+                semaphore: semaphore.clone(),
+                stale: false,
+                priority: data.priority,
+                energy_add,
+            },
+        );
         state.new_work_notification.notify_waiters();
-    }
+        id
+    };
 
     let r = tokio::try_join!(
-        client_read(&mut read_port, &perm_meta, &semaphore, state),
+        client_read(&mut read_port, &perm_id, &semaphore, state),
         client_write(
             &mut write_port,
-            &perm_meta,
+            &fn_name,
             &semaphore,
             state,
             result_rx,
@@ -222,12 +200,7 @@ pub(crate) async fn handle_connect_client<'a>(
         )
     );
 
-    {
-        let mut m = state.m.lock().unwrap();
-        for (id, _) in perm_meta {
-            m.permuters.remove(&id);
-        }
-    }
+    state.m.lock().unwrap().permuters.remove(&perm_id);
     r?;
     Ok(())
 }

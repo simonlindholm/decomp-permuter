@@ -2,6 +2,7 @@ import argparse
 from dataclasses import dataclass, field
 import itertools
 import multiprocessing
+from multiprocessing import Queue
 import os
 import random
 from random import Random
@@ -197,23 +198,20 @@ def cycle_seeds(permuters: List[Permuter]) -> Iterable[Tuple[int, int]]:
 
 def multiprocess_worker(
     permuters: List[Permuter],
-    input_queue: "multiprocessing.Queue[Task]",
-    output_queue: "multiprocessing.Queue[Feedback]",
+    input_queue: "Queue[Task]",
+    output_queue: "Queue[Feedback]",
 ) -> None:
     try:
-        should_block = False
         while True:
             # Read a work item from the queue. If none is immediately available,
             # tell the main thread to fill the queues more, and then block on
             # the queue.
-            queue_item = input_queue.get(block=should_block)
+            queue_item = input_queue.get(block=False)
             if queue_item is None:
                 output_queue.put((NeedMoreWork(), None))
-                should_block = True
-                continue
-            should_block = False
+                queue_item = input_queue.get()
             if isinstance(queue_item, Finished):
-                output_queue.put((queue_item, None))
+                output_queue.put((queue_item, -1, None))
                 output_queue.close()
                 break
             permuter_index, seed = queue_item
@@ -221,7 +219,7 @@ def multiprocess_worker(
             result = permuter.try_eval_candidate(seed)
             if isinstance(result, CandidateResult) and permuter.should_output(result):
                 permuter.record_result(result)
-            output_queue.put((WorkDone(permuter_index, result), None))
+            output_queue.put((WorkDone(permuter_index, result), -1, None))
     except KeyboardInterrupt:
         # Don't clutter the output with stack traces; Ctrl+C is the expected
         # way to quit and sends KeyboardInterrupt to all processes.
@@ -317,17 +315,20 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         name_counts[permuter.fn_name] = name_counts.get(permuter.fn_name, 0) + 1
     print()
 
+    if not context.permuters:
+        print("No permuters!")
+        return []
+
     for permuter in context.permuters:
         if name_counts[permuter.fn_name] > 1:
             permuter.unique_name += f" ({permuter.dir})"
         print(f"[{permuter.unique_name}] base score = {permuter.best_score}")
 
     found_zero = False
-    perm_seed_iter = iter(cycle_seeds(context.permuters))
     if options.threads == 1 and not options.use_network:
         # Simple single-threaded mode. This is not technically needed, but
         # makes the permuter easier to debug.
-        for permuter_index, seed in perm_seed_iter:
+        for permuter_index, seed in cycle_seeds(context.permuters):
             heartbeat()
             permuter = context.permuters[permuter_index]
             result = permuter.try_eval_candidate(seed)
@@ -336,37 +337,49 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
                 if options.stop_on_zero:
                     break
     else:
-        # Create queues.
-        task_queue: "multiprocessing.Queue[Task]" = multiprocessing.Queue()
-        feedback_queue: "multiprocessing.Queue[Feedback]" = multiprocessing.Queue()
+        seed_iterators: List[Optional[Iterator[int]]] = [
+            itertools.repeat(perm_ind)
+            for perm_ind, permuter in enumerate(context.permuters)
+        ]
+        seed_iterators_remaining = len(seed_iterators)
+        next_iterator_index = 0
 
-        # Connect to network and create client threads
-        net_threads: List[threading.Thread] = []
+        # Create queues.
+        worker_task_queue: "Queue[Task]" = Queue()
+        feedback_queue: "Queue[Feedback]" = Queue()
+
+        # Connect to network and create client threads and queues.
+        net_conns: "List[Tuple[threading.Thread, Queue[Task]]]" = []
         if options.use_network:
             print("Connecting to permuter@home...")
-            port = connect()
-            net_threads = start_client(
-                port,
-                context.permuters,
-                task_queue,
-                feedback_queue,
-                options.network_priority,
-            )
+            stats: Tuple[int, float]
+            for perm_index in range(len(context.permuters)):
+                port = connect()
+                thread, queue, stats = start_client(
+                    port,
+                    context.permuters[perm_index],
+                    perm_index,
+                    feedback_queue,
+                    options.network_priority,
+                )
+                net_conns.append((thread, queue))
+            num_servers, num_cores = stats
+            print(f"Connected! {num_servers} servers online ({num_cores} cores)")
 
         # Start local worker threads
         processes: List[multiprocessing.Process] = []
         for i in range(options.threads):
             p = multiprocessing.Process(
                 target=multiprocess_worker,
-                args=(context.permuters, task_queue, feedback_queue),
+                args=(context.permuters, worker_task_queue, feedback_queue),
             )
             p.start()
             processes.append(p)
 
-        active_workers = len(net_threads) + len(processes)
+        active_workers = len(processes)
 
-        if not active_workers:
-            print("No remote servers available. Exiting.")
+        if not active_workers and not net_conns:
+            print("No workers available! Exiting.")
             sys.exit(1)
 
         def process_finish(finish: Finished, who: Optional[str]) -> None:
@@ -380,20 +393,41 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             permuter = context.permuters[work.perm_index]
             return post_score(context, permuter, work.result, who)
 
+        def get_task(perm_index: int) -> Optional[Tuple[int, int]]:
+            nonlocal next_iterator_index, seed_iterators_remaining
+            if perm_index == -1:
+                while seed_iterators_remaining > 0:
+                    task = get_task(next_iterator_index)
+                    next_iterator_index += 1
+                    next_iterator_index %= len(seed_iterators)
+                    if task is not None:
+                        return task
+            else:
+                it = seed_iterators[perm_index]
+                if it is not None:
+                    seed = next(it, None)
+                    if seed is None:
+                        seed_iterators[perm_index] = None
+                        seed_iterators_remaining -= 1
+                    else:
+                        return (perm_index, seed)
+            return None
+
         # Feed the task queue with work and read from results queue.
         # We generally match these up one-by-one to avoid overfilling queues,
         # but workers can ask us to add more tasks into the system if they run
         # out of work. (This will happen e.g. at the very beginning, when the
         # queues are empty.)
-        while active_workers > 0:
+        while seed_iterators_remaining > 0:
             heartbeat()
-            feedback, who = feedback_queue.get()
+            feedback, source, who = feedback_queue.get()
             if isinstance(feedback, Finished):
-                process_finish(feedback, who)
+                assert False, "haven't sent a finish signal yet"
                 continue
             if isinstance(feedback, Message):
                 context.printer.print(feedback.text, None, who, keep_progress=True)
-            elif isinstance(feedback, NeedMoreWork):
+                continue
+            if isinstance(feedback, NeedMoreWork):
                 # No result to process, just put a task in the queue.
                 pass
             elif process_result(feedback, who):
@@ -401,19 +435,22 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
                 found_zero = True
                 if options.stop_on_zero:
                     break
-            task = next(perm_seed_iter, None)
-            if task is None:
-                break
-            task_queue.put(task)
 
-        # Signal workers to stop.
+            task = get_task(source)
+            if task is not None:
+                if source == -1:
+                    worker_task_queue.put(task)
+                else:
+                    net_conns[source][1].put(task)
+
+        # Signal local workers to stop.
         for i in range(active_workers):
-            task_queue.put(Finished())
+            worker_task_queue.put(Finished())
 
         # Await final results.
-        while active_workers > 0:
+        while active_workers > 0 or net_conns:
             heartbeat()
-            feedback, who = feedback_queue.get()
+            feedback, source, who = feedback_queue.get()
             if isinstance(feedback, Finished):
                 process_finish(feedback, who)
             elif isinstance(feedback, Message):
@@ -428,8 +465,9 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         for p in processes:
             p.join()
 
-        for t in net_threads:
-            t.join()
+        # Wait for network connections to close (currently does not happen).
+        for conn in net_conns:
+            conn[0].join()
 
     if found_zero:
         print("\nFound zero score! Exiting.")
@@ -441,7 +479,7 @@ def main() -> None:
     sys.setrecursionlimit(10000)
 
     # Ideally we would do:
-    #  multiprocessing.set_start_method('spawn')
+    #  multiprocessing.set_start_method("spawn")
     # here, to make multiprocessing behave the same across operating systems.
     # However, that means that arguments to Process are passed across using
     # pickling, which mysteriously breaks with pycparser...
