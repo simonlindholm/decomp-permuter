@@ -6,7 +6,6 @@ from nacl.encoding import HexEncoder
 from nacl.public import SealedBox
 from nacl.signing import VerifyKey
 
-from ...error import ServerError
 from ..core import connect, read_config, verify_with_magic
 from .base import Command
 from .util import ask
@@ -50,7 +49,7 @@ def run_vouch(magic: str) -> None:
             }
         )
         port.receive_json()
-    except ServerError as e:
+    except Exception as e:
         print(f"Error: {e}")
         sys.exit(1)
 
@@ -60,7 +59,7 @@ def run_vouch(magic: str) -> None:
     try:
         port.send_json({})
         port.receive_json()
-    except ServerError as e:
+    except Exception as e:
         print(f"Failed to grant access: {e}")
         sys.exit(1)
 

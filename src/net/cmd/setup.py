@@ -69,15 +69,25 @@ def _run_initial_setup() -> None:
         config.server_address = data[32:].decode("utf-8")
         config.server_verify_key = VerifyKey(data[:32])
         config.initial_setup_nickname = None
-        print(f"Server: {config.server_address}")
-        print("Testing connection...")
-
-        port = connect(config)
-        port.send_json({"method": "ping"})
-        port.receive_json()
-
-        write_config(config)
-        print("permuter@home successfully set up!")
     except Exception:
         print("Invalid token!")
         sys.exit(1)
+
+    print(f"Server: {config.server_address}")
+    print("Testing connection...")
+
+    try:
+        port = connect(config)
+        port.send_json({"method": "ping"})
+        port.receive_json()
+    except Exception as e:
+        print("Failed to connect:", e)
+        sys.exit(1)
+
+    try:
+        write_config(config)
+    except Exception as e:
+        print("Failed to write config:", e)
+        sys.exit(1)
+
+    print("permuter@home successfully set up!")

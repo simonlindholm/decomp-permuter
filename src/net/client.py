@@ -138,9 +138,6 @@ class Connection:
     def _feedback(self, feedback: FeedbackItem, server_nick: Optional[str]) -> None:
         self._feedback_queue.put((feedback, self._perm_index, server_nick))
 
-    def _need_work(self) -> None:
-        self._feedback_queue.put((NeedMoreWork(), self._perm_index, None))
-
     def _receive_one(self) -> bool:
         """Receive a result/progress message and send it on. Returns true if
         more work should be requested."""
@@ -207,7 +204,7 @@ class Connection:
             while True:
                 if not self._receive_one():
                     continue
-                self._need_work()
+                self._feedback(NeedMoreWork(), None)
 
                 # Read a task and send it on, unless there are no more tasks.
                 if not finished:
