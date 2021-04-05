@@ -76,8 +76,8 @@ def _create_permuter(data: PermuterData) -> Permuter:
     fd, path = mkstemp(suffix=".sh", prefix="permuter", text=True)
     try:
         os.chmod(fd, 0o755)
-        with os.fdopen(fd, "w") as f:
-            f.write(data.compile_script)
+        with os.fdopen(fd, "w") as f2:
+            f2.write(data.compile_script)
         compiler = Compiler(compile_cmd=path, show_errors=False)
 
         return Permuter(
@@ -156,6 +156,7 @@ class RemovePermuter:
 @dataclass
 class WorkDone:
     perm_id: str
+    time_cost_ms: float
     result: EvalResult
 
 
