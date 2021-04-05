@@ -11,8 +11,9 @@ from PIL import Image
 import pystray
 
 from ...helpers import static_assert_unreachable
-from ..core import connect
+from ..core import connect, json_prop
 from ..server import (
+    Client,
     IoActivity,
     IoConnect,
     IoDisconnect,
@@ -39,19 +40,6 @@ class RunServerCommand(Command):
 
     @staticmethod
     def add_arguments(parser: ArgumentParser) -> None:
-        parser.add_argument(
-            "--host",
-            dest="host",
-            default="0.0.0.0",
-            help="Hostname to listen on. (default: %(default)s)",
-        )
-        parser.add_argument(
-            "--port",
-            dest="port",
-            type=int,
-            required=True,
-            help="Port to listen on.",
-        )
         parser.add_argument(
             "--cores",
             dest="num_cores",
@@ -89,8 +77,6 @@ class RunServerCommand(Command):
     @staticmethod
     def run(args: Namespace) -> None:
         options = ServerOptions(
-            host=args.host,
-            port=args.port,
             num_cores=args.num_cores,
             max_memory_gb=args.max_memory_gb,
             min_priority=args.min_priority,
@@ -101,13 +87,13 @@ class RunServerCommand(Command):
 
 
 class SystrayState:
-    def connect(self, handle: str, nickname: str, fn_names: List[str]) -> None:
+    def connect(self, handle: int, nickname: str, fn_name: str) -> None:
         pass
 
-    def disconnect(self, handle: str) -> None:
+    def disconnect(self, handle: int) -> None:
         pass
 
-    def work_done(self, handle: str, is_improvement: bool) -> None:
+    def work_done(self, handle: int, is_improvement: bool) -> None:
         pass
 
     def will_sleep(self) -> None:
@@ -115,16 +101,16 @@ class SystrayState:
 
 
 @dataclass
-class Client:
+class Permuter:
     nickname: str
-    fn_names: List[str]
+    fn_name: str
     iterations: int = 0
     improvements: int = 0
     last_systray_update: float = 0.0
 
 
 class RealSystrayState(SystrayState):
-    _clients: Dict[str, Client]
+    _permuters: Dict[int, Permuter]
 
     def __init__(
         self,
@@ -135,35 +121,36 @@ class RealSystrayState(SystrayState):
         self._server = server
         self._output_queue = output_queue
         self._update_menu = update_menu
-        self._clients = {}
+        self._permuters = {}
 
-    def _remove_client(self, handle: str, *_: Any) -> None:
-        self._server.remove_client(handle)
+    def _remove_permuter(self, handle: int, *_: Any) -> None:
+        self._server.remove_permuter(handle)
 
     def _quit(self) -> None:
         self._output_queue.put(IoShutdown())
 
     def _update(self, flush: bool = True) -> None:
-        title = "Currently permuting:" if self._clients else "<not running>"
+        title = "Currently permuting:" if self._permuters else "<not running>"
         items: List[pystray.MenuItem] = [
             pystray.MenuItem(title, None, enabled=False),
         ]
 
-        for handle, client in self._clients.items():
-            fn_names = ", ".join(client.fn_names)
+        for handle, perm in self._permuters.items():
             items.append(
                 pystray.MenuItem(
-                    f"{fn_names} ({client.nickname})",
+                    f"{perm.fn_name} ({perm.nickname})",
                     pystray.Menu(
                         pystray.MenuItem(
-                            f"Iterations: {client.iterations}", None, enabled=False
+                            f"Iterations: {perm.iterations}", None, enabled=False
                         ),
                         pystray.MenuItem(
-                            f"Improvements found: {client.improvements}",
+                            f"Improvements found: {perm.improvements}",
                             None,
                             enabled=False,
                         ),
-                        pystray.MenuItem("Stop", partial(self._remove_client, handle)),
+                        pystray.MenuItem(
+                            "Stop", partial(self._remove_permuter, handle)
+                        ),
                     ),
                 ),
             )
@@ -175,22 +162,22 @@ class RealSystrayState(SystrayState):
     def initial_update(self) -> None:
         self._update()
 
-    def connect(self, handle: str, nickname: str, fn_names: List[str]) -> None:
-        self._clients[handle] = Client(nickname, fn_names)
+    def connect(self, handle: int, nickname: str, fn_name: str) -> None:
+        self._permuters[handle] = Permuter(nickname, fn_name)
         self._update()
 
-    def disconnect(self, handle: str) -> None:
-        del self._clients[handle]
+    def disconnect(self, handle: int) -> None:
+        del self._permuters[handle]
         self._update()
 
-    def work_done(self, handle: str, is_improvement: bool) -> None:
-        client = self._clients[handle]
-        client.iterations += 1
+    def work_done(self, handle: int, is_improvement: bool) -> None:
+        perm = self._permuters[handle]
+        perm.iterations += 1
         if is_improvement:
-            client.improvements += 1
-        flush = time.time() > client.last_systray_update + SYSTRAY_UPDATE_INTERVAL
+            perm.improvements += 1
+        flush = time.time() > perm.last_systray_update + SYSTRAY_UPDATE_INTERVAL
         if flush:
-            client.last_systray_update = time.time()
+            perm.last_systray_update = time.time()
         self._update(flush)
 
     def will_sleep(self) -> None:
@@ -229,6 +216,7 @@ def run_with_systray(
 
 
 def output_loop(output_queue: "queue.Queue[IoActivity]", systray: SystrayState) -> None:
+    handle_clients: Dict[int, Client] = {}
     while True:
         activity = output_queue.get()
         if not isinstance(activity, tuple):
@@ -242,17 +230,17 @@ def output_loop(output_queue: "queue.Queue[IoActivity]", systray: SystrayState) 
                 static_assert_unreachable(activity)
 
         else:
-            handle, nickname, msg = activity
-            prefix = f"[{nickname}]"
+            handle, msg = activity
 
             if isinstance(msg, IoConnect):
-                systray.connect(handle, nickname, msg.fn_names)
-                fn_names = ", ".join(msg.fn_names)
-                print(f"{prefix} connected ({fn_names})")
+                systray.connect(handle, msg.client.nickname, msg.fn_name)
+                print(f"{msg.client.nickname} connected ({msg.fn_name})")
 
             elif isinstance(msg, IoDisconnect):
                 systray.disconnect(handle)
-                print(f"{prefix} {msg.reason}")
+                nickname = handle_clients[handle].nickname
+                del handle_clients[handle]
+                print(f"[{nickname}] {msg.reason}")
 
             elif isinstance(msg, IoWorkDone):
                 # TODO: statistics
@@ -264,17 +252,24 @@ def output_loop(output_queue: "queue.Queue[IoActivity]", systray: SystrayState) 
 
 def server_main(options: ServerOptions) -> None:
     net_port = connect()
-    docker_image = ""  # TODO
+    net_port.send_json(
+        {
+            "method": "connect_server",
+            "min_priority": options.min_priority,
+            "num_cores": options.num_cores,
+        }
+    )
+    obj = net_port.receive_json()
+    docker_image = json_prop(obj, "docker_image", str)
 
     output_queue: "queue.Queue[IoActivity]" = queue.Queue()
 
-    port = start_evaluator(docker_image, options)
+    evaluator_port = start_evaluator(docker_image, options)
+
+    server = Server(net_port, options, evaluator_port, output_queue)
+    server.start()
 
     try:
-        server = Server(net_port, options, port, output_queue)
-        server.start()
-
-        # TODO go_online(config, options.port)
 
         # TODO: regularly check in with the auth server to maintain an up-to-date IP,
         # and to check version.
@@ -290,8 +285,6 @@ def server_main(options: ServerOptions) -> None:
             run_with_systray(server, output_queue, cmdline_ui)
         else:
             cmdline_ui(SystrayState())
-
-        # TODO go_offline(config)
         server.stop()
     finally:
-        port.shutdown()
+        evaluator_port.shutdown()

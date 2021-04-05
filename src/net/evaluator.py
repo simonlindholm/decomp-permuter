@@ -9,6 +9,7 @@ import struct
 import sys
 from tempfile import mkstemp
 import threading
+import time
 import traceback
 from typing import BinaryIO, Counter, Dict, List, Optional, Set, Tuple, Union
 import zlib
@@ -104,11 +105,14 @@ def _remove_permuter(perm: Permuter) -> None:
     os.unlink(perm.compiler.compile_cmd)
 
 
-def _send_result(perm_id: str, res: EvalResult, port: Port) -> None:
+def _send_result(
+    perm_id: str, time_cost_ms: float, res: EvalResult, port: Port
+) -> None:
     if isinstance(res, EvalError):
         port.send_json(
             {
                 "type": "result",
+                "time_cost_ms": time_cost_ms,
                 "id": perm_id,
                 "error": res.exc_str,
             }
@@ -192,6 +196,8 @@ def multiprocess_worker(
             else:
                 static_assert_unreachable(task)
 
+        time_before = time.time()
+
         permuter = permuters[work.perm_id]
         result = permuter.try_eval_candidate(work.seed)
         if isinstance(result, CandidateResult) and permuter.should_output(result):
@@ -206,7 +212,10 @@ def multiprocess_worker(
             setattr(result, "compressed_source", compressed_source)
             result.source = None
 
-        task_queue.put(WorkDone(perm_id=work.perm_id, result=result))
+        time_cost_ms = (time.time() - time_before) * 1000
+        task_queue.put(
+            WorkDone(perm_id=work.perm_id, time_cost_ms=time_cost_ms, result=result)
+        )
 
 
 def read_loop(task_queue: "Queue[Task]", port: Port) -> None:
@@ -324,12 +333,15 @@ def main() -> None:
             try:
                 # Construct a permuter. This involves a compilation on the main
                 # thread, which isn't great but we can live with it for now.
+                time_before = time.time()
                 permuter = _create_permuter(item.data)
                 permuters[item.perm_id] = permuter
+                time_cost_ms = (time.time() - time_before) * 1000
 
                 msg["success"] = True
                 msg["base_score"] = permuter.base_score
                 msg["bash_hash"] = permuter.base_hash
+                msg["time_cost_ms"] = time_cost_ms
 
                 # Tell all the workers about the new permuter.
                 timestamp += 1
@@ -362,7 +374,7 @@ def main() -> None:
         elif isinstance(item, WorkDone):
             remaining_work[item.perm_id] -= 1
             try_remove(item.perm_id)
-            _send_result(item.perm_id, item.result, port)
+            _send_result(item.perm_id, item.time_cost_ms, item.result, port)
 
         elif isinstance(item, Work):
             remaining_work[item.perm_id] += 1

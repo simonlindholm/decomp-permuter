@@ -23,7 +23,7 @@ const TIME_COST_MS_GUESS: f64 = 100.0;
 enum ServerMessage {
     NeedWork,
     Update {
-        permuter_id: PermuterId,
+        permuter: PermuterId,
         time_cost_ms: f64,
         update: ServerUpdate,
     },
@@ -58,7 +58,7 @@ async fn server_read(
         let msg: ServerMessage = serde_json::from_slice(&msg)?;
         let mut log_new = false;
         if let ServerMessage::Update {
-            permuter_id: perm_id,
+            permuter: perm_id,
             mut update,
             time_cost_ms,
         } = msg
