@@ -356,6 +356,7 @@ def main() -> None:
                 # This shouldn't practically happen, since the client compiled
                 # the code successfully. Print a message if it does.
                 msg["success"] = False
+                msg["time_cost_ms"] = 0
                 msg["error"] = exception_to_string(e)
                 if isinstance(e, CandidateConstructionFailure):
                     print(e.message)

@@ -6,6 +6,7 @@ import struct
 import sys
 import toml
 import traceback
+import typing
 from typing import BinaryIO, List, Optional, Tuple, Type, TypeVar, Union
 
 from nacl.encoding import HexEncoder
@@ -128,7 +129,11 @@ def socket_shutdown(sock: socket.socket, how: int) -> None:
 def json_prop(obj: dict, prop: str, t: Type[T]) -> T:
     ret = obj.get(prop)
     if not isinstance(ret, t):
+        if t is float and isinstance(ret, int):
+            return typing.cast(T, float(ret))
         found_type = type(ret).__name__
+        if prop not in obj:
+            raise ValueError(f"Member {prop} does not exist")
         raise ValueError(f"Member {prop} must have type {t.__name__}; got {found_type}")
     return ret
 

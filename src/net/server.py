@@ -732,4 +732,5 @@ def start_evaluator(docker_image: str, options: ServerOptions) -> DockerPort:
         port.shutdown()
         raise
 
+    print("Started.")
     return port
