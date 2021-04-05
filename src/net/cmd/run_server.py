@@ -233,8 +233,10 @@ def output_loop(output_queue: "queue.Queue[IoActivity]", systray: SystrayState) 
             handle, msg = activity
 
             if isinstance(msg, IoConnect):
-                systray.connect(handle, msg.client.nickname, msg.fn_name)
-                print(f"{msg.client.nickname} connected ({msg.fn_name})")
+                client = msg.client
+                handle_clients[handle] = client
+                systray.connect(handle, client.nickname, msg.fn_name)
+                print(f"{client.nickname} connected ({msg.fn_name})")
 
             elif isinstance(msg, IoDisconnect):
                 systray.disconnect(handle)
