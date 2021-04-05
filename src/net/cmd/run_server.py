@@ -18,6 +18,7 @@ from ..server import (
     IoConnect,
     IoDisconnect,
     IoGlobalMessage,
+    IoImmediateDisconnect,
     IoShutdown,
     IoWillSleep,
     IoWorkDone,
@@ -243,6 +244,9 @@ def output_loop(output_queue: "queue.Queue[IoActivity]", systray: SystrayState) 
                 nickname = handle_clients[handle].nickname
                 del handle_clients[handle]
                 print(f"[{nickname}] {msg.reason}")
+
+            elif isinstance(msg, IoImmediateDisconnect):
+                print(f"[{msg.client.nickname}] {msg.reason}")
 
             elif isinstance(msg, IoWorkDone):
                 # TODO: statistics

@@ -9,6 +9,7 @@ from typing import List, Optional, Tuple, TypeVar
 import zlib
 
 from ..candidate import CandidateResult
+from ..helpers import exception_to_string
 from ..permuter import (
     EvalError,
     EvalResult,
@@ -25,7 +26,6 @@ from ..profiler import Profiler
 from .core import (
     Port,
     SocketPort,
-    exception_to_string,
     json_array,
     json_prop,
 )

@@ -19,14 +19,13 @@ from nacl.secret import SecretBox
 from ..candidate import CandidateResult
 from ..compiler import Compiler
 from ..error import CandidateConstructionFailure
-from ..helpers import static_assert_unreachable
+from ..helpers import exception_to_string, static_assert_unreachable
 from ..permuter import EvalError, EvalResult, Permuter
 from ..profiler import Profiler
 from ..scorer import Scorer
 from .core import (
     FilePort,
     Port,
-    exception_to_string,
     json_prop,
 )
 

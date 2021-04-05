@@ -35,10 +35,6 @@ class Config:
     initial_setup_nickname: Optional[str] = None
 
 
-def exception_to_string(e: object) -> str:
-    return str(e) or e.__class__.__name__
-
-
 def read_config() -> Config:
     config = Config()
     try:

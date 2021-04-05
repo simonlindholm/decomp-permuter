@@ -24,17 +24,12 @@ from nacl.secret import SecretBox
 from nacl.signing import SigningKey, VerifyKey
 import nacl.utils
 
-from ..helpers import static_assert_unreachable
+from ..helpers import exception_to_string, static_assert_unreachable
 from .core import (
-    MAX_PRIO,
-    MIN_PRIO,
     Port,
     SocketPort,
     file_read_fixed,
     json_prop,
-    sign_with_magic,
-    socket_read_fixed,
-    verify_with_magic,
 )
 
 
@@ -89,6 +84,13 @@ class Work:
 
 
 @dataclass
+class ImmediateDisconnect:
+    handle: int
+    client: Client
+    reason: str
+
+
+@dataclass
 class Disconnect:
     handle: int
 
@@ -123,6 +125,7 @@ Activity = Union[
     AddPermuter,
     RemovePermuter,
     Work,
+    ImmediateDisconnect,
     Disconnect,
     PermInitFail,
     PermInitSuccess,
@@ -179,6 +182,12 @@ class IoDisconnect:
     reason: str
 
 
+@dataclass
+class IoImmediateDisconnect:
+    reason: str
+    client: Client
+
+
 class IoShutdown:
     pass
 
@@ -193,7 +202,7 @@ class IoWorkDone:
     is_improvement: bool
 
 
-IoMessage = Union[IoConnect, IoDisconnect, IoWorkDone]
+IoMessage = Union[IoConnect, IoDisconnect, IoImmediateDisconnect, IoWorkDone]
 IoGlobalMessage = Union[IoShutdown, IoWillSleep]
 IoActivity = Union[Tuple[int, IoMessage], IoGlobalMessage]
 
@@ -239,103 +248,121 @@ class NetThread:
             target_o_bin=target_o_bin,
         )
 
-    def read_loop(self) -> None:
-        while True:
-            msg = self._port.receive_json()
+    def _read_one(self) -> Activity:
+        msg = self._port.receive_json()
 
-            msg_type = json_prop(msg, "type", str)
-            handle = json_prop(msg, "permuter", int)
+        msg_type = json_prop(msg, "type", str)
+        handle = json_prop(msg, "permuter", int)
 
-            if msg_type == "work":
-                seed = json_prop(msg, "seed", int)
-                self._queue.put(Work(handle=handle, seed=seed))
+        if msg_type == "work":
+            seed = json_prop(msg, "seed", int)
+            return Work(handle=handle, seed=seed)
 
-            elif msg_type == "add":
-                client_id = json_prop(msg, "client_id", str)
-                client_name = json_prop(msg, "client_name", str)
-                permuter_data = json_prop(msg, "data", dict)
-                compressed_source = self._port.receive()
-                compressed_target_o_bin = self._port.receive()
+        elif msg_type == "add":
+            client_id = json_prop(msg, "client_id", str)
+            client_name = json_prop(msg, "client_name", str)
+            client = Client(client_id, client_name)
+            permuter_data = json_prop(msg, "data", dict)
+            compressed_source = self._port.receive()
+            compressed_target_o_bin = self._port.receive()
 
-                try:
-                    permuter = self._parse_permuter(
-                        permuter_data, compressed_source, compressed_target_o_bin
-                    )
-                except Exception:
-                    # TODO
-                    traceback.print_exc()
-                    continue
-
-                self._queue.put(
-                    AddPermuter(
-                        handle=handle,
-                        client=Client(client_id, client_name),
-                        permuter_data=permuter,
-                    )
+            try:
+                permuter = self._parse_permuter(
+                    permuter_data, compressed_source, compressed_target_o_bin
+                )
+            except Exception as e:
+                # Client sent something illegible. This can legitimately happen if the
+                # client runs another version, but it's interesting to log.
+                traceback.print_exc()
+                return ImmediateDisconnect(
+                    handle=handle,
+                    client=client,
+                    reason=f"Failed to parse permuter: {exception_to_string(e)}"
                 )
 
-            elif msg_type == "remove":
-                self._queue.put(RemovePermuter(handle=handle))
+            return AddPermuter(
+                handle=handle,
+                client=client,
+                permuter_data=permuter,
+            )
 
-            else:
-                raise Exception(f"Bad message type: {msg_type}")
+        elif msg_type == "remove":
+            return RemovePermuter(handle=handle)
+
+        else:
+            raise Exception(f"Bad message type: {msg_type}")
+
+    def read_loop(self) -> None:
+        try:
+            while True:
+                msg = self._read_one()
+                self._queue.put(msg)
+        except EOFError:
+            # TODO handle controller disconnection
+            print("read eof")
+            pass
+
+    def _write_one(self, item: Output) -> None:
+        if isinstance(item, OutputInitFail):
+            self._port.send_json(
+                {
+                    "type": "update",
+                    "permuter": item.handle,
+                    "time_cost_ms": 0,
+                    "update": {"type": "init_failed", "reason": item.error},
+                }
+            )
+
+        elif isinstance(item, OutputInitSuccess):
+            self._port.send_json(
+                {
+                    "type": "update",
+                    "permuter": item.handle,
+                    "time_cost_ms": item.time_cost_ms,
+                    "update": {"type": "init_done", "hash": item.base_hash},
+                }
+            )
+
+        elif isinstance(item, OutputDisconnect):
+            self._port.send_json(
+                {
+                    "type": "update",
+                    "permuter": item.handle,
+                    "time_cost_ms": 0,
+                    "update": {"type": "disconnect"},
+                }
+            )
+
+        elif isinstance(item, OutputNeedMoreWork):
+            self._port.send_json({"type": "need_work"})
+
+        elif isinstance(item, OutputWork):
+            self._port.send_json(
+                {
+                    "type": "update",
+                    "permuter": item.handle,
+                    "time_cost_ms": item.time_cost_ms,
+                    "update": {
+                        "type": "work",
+                        **item.obj,
+                    },
+                }
+            )
+            if item.compressed_source is not None:
+                self._port.send(item.compressed_source)
+
+        else:
+            static_assert_unreachable(item)
 
     def write_loop(self) -> None:
-        while True:
-            item = self._controller_queue.get()
-
-            if isinstance(item, OutputInitFail):
-                self._port.send_json(
-                    {
-                        "type": "update",
-                        "permuter": item.handle,
-                        "time_cost_ms": 0,
-                        "update": {"type": "init_failed", "reason": item.error},
-                    }
-                )
-                break
-
-            if isinstance(item, OutputInitSuccess):
-                self._port.send_json(
-                    {
-                        "type": "update",
-                        "permuter": item.handle,
-                        "time_cost_ms": item.time_cost_ms,
-                        "update": {"type": "init_done", "hash": item.base_hash},
-                    }
-                )
-
-            elif isinstance(item, OutputDisconnect):
-                self._port.send_json(
-                    {
-                        "type": "update",
-                        "permuter": item.handle,
-                        "time_cost_ms": 0,
-                        "update": {"type": "disconnect"},
-                    }
-                )
-                break
-
-            elif isinstance(item, OutputNeedMoreWork):
-                self._port.send_json({"type": "need_work"})
-
-            elif isinstance(item, OutputWork):
-                self._port.send_json(
-                    {
-                        "type": "update",
-                        "permuter": item.handle,
-                        "time_cost_ms": item.time_cost_ms,
-                        "update": {
-                            "type": "work",
-                            **item.obj,
-                        },
-                    }
-                )
-                if item.compressed_source is not None:
-                    self._port.send(item.compressed_source)
-
-            else:
-                static_assert_unreachable(item)
+        try:
+            while True:
+                item = self._controller_queue.get()
+                self._write_one(item)
+        except EOFError:
+            # TODO handle controller disconnection
+            print("write eof")
+            pass
 
 
 class Server:
@@ -412,6 +439,13 @@ class Server:
 
             self._remove(msg.handle)
             self._send_io(msg.handle, IoDisconnect("kicked"))
+            self._send_controller(OutputDisconnect(handle=msg.handle))
+
+        elif isinstance(msg, ImmediateDisconnect):
+            if msg.handle in self._active:
+                raise Exception("ImmediateDisconnect is not immediate")
+
+            self._send_io(msg.handle, IoImmediateDisconnect("sent garbage message", msg.client))
             self._send_controller(OutputDisconnect(handle=msg.handle))
 
         elif isinstance(msg, PermInitFail):
