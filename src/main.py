@@ -365,8 +365,11 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
                     options.network_priority,
                 )
                 net_conns.append((thread, queue))
-            num_servers, num_cores = stats
-            print(f"Connected! {num_servers} servers online ({int(num_cores)} cores)")
+            num_servers = stats[0]
+            num_cores = int(stats[1])
+            servers_str = f"{num_servers} server" + ("s" if num_servers != 1 else "")
+            cores_str = f"{num_cores} core" + ("s" if num_cores != 1 else "")
+            print(f"Connected! {servers_str} online ({cores_str})")
 
         # Start local worker threads
         processes: List[multiprocessing.Process] = []
