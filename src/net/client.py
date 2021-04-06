@@ -192,7 +192,6 @@ class Connection:
         try:
             self._send_permuter()
             self._port.receive_json()
-            msg = self._port.receive_json()
 
             finished = False
 
