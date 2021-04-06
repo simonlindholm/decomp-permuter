@@ -81,7 +81,7 @@ struct Config {
     priv_seed: ByteString<32>,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct PermuterData {
     fn_name: String,
     #[serde(skip)]
@@ -92,23 +92,23 @@ struct PermuterData {
     more_props: HashMap<String, serde_json::Value>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct ConnectServerData {
     min_priority: f64,
     num_cores: f64,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct ConnectClientData {
     priority: f64,
 }
 
-#[derive(Deserialize, Clone, Copy)]
+#[derive(Clone, Copy, Debug, Deserialize)]
 struct PermuterWork {
     seed: u128,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum ServerUpdate {
     Result {
@@ -127,6 +127,7 @@ enum ServerUpdate {
     Disconnect,
 }
 
+#[derive(Debug)]
 enum PermuterResult {
     NeedWork,
     Result(UserId, String, ServerUpdate),
