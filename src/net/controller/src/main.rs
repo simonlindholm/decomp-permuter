@@ -238,7 +238,6 @@ async fn run_server(opts: RunServerOpts) -> SimpleResult<()> {
     let listener = TcpListener::bind(opts.listen_on).await?;
 
     loop {
-        // The second item contains the IP and port of the new connection.
         let (socket, _) = listener.accept().await?;
         tokio::spawn(async move {
             let mut who = "anonymous".to_string();
@@ -344,7 +343,7 @@ async fn handle_connection(
     out_name: &mut String,
 ) -> SimpleResult<()> {
     let (rd, wr) = socket.split();
-    let (mut read_port, mut write_port, user_id, _permuter_version) =
+    let (mut read_port, mut write_port, user_id, permuter_version) =
         handshake(rd, wr, &state.sign_sk).await?;
     let name = match state.db.read(|db| {
         let user = db.users.get(&user_id)?;
@@ -357,7 +356,7 @@ async fn handle_connection(
         }
     };
     *out_name = name.clone();
-    eprintln!("[{}] connected", &name);
+    eprintln!("[{}] connected (v {})", &name, permuter_version);
     write_port.send_json(&json!({})).await?;
 
     let request = read_port.recv().await?;
