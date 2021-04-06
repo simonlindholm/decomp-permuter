@@ -4,6 +4,7 @@ import itertools
 import multiprocessing
 from multiprocessing import Queue
 import os
+import queue
 import random
 from random import Random
 import sys
@@ -207,8 +208,10 @@ def multiprocess_worker(
             # Read a work item from the queue. If none is immediately available,
             # tell the main thread to fill the queues more, and then block on
             # the queue.
-            queue_item: Optional[Task] = input_queue.get(block=False)
-            if queue_item is None:
+            queue_item: Task
+            try:
+                queue_item = input_queue.get(block=False)
+            except queue.Empty:
                 output_queue.put((NeedMoreWork(), -1, None))
                 queue_item = input_queue.get()
             if isinstance(queue_item, Finished):
