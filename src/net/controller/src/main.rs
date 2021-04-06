@@ -105,7 +105,7 @@ struct ConnectClientData {
 
 #[derive(Clone, Copy, Debug, Deserialize)]
 struct PermuterWork {
-    seed: u128,
+    seed: u64,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

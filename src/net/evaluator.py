@@ -111,8 +111,8 @@ def _send_result(
         port.send_json(
             {
                 "type": "result",
-                "time_cost_ms": time_cost_ms,
                 "id": perm_id,
+                "time_cost_ms": time_cost_ms,
                 "error": res.exc_str,
             }
         )
@@ -123,6 +123,7 @@ def _send_result(
         {
             "type": "result",
             "id": perm_id,
+            "time_cost_ms": time_cost_ms,
             "score": res.score,
             "hash": res.hash,
             "has_source": compressed_source is not None,
@@ -340,7 +341,7 @@ def main() -> None:
 
                 msg["success"] = True
                 msg["base_score"] = permuter.base_score
-                msg["bash_hash"] = permuter.base_hash
+                msg["base_hash"] = permuter.base_hash
                 msg["time_cost_ms"] = time_cost_ms
 
                 # Tell all the workers about the new permuter.

@@ -21,13 +21,8 @@ const MAX_PRIORITY: f64 = 10.0;
 
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
-enum ClientUpdate {
-    Work(PermuterWork),
-}
-
-#[derive(Deserialize)]
-struct ClientMessage {
-    update: ClientUpdate,
+enum ClientMessage {
+    Work { work: PermuterWork },
 }
 
 #[derive(Serialize)]
@@ -46,7 +41,7 @@ async fn client_read(
     loop {
         let msg = port.recv().await?;
         let msg: ClientMessage = serde_json::from_slice(&msg)?;
-        let ClientUpdate::Work(work) = msg.update;
+        let ClientMessage::Work { work } = msg;
 
         // Avoid the work and result queues growing indefinitely by restricting
         // their combined size with a semaphore.

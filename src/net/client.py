@@ -220,7 +220,9 @@ class Connection:
                     else:
                         work = {
                             "type": "work",
-                            "seed": task[1],
+                            "work": {
+                                "seed": task[1],
+                            },
                         }
                         self._port.send_json(work)
 
