@@ -277,7 +277,7 @@ class NetThread:
                 return ImmediateDisconnect(
                     handle=handle,
                     client=client,
-                    reason=f"Failed to parse permuter: {exception_to_string(e)}"
+                    reason=f"Failed to parse permuter: {exception_to_string(e)}",
                 )
 
             return AddPermuter(
@@ -299,8 +299,7 @@ class NetThread:
                 self._queue.put(msg)
         except EOFError:
             # TODO handle controller disconnection
-            print("read eof")
-            pass
+            print("disconnected from permuter@home")
 
     def _write_one(self, item: Output) -> None:
         if isinstance(item, OutputInitFail):
@@ -360,8 +359,7 @@ class NetThread:
                 item = self._controller_queue.get()
                 self._write_one(item)
         except EOFError:
-            # TODO handle controller disconnection
-            print("write eof")
+            # Disconnection is handled in read_loop
             pass
 
 
@@ -445,7 +443,9 @@ class Server:
             if msg.handle in self._active:
                 raise Exception("ImmediateDisconnect is not immediate")
 
-            self._send_io(msg.handle, IoImmediateDisconnect("sent garbage message", msg.client))
+            self._send_io(
+                msg.handle, IoImmediateDisconnect("sent garbage message", msg.client)
+            )
             self._send_controller(OutputDisconnect(handle=msg.handle))
 
         elif isinstance(msg, PermInitFail):
