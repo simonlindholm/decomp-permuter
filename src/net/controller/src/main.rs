@@ -3,6 +3,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::convert::TryInto;
 use std::default::Default;
+use std::io::ErrorKind;
 use std::str;
 use std::sync::{Arc, Mutex};
 
@@ -243,7 +244,10 @@ async fn run_server(opts: RunServerOpts) -> SimpleResult<()> {
             let mut who = "anonymous".to_string();
             if let Err(e) = handle_connection(socket, state, &mut who).await {
                 if let Some(e) = e.downcast_ref::<std::io::Error>() {
-                    if let std::io::ErrorKind::UnexpectedEof = e.kind() {
+                    if matches!(
+                        e.kind(),
+                        ErrorKind::UnexpectedEof | ErrorKind::ConnectionReset
+                    ) {
                         eprintln!("[{}] disconnected", &who);
                         return;
                     }
