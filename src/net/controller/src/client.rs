@@ -154,6 +154,11 @@ pub(crate) async fn handle_connect_client<'a>(
     permuter_data.compressed_target_o_bin = read_port.recv().await?;
     write_port.send_json(&json!({})).await?;
 
+    eprintln!(
+        "[{}] start client ({}, {})",
+        &who_name, &permuter_data.fn_name, data.priority
+    );
+
     state
         .log_stats(stats::Record::ClientNewFunction {
             client: who_id.clone(),

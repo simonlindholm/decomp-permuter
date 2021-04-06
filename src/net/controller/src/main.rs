@@ -241,8 +241,15 @@ async fn run_server(opts: RunServerOpts) -> SimpleResult<()> {
         // The second item contains the IP and port of the new connection.
         let (socket, _) = listener.accept().await?;
         tokio::spawn(async move {
-            if let Err(e) = handle_connection(socket, state).await {
-                eprintln!("Broken server connection: error={:?}", e);
+            let mut who = "anonymous".to_string();
+            if let Err(e) = handle_connection(socket, state, &mut who).await {
+                if let Some(e) = e.downcast_ref::<std::io::Error>() {
+                    if let std::io::ErrorKind::UnexpectedEof = e.kind() {
+                        eprintln!("[{}] disconnected", &who);
+                        return;
+                    }
+                }
+                eprintln!("[{}] error: {:?}", &who, e);
             }
         });
     }
@@ -331,7 +338,11 @@ fn parse_signed_name(signed_name: &str, who: &UserId) -> SimpleResult<String> {
     Ok(name.to_string())
 }
 
-async fn handle_connection(mut socket: TcpStream, state: &State) -> SimpleResult<()> {
+async fn handle_connection(
+    mut socket: TcpStream,
+    state: &State,
+    out_name: &mut String,
+) -> SimpleResult<()> {
     let (rd, wr) = socket.split();
     let (mut read_port, mut write_port, user_id, _permuter_version) =
         handshake(rd, wr, &state.sign_sk).await?;
@@ -345,16 +356,19 @@ async fn handle_connection(mut socket: TcpStream, state: &State) -> SimpleResult
             Err("Unknown client!")?
         }
     };
+    *out_name = name.clone();
+    eprintln!("[{}] connected", &name);
     write_port.send_json(&json!({})).await?;
 
     let request = read_port.recv().await?;
     let request: Request = serde_json::from_slice(&request)?;
     match request {
         Request::Ping => {
+            eprintln!("[{}] ping", &name);
             write_port.send_json(&json!({})).await?;
         }
         Request::Vouch { who, signed_name } => {
-            let name = match parse_signed_name(&signed_name, &who) {
+            let vouchee_name = match parse_signed_name(&signed_name, &who) {
                 Ok(name) => name,
                 Err(e) => {
                     write_port.send_error(&format!("{}", &e)).await?;
@@ -368,15 +382,20 @@ async fn handle_connection(mut socket: TcpStream, state: &State) -> SimpleResult
                 .write(true, |db| {
                     db.users.entry(who).or_insert_with(|| User {
                         trusted_by: Some(user_id),
-                        name,
+                        name: vouchee_name.clone(),
                         client_stats: Default::default(),
                         server_stats: Default::default(),
                     });
                 })
                 .await;
             write_port.send_json(&json!({})).await?;
+            eprintln!("[{}] vouch {}", &name, &vouchee_name);
         }
         Request::ConnectServer(data) => {
+            eprintln!(
+                "[{}] start server ({}, {})",
+                &name, data.min_priority, data.num_cores
+            );
             server::handle_connect_server(read_port, write_port, &user_id, &name, state, data)
                 .await?;
         }
