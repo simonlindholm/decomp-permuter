@@ -96,6 +96,11 @@ class Disconnect:
 
 
 @dataclass
+class NetThreadDisconnected:
+    token: object
+
+
+@dataclass
 class PermInitFail:
     perm_id: str
     error: str
@@ -131,6 +136,7 @@ Activity = Union[
     PermInitSuccess,
     WorkDone,
     Shutdown,
+    NetThreadDisconnected,
 ]
 
 
@@ -221,16 +227,19 @@ class ServerOptions:
 
 
 class NetThread:
+    _token: object
     _port: Port
     _queue: "queue.Queue[Activity]"
     _controller_queue: "queue.Queue[Output]"
 
     def __init__(
         self,
+        token: object,
         port: Port,
         queue: "queue.Queue[Activity]",
         controller_queue: "queue.Queue[Output]",
     ) -> None:
+        self._token = token
         self._port = port
         self._queue = queue
         self._controller_queue = controller_queue
@@ -302,9 +311,10 @@ class NetThread:
             while True:
                 msg = self._read_one()
                 self._queue.put(msg)
-        except EOFError:
-            # TODO handle controller disconnection
-            print("disconnected from permuter@home")
+        except Exception as e:
+            if not isinstance(e, EOFError):
+                traceback.print_exc()
+            self._queue.put(NetThreadDisconnected(self._token))
 
     def _write_one(self, item: Output) -> None:
         if isinstance(item, Shutdown):
@@ -369,9 +379,10 @@ class NetThread:
                 if isinstance(item, Shutdown):
                     break
                 self._write_one(item)
-        except EOFError:
-            # Disconnection is handled in read_loop
-            pass
+        except Exception as e:
+            if not isinstance(e, EOFError):
+                traceback.print_exc()
+            self._queue.put(NetThreadDisconnected(self._token))
 
 
 class Server:
@@ -382,6 +393,7 @@ class Server:
     _controller_queue: "queue.Queue[Output]"
     _io_queue: "queue.Queue[IoActivity]"
     _state: str
+    _current_net_token: Optional[object]
     _active: Set[int]
 
     def __init__(
@@ -398,6 +410,7 @@ class Server:
         self._controller_queue = queue.Queue()
         self._io_queue = io_queue
         self._state = "notstarted"
+        self._current_net_token = None
         self._active = set()
 
     def _send_controller(self, msg: Output) -> None:
@@ -509,6 +522,18 @@ class Server:
                 )
             )
 
+        elif isinstance(msg, NetThreadDisconnected):
+            if msg.token is not self._current_net_token:
+                return
+
+            for handle in list(self._active):
+                self._remove(handle)
+
+            print("disconnected from permuter@home")
+
+            self._stop_net_thread()
+            # TODO reconnect after a while
+
         else:
             static_assert_unreachable(msg)
 
@@ -601,7 +626,10 @@ class Server:
         assert self._state == "notstarted"
         self._state = "started"
 
-        net_thread = NetThread(self._net_port, self._queue, self._controller_queue)
+        self._current_net_token = object()
+        net_thread = NetThread(
+            self._current_net_token, self._net_port, self._queue, self._controller_queue
+        )
 
         # Start read and write threads for the network connection.
         net_read_thread = threading.Thread(target=net_thread.read_loop)
@@ -628,14 +656,20 @@ class Server:
     def remove_permuter(self, handle: int) -> None:
         self._queue.put(Disconnect(handle=handle))
 
+    def _stop_net_thread(self) -> None:
+        if self._current_net_token is None:
+            return
+        self._current_net_token = None
+        self._net_port.shutdown()
+        self._controller_queue.put(Shutdown())
+        self._net_read_thread.join()
+        self._net_write_thread.join()
+
     def stop(self) -> None:
         assert self._state == "started"
         self._state = "finished"
-        self._net_port.shutdown()
-        self._controller_queue.put(Shutdown())
         self._queue.put(Shutdown())
-        self._net_read_thread.join()
-        self._net_write_thread.join()
+        self._stop_net_thread()
 
 
 class DockerPort(Port):
