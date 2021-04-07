@@ -167,7 +167,12 @@ class OutputWork:
 
 
 Output = Union[
-    OutputDisconnect, OutputInitFail, OutputInitSuccess, OutputNeedMoreWork, OutputWork
+    OutputDisconnect,
+    OutputInitFail,
+    OutputInitSuccess,
+    OutputNeedMoreWork,
+    OutputWork,
+    Shutdown,
 ]
 
 
@@ -302,7 +307,11 @@ class NetThread:
             print("disconnected from permuter@home")
 
     def _write_one(self, item: Output) -> None:
-        if isinstance(item, OutputInitFail):
+        if isinstance(item, Shutdown):
+            # Handled by caller
+            pass
+
+        elif isinstance(item, OutputInitFail):
             self._port.send_json(
                 {
                     "type": "update",
@@ -357,6 +366,8 @@ class NetThread:
         try:
             while True:
                 item = self._controller_queue.get()
+                if isinstance(item, Shutdown):
+                    break
                 self._write_one(item)
         except EOFError:
             # Disconnection is handled in read_loop
@@ -621,6 +632,7 @@ class Server:
         assert self._state == "started"
         self._state = "finished"
         self._net_port.shutdown()
+        self._controller_queue.put(Shutdown())
         self._queue.put(Shutdown())
         self._net_read_thread.join()
         self._net_write_thread.join()
