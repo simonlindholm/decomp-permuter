@@ -18,7 +18,8 @@ use tokio::fs;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::{ReadHalf, WriteHalf};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{mpsc, Notify};
+use tokio::sync::{mpsc, watch, Notify};
+use tokio::time;
 
 use crate::db::{ByteString, User, UserId};
 use crate::flimsy_semaphore::FlimsySemaphore;
@@ -35,6 +36,8 @@ mod server;
 mod setup;
 mod stats;
 mod util;
+
+const HEARTBEAT_TIME: time::Duration = time::Duration::from_secs(300);
 
 #[derive(FromArgs)]
 /// The permuter@home control server.
@@ -173,6 +176,7 @@ struct State {
     sign_sk: sign::SecretKey,
     db: SaveableDB,
     stats_tx: mpsc::Sender<stats::Record>,
+    heartbeat_rx: watch::Receiver<()>,
     new_work_notification: Notify,
     m: Mutex<MutableState>,
 }
@@ -223,11 +227,14 @@ async fn run_server(opts: RunServerOpts) -> SimpleResult<()> {
     let (stats_fut, stats_tx) = stats::stats_thread(&db);
     tokio::spawn(stats_fut);
 
+    let (heartbeat_tx, heartbeat_rx) = watch::channel(());
+
     let state: &'static State = Box::leak(Box::new(State {
         docker_image: config.docker_image,
         sign_sk,
         db,
         stats_tx,
+        heartbeat_rx,
         new_work_notification: Notify::new(),
         m: Mutex::new(MutableState {
             servers: SlotMap::with_key(),
@@ -235,6 +242,13 @@ async fn run_server(opts: RunServerOpts) -> SimpleResult<()> {
             next_permuter_id: 0,
         }),
     }));
+
+    tokio::spawn(async move {
+        loop {
+            heartbeat_tx.send(()).expect("receiver is still alive");
+            time::sleep(HEARTBEAT_TIME).await;
+        }
+    });
 
     let listener = TcpListener::bind(opts.listen_on).await?;
 

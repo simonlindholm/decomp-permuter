@@ -96,11 +96,6 @@ class Disconnect:
 
 
 @dataclass
-class NetThreadDisconnected:
-    token: object
-
-
-@dataclass
 class PermInitFail:
     perm_id: str
     error: str
@@ -122,6 +117,15 @@ class WorkDone:
     compressed_source: Optional[bytes]
 
 
+@dataclass
+class NetThreadDisconnected:
+    token: object
+
+
+class Heartbeat:
+    pass
+
+
 class Shutdown:
     pass
 
@@ -135,8 +139,9 @@ Activity = Union[
     PermInitFail,
     PermInitSuccess,
     WorkDone,
-    Shutdown,
     NetThreadDisconnected,
+    Heartbeat,
+    Shutdown,
 ]
 
 
@@ -266,6 +271,10 @@ class NetThread:
         msg = self._port.receive_json()
 
         msg_type = json_prop(msg, "type", str)
+
+        if msg_type == "heartbeat":
+            return Heartbeat()
+
         handle = json_prop(msg, "permuter", int)
 
         if msg_type == "work":
@@ -425,6 +434,9 @@ class Server:
     def _handle_message(self, msg: Activity) -> None:
         if isinstance(msg, Shutdown):
             # Handled by caller
+            pass
+
+        elif isinstance(msg, Heartbeat):
             pass
 
         elif isinstance(msg, Work):

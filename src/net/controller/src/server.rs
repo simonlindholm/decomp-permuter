@@ -3,8 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use serde::Deserialize;
 use serde_json::json;
-use tokio::sync::mpsc;
-use tokio::sync::mpsc::error::TrySendError;
+use tokio::sync::{mpsc, mpsc::error::TrySendError, watch, Notify};
 
 use crate::db::UserId;
 use crate::port::{ReadPort, WritePort};
@@ -112,10 +111,9 @@ async fn server_read(
         // If the queue is full (because the writer thread is blocked on a
         // send), drop the request to avoid an unbounded backlog.
         if let Err(TrySendError::Closed(_)) = more_work_tx.try_send(()) {
-            break;
+            panic!("work chooser must not close except on error");
         }
     }
-    Ok(())
 }
 
 enum ToSend {
@@ -124,7 +122,9 @@ enum ToSend {
     Remove,
 }
 
-async fn choose_work(server_state: &Mutex<ServerState>, state: &State) -> (PermuterId, ToSend) {
+type Work = (PermuterId, ToSend);
+
+async fn choose_work(server_state: &Mutex<ServerState>, state: &State) -> Work {
     let mut wait_for = None;
     loop {
         if let Some(waiter) = wait_for {
@@ -216,6 +216,13 @@ async fn choose_work(server_state: &Mutex<ServerState>, state: &State) -> (Permu
     }
 }
 
+async fn send_heartbeat(port: &mut WritePort<'_>) -> SimpleResult<()> {
+    port.send_json(&json!({
+        "type": "heartbeat",
+    }))
+    .await
+}
+
 async fn send_work(
     port: &mut WritePort<'_>,
     perm_id: PermuterId,
@@ -253,20 +260,47 @@ async fn send_work(
     Ok(())
 }
 
-async fn server_write(
-    port: &mut WritePort<'_>,
+async fn server_choose_work(
     server_state: &Mutex<ServerState>,
     state: &State,
     mut more_work_rx: mpsc::Receiver<()>,
+    choose_work_tx: mpsc::Sender<Work>,
+    wrote_work: &Notify,
 ) -> SimpleResult<()> {
     loop {
-        let (perm_id, to_send) = choose_work(server_state, state).await;
-        send_work(port, perm_id, to_send).await?;
-        if matches!(more_work_rx.recv().await, None) {
-            break;
+        let work = choose_work(server_state, state).await;
+        choose_work_tx
+            .send(work)
+            .await
+            .map_err(|_| ())
+            .expect("writer must not close except on error");
+        wrote_work.notified().await;
+        more_work_rx
+            .recv()
+            .await
+            .expect("reader must not close except on error");
+    }
+}
+
+async fn server_write(
+    port: &mut WritePort<'_>,
+    mut choose_work_rx: mpsc::Receiver<Work>,
+    mut heartbeat_rx: watch::Receiver<()>,
+    wrote_work: &Notify,
+) -> SimpleResult<()> {
+    loop {
+        tokio::select! {
+            work = choose_work_rx.recv() => {
+                let (perm_id, to_send) = work.expect("chooser must not close except on error");
+                send_work(port, perm_id, to_send).await?;
+                wrote_work.notify_one();
+            }
+            res = heartbeat_rx.changed() => {
+                res.expect("heartbeat thread panicked");
+                send_heartbeat(port).await?;
+            }
         }
     }
-    Ok(())
 }
 
 pub(crate) async fn handle_connect_server<'a>(
@@ -284,6 +318,8 @@ pub(crate) async fn handle_connect_server<'a>(
         .await?;
 
     let (more_work_tx, more_work_rx) = mpsc::channel(SERVER_WORK_QUEUE_SIZE);
+    let (choose_work_tx, choose_work_rx) = mpsc::channel(1);
+    let wrote_work = Notify::new();
 
     let mut server_state = Mutex::new(ServerState {
         min_priority: data.min_priority,
@@ -304,7 +340,19 @@ pub(crate) async fn handle_connect_server<'a>(
             state,
             more_work_tx
         ),
-        server_write(&mut write_port, &server_state, state, more_work_rx)
+        server_choose_work(
+            &server_state,
+            state,
+            more_work_rx,
+            choose_work_tx,
+            &wrote_work
+        ),
+        server_write(
+            &mut write_port,
+            choose_work_rx,
+            state.heartbeat_rx.clone(),
+            &wrote_work
+        )
     );
 
     {
