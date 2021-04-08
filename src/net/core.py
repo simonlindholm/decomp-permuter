@@ -39,7 +39,7 @@ def enable_debug_mode() -> None:
 def debug_print(message: str) -> None:
     if DEBUG_MODE:
         time = datetime.datetime.now().strftime("%H:%M:%S:%f")
-        print(f"{time} debug: {message}")
+        print(f"\n{time} debug: {message}")
 
 
 @dataclass

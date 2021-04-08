@@ -1,5 +1,6 @@
 use std::convert::TryInto;
 
+use chrono::Local;
 use serde::Serialize;
 use sodiumoxide::crypto::box_;
 use sodiumoxide::crypto::box_::{Nonce, PrecomputedKey};
@@ -8,10 +9,27 @@ use tokio::net::tcp::{ReadHalf, WriteHalf};
 
 use crate::util::SimpleResult;
 
+fn debug_print(action: &str, who: &str, msg: &[u8]) {
+    let time = Local::now().format("%H:%M:%S:%f");
+    if msg.len() <= 300 {
+        let msg = String::from_utf8(
+            msg.iter()
+                .copied()
+                .flat_map(std::ascii::escape_default)
+                .collect(),
+        )
+        .unwrap();
+        println!("{} debug: {} {}: {}", time, action, who, msg);
+    } else {
+        println!("{} debug: {} {}: {} bytes", time, action, who, msg.len());
+    }
+}
+
 pub struct ReadPort<'a> {
     read_half: ReadHalf<'a>,
     key: PrecomputedKey,
     nonce: u64,
+    debug_name: Option<&'a str>,
 }
 
 impl<'a> ReadPort<'a> {
@@ -20,7 +38,12 @@ impl<'a> ReadPort<'a> {
             read_half,
             key: key.clone(),
             nonce: 0,
+            debug_name: None,
         }
+    }
+
+    pub fn set_debug(&mut self, name: &'a str) {
+        self.debug_name = Some(name);
     }
 
     pub async fn recv(&mut self) -> SimpleResult<Vec<u8>> {
@@ -34,6 +57,9 @@ impl<'a> ReadPort<'a> {
         self.nonce += 2;
         let data =
             box_::open_precomputed(&buffer, &nonce, &self.key).map_err(|()| "Failed to decrypt")?;
+        if let Some(name) = self.debug_name {
+            debug_print("Receive from ", name, &data);
+        }
         Ok(data)
     }
 }
@@ -42,6 +68,7 @@ pub struct WritePort<'a> {
     write_half: WriteHalf<'a>,
     key: PrecomputedKey,
     nonce: u64,
+    debug_name: Option<&'a str>,
 }
 
 impl<'a> WritePort<'a> {
@@ -50,13 +77,21 @@ impl<'a> WritePort<'a> {
             write_half,
             key: key.clone(),
             nonce: 1,
+            debug_name: None,
         }
     }
 
-    pub async fn send(&mut self, bytes: &[u8]) -> SimpleResult<()> {
+    pub fn set_debug(&mut self, name: &'a str) {
+        self.debug_name = Some(name);
+    }
+
+    pub async fn send(&mut self, data: &[u8]) -> SimpleResult<()> {
+        if let Some(name) = self.debug_name {
+            debug_print("Send to", name, &data);
+        }
         let nonce = nonce_from_u64(self.nonce);
         self.nonce += 2;
-        let data = box_::seal_precomputed(bytes, &nonce, &self.key);
+        let data = box_::seal_precomputed(data, &nonce, &self.key);
         self.write_half.write_u64(data.len() as u64).await?;
         self.write_half.write(&data).await?;
         Ok(())

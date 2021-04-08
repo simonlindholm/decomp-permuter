@@ -68,6 +68,10 @@ struct RunServerOpts {
     /// path to JSON database
     #[argh(option)]
     db: String,
+
+    /// enable debug logging
+    #[argh(switch)]
+    debug: bool,
 }
 
 #[derive(FromArgs)]
@@ -173,6 +177,7 @@ struct MutableState {
 
 struct State {
     docker_image: String,
+    debug: bool,
     sign_sk: sign::SecretKey,
     db: SaveableDB,
     stats_tx: mpsc::Sender<stats::Record>,
@@ -231,6 +236,7 @@ async fn run_server(opts: RunServerOpts) -> SimpleResult<()> {
 
     let state: &'static State = Box::leak(Box::new(State {
         docker_image: config.docker_image,
+        debug: opts.debug,
         sign_sk,
         db,
         stats_tx,
@@ -375,6 +381,10 @@ async fn handle_connection(
     };
     *out_name = name.clone();
     eprintln!("[{}] connected (v {})", &name, permuter_version);
+    if state.debug {
+        read_port.set_debug(&name);
+        write_port.set_debug(&name);
+    }
     write_port.send_json(&json!({})).await?;
 
     let request = read_port.recv().await?;
