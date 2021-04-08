@@ -1,5 +1,6 @@
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 
+from ..core import enable_debug_mode
 from .run_server import RunServerCommand
 from .setup import SetupCommand
 from .stats import StatsCommand
@@ -21,6 +22,13 @@ def main() -> None:
         VouchCommand,
     ]
 
+    parser.add_argument(
+        "--debug",
+        dest="debug",
+        action="store_true",
+        help="Enable debug logging.",
+    )
+
     subparsers = parser.add_subparsers(metavar="<command>")
     for command in commands:
         subparser = subparsers.add_parser(
@@ -32,6 +40,9 @@ def main() -> None:
         subparser.set_defaults(subcommand_handler=command.run)
 
     args = parser.parse_args()
+    if args.debug:
+        enable_debug_mode()
+
     if "subcommand_handler" in args:
         args.subcommand_handler(args)
     else:

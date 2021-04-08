@@ -277,8 +277,6 @@ def server_main(options: ServerOptions) -> None:
 
     try:
 
-        # TODO: regularly check in with the auth server to maintain an up-to-date IP,
-        # and to check version.
         def cmdline_ui(systray: SystrayState) -> None:
             output_thread = threading.Thread(
                 target=output_loop, args=(output_queue, systray)

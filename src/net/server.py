@@ -722,7 +722,7 @@ class DockerPort(Port):
                 pass
             raise
 
-        super().__init__(SecretBox(secret), is_client=True)
+        super().__init__(SecretBox(secret), "docker", is_client=True)
 
     def shutdown(self) -> None:
         try:

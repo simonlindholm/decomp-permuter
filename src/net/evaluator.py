@@ -54,7 +54,11 @@ def _fix_stdout() -> None:
 def _setup_port(secret: bytes) -> Port:
     """Set up communication with the outside world."""
     port = FilePort(
-        sys.stdin.buffer, sys.stdout.buffer, SecretBox(secret), is_client=False
+        sys.stdin.buffer,
+        sys.stdout.buffer,
+        SecretBox(secret),
+        "server",
+        is_client=False,
     )
 
     # Follow the controlling process's sanity check protocol.
@@ -266,7 +270,7 @@ def read_loop(task_queue: "Queue[Task]", port: Port) -> None:
         # messages and to ensure that the Docker container really stops and
         # gets removed. (The parent server has a "finally:" that does that, but
         # it's evidently not 100% trustworthy. I'm speculating that pystray
-        # might be to blame, by reverting the signal handler for SIGINTR to
+        # might be to blame, by reverting the signal handler for SIGINT to
         # the default, making Ctrl+C kill the program directly without firing
         # "finally"s. Either way, defense in depth here doesn't hurt, since
         # leaking Docker containers is pretty bad.)

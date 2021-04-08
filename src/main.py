@@ -25,7 +25,7 @@ from .compiler import Compiler
 from .error import CandidateConstructionFailure
 from .helpers import static_assert_unreachable
 from .net.client import start_client
-from .net.core import connect, MAX_PRIO, MIN_PRIO
+from .net.core import connect, enable_debug_mode, MAX_PRIO, MIN_PRIO
 from .permuter import (
     EvalError,
     EvalResult,
@@ -62,6 +62,7 @@ class Options:
     force_seed: Optional[str] = None
     threads: int = 1
     use_network: bool = False
+    network_debug: bool = False
     network_priority: float = 1.0
 
 
@@ -357,6 +358,8 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         net_conns: "List[Tuple[threading.Thread, Queue[Task]]]" = []
         if options.use_network:
             print("Connecting to permuter@home...")
+            if options.network_debug:
+                enable_debug_mode()
             stats: Tuple[int, float]
             for perm_index in range(len(context.permuters)):
                 port = connect()
@@ -585,6 +588,12 @@ def main() -> None:
         help="Harness extra compute power through cyberspace (permuter@home).",
     )
     parser.add_argument(
+        "--pah-debug",
+        dest="network_debug",
+        action="store_true",
+        help="Enable debug prints for permuter@home.",
+    )
+    parser.add_argument(
         "--priority",
         dest="network_priority",
         metavar="PRIORITY",
@@ -596,12 +605,6 @@ def main() -> None:
         f"set to any value within [{MIN_PRIO}, {MAX_PRIO}]. "
         "Each server runs with a priority threshold, which defaults to 0.1, "
         "below which they will not run permuter jobs at all.",
-    )
-    parser.add_argument(
-        "--vouch",
-        dest="vouch",
-        action="store_true",
-        help="Give someone access to the permuter@home server.",
     )
 
     args = parser.parse_args()
@@ -624,6 +627,7 @@ def main() -> None:
         force_seed=args.force_seed,
         threads=threads,
         use_network=args.use_network,
+        network_debug=args.network_debug,
         network_priority=args.network_priority,
     )
 

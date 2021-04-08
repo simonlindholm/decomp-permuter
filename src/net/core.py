@@ -1,5 +1,6 @@
 import abc
 from dataclasses import dataclass
+import datetime
 import json
 import socket
 import struct
@@ -25,6 +26,20 @@ CONFIG_FILENAME = "pah.conf"
 
 MIN_PRIO = 0.01
 MAX_PRIO = 2.0
+
+DEBUG_MODE = False
+
+
+def enable_debug_mode() -> None:
+    """Enable debug logging."""
+    global DEBUG_MODE
+    DEBUG_MODE = True
+
+
+def debug_print(message: str) -> None:
+    if DEBUG_MODE:
+        time = datetime.datetime.now().strftime("%H:%M:%S:%f")
+        print(f"{time} debug: {message}")
 
 
 @dataclass
@@ -159,8 +174,9 @@ def verify_with_magic(magic: bytes, verify_key: VerifyKey, data: bytes) -> bytes
 
 
 class Port(abc.ABC):
-    def __init__(self, box: AnyBox, *, is_client: bool) -> None:
+    def __init__(self, box: AnyBox, who: str, *, is_client: bool) -> None:
         self._box = box
+        self._who = who
         self._send_nonce = 0 if is_client else 1
         self._receive_nonce = 1 if is_client else 0
 
@@ -174,6 +190,11 @@ class Port(abc.ABC):
 
     def send(self, msg: bytes) -> None:
         """Send a binary message, potentially blocking."""
+        if DEBUG_MODE:
+            if len(msg) <= 300:
+                debug_print(f"Send to {self._who}: {msg!r}")
+            else:
+                debug_print(f"Send to {self._who}: {len(msg)} bytes")
         nonce = struct.pack(">16xQ", self._send_nonce)
         self._send_nonce += 2
         data = self._box.encrypt(msg, nonce).ciphertext
@@ -195,8 +216,13 @@ class Port(abc.ABC):
         data = self._receive(length)
         nonce = struct.pack(">16xQ", self._receive_nonce)
         self._receive_nonce += 2
-        ret: bytes = self._box.decrypt(data, nonce)
-        return ret
+        msg: bytes = self._box.decrypt(data, nonce)
+        if DEBUG_MODE:
+            if len(msg) <= 300:
+                debug_print(f"Receive from {self._who}: {msg!r}")
+            else:
+                debug_print(f"Receive from {self._who}: {len(msg)} bytes")
+        return msg
 
     def receive_json(self) -> dict:
         """Read a message in the form of a JSON dict, blocking."""
@@ -213,9 +239,11 @@ class Port(abc.ABC):
 
 
 class SocketPort(Port):
-    def __init__(self, sock: socket.socket, box: AnyBox, *, is_client: bool) -> None:
+    def __init__(
+        self, sock: socket.socket, box: AnyBox, who: str, *, is_client: bool
+    ) -> None:
         self._sock = sock
-        super().__init__(box, is_client=is_client)
+        super().__init__(box, who, is_client=is_client)
 
     def _send(self, data: bytes) -> None:
         self._sock.sendall(data)
@@ -232,11 +260,11 @@ class SocketPort(Port):
 
 class FilePort(Port):
     def __init__(
-        self, inf: BinaryIO, outf: BinaryIO, box: AnyBox, *, is_client: bool
+        self, inf: BinaryIO, outf: BinaryIO, box: AnyBox, who: str, *, is_client: bool
     ) -> None:
         self._inf = inf
         self._outf = outf
-        super().__init__(box, is_client=is_client)
+        super().__init__(box, who, is_client=is_client)
 
     def _send(self, data: bytes) -> None:
         self._outf.write(data)
@@ -277,7 +305,7 @@ def _do_connect(config: Config) -> SocketPort:
         b"HELLO:" + ephemeral_key_data + server_enc_key_data, msg[32:]
     )
     box = Box(ephemeral_key, PublicKey(server_enc_key_data))
-    port = SocketPort(sock, box, is_client=True)
+    port = SocketPort(sock, box, "controller", is_client=True)
 
     # Use the encrypted port to send over our public key, proof that we are
     # able to sign new things with it, as well as permuter version.
@@ -300,6 +328,7 @@ def _do_connect(config: Config) -> SocketPort:
 
 
 def connect(config: Optional[Config] = None) -> SocketPort:
+    """Authenticate and connect to the permuter@home controller server."""
     try:
         if not config:
             config = read_config()
@@ -311,4 +340,3 @@ def connect(config: Optional[Config] = None) -> SocketPort:
         print(f"Failed to connect.")
         traceback.print_exc()
         sys.exit(1)
-    print("Connected!")
