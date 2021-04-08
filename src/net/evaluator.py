@@ -2,6 +2,7 @@
 permutation requests. It communicates with the outside world on stdin/stdout."""
 import base64
 from dataclasses import dataclass
+import math
 from multiprocessing import Process, Queue
 import os
 import queue
@@ -282,13 +283,16 @@ def read_loop(task_queue: "Queue[Task]", port: Port) -> None:
 
 
 def main() -> None:
-    num_threads = int(sys.argv[1])
     secret = base64.b64decode(os.environ["SECRET"])
     del os.environ["SECRET"]
     os.environ["PERMUTER_IS_REMOTE"] = "1"
 
     port = _setup_port(secret)
     _fix_stdout()
+
+    obj = port.receive_json()
+    num_cores = json_prop(obj, "num_cores", float)
+    num_threads = math.ceil(num_cores)
 
     worker_queue: "Queue[GlobalWork]" = Queue()
     task_queue: "Queue[Task]" = Queue()

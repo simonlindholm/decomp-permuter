@@ -772,8 +772,7 @@ def start_evaluator(docker_image: str, options: ServerOptions) -> DockerPort:
     also have a Docker-less mode, where we leave the sandboxing to some other
     tool, e.g. https://github.com/ioi/isolate/."""
     print("Starting docker...")
-    num_threads = int(options.num_cores + 0.5) + 1
-    command = ["python3", "-m", "src.net.evaluator", str(num_threads)]
+    command = ["python3", "-m", "src.net.evaluator"]
     secret = nacl.utils.random(32)
     box = SecretBox(secret)
     enc_secret = base64.b64encode(secret).decode("utf-8")
@@ -820,6 +819,8 @@ def start_evaluator(docker_image: str, options: ServerOptions) -> DockerPort:
         r = port.receive()
         if r != magic:
             raise Exception("Failed initial sanity check.")
+
+        port.send_json({"num_cores": options.num_cores})
     except:
         port.shutdown()
         raise
