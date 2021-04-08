@@ -353,6 +353,8 @@ def main() -> None:
                 msg["time_cost_ms"] = time_cost_ms
 
                 # Tell all the workers about the new permuter.
+                # TODO: ideally we would also seed their Candidate lru_cache's
+                # to avoid all workers having to parse the source...
                 timestamp += 1
                 for queue in local_queues:
                     queue.put(
