@@ -245,7 +245,7 @@ def start_client(
     perm_index: int,
     feedback_queue: "Queue[Feedback]",
     priority: float,
-) -> "Tuple[threading.Thread, Queue[Task], Tuple[int, float]]":
+) -> "Tuple[threading.Thread, Queue[Task], Tuple[int, int, float]]":
     port.send_json(
         {
             "method": "connect_client",
@@ -258,6 +258,7 @@ def start_client(
         # TODO use another exception type
         raise Exception(f"Failed to connect: {err}")
     num_servers = json_prop(obj, "servers", int)
+    num_clients = json_prop(obj, "clients", int)
     num_cores = json_prop(obj, "cores", float)
     portable_permuter = PortablePermuter(permuter)
     task_queue: "Queue[Task]" = Queue()
@@ -274,6 +275,6 @@ def start_client(
     thread.daemon = True
     thread.start()
 
-    stats = (num_servers, num_cores)
+    stats = (num_clients, num_servers, num_cores)
 
     return thread, task_queue, stats

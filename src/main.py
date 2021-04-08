@@ -82,6 +82,11 @@ def restricted_float(lo: float, hi: float) -> Callable[[str], float]:
     return convert
 
 
+def plural(n: int, noun: str) -> str:
+    s = "s" if n != 1 else ""
+    return f"{n} {noun}{s}"
+
+
 @dataclass
 class EvalContext:
     options: Options
@@ -360,7 +365,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             print("Connecting to permuter@home...")
             if options.network_debug:
                 enable_debug_mode()
-            stats: Tuple[int, float]
+            first_stats: Optional[Tuple[int, int, float]] = None
             for perm_index in range(len(context.permuters)):
                 port = connect()
                 thread, queue, stats = start_client(
@@ -371,11 +376,13 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
                     options.network_priority,
                 )
                 net_conns.append((thread, queue))
-            num_servers = stats[0]
-            num_cores = int(stats[1])
-            servers_str = f"{num_servers} server" + ("s" if num_servers != 1 else "")
-            cores_str = f"{num_cores} core" + ("s" if num_cores != 1 else "")
-            print(f"Connected! {servers_str} online ({cores_str})")
+                if first_stats is None:
+                    first_stats = stats
+            assert first_stats is not None, "has at least one permuter"
+            clients_str = plural(first_stats[0], "other client")
+            servers_str = plural(first_stats[1], "server")
+            cores_str = plural(int(first_stats[2]), "core")
+            print(f"Connected! {servers_str} online ({cores_str}, {clients_str})")
 
         # Start local worker threads
         processes: List[multiprocessing.Process] = []

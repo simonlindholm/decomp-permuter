@@ -127,17 +127,23 @@ pub(crate) async fn handle_connect_client<'a>(
         Err("Priority out of range")?;
     }
 
-    let mut num_servers: u32 = 0;
+    let num_clients: usize;
+    let mut num_servers: usize = 0;
     let mut num_cores: f64 = 0.0;
-    for server in state.m.lock().unwrap().servers.values() {
-        if data.priority >= server.min_priority {
-            num_servers += 1;
-            num_cores += server.num_cores;
+    {
+        let m = state.m.lock().unwrap();
+        num_clients = m.permuters.len();
+        for server in m.servers.values() {
+            if data.priority >= server.min_priority {
+                num_servers += 1;
+                num_cores += server.num_cores;
+            }
         }
     }
 
     write_port
         .send_json(&json!({
+            "clients": num_clients,
             "servers": num_servers,
             "cores": num_cores,
         }))
