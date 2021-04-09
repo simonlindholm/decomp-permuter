@@ -9,6 +9,7 @@ import shutil
 import argparse
 import shlex
 import toml
+import json
 from typing import Callable, Dict, List, Match, Mapping, Optional, Pattern, Set, Tuple
 from collections import defaultdict
 
@@ -534,13 +535,15 @@ def compile_asm(assembler: List[str], cwd: str, in_file: str, out_file: str) -> 
         sys.exit(1)
 
 
-def compile_base(compile_script: str, source: str, out_file: str) -> None:
+def compile_base(compile_script: str, source: str, c_file: str, out_file: str) -> None:
     if "PERM_" in source:
         print(
             "Cannot test-compile imported code because it contains PERM macros. "
             "It is recommended to put in PERM macros after import."
         )
         return
+    escaped_c_file = json.dumps(c_file)
+    source = "#line 1 " + escaped_c_file + "\n" + source
     compiler = Compiler(compile_script, show_errors=True)
     o_file = compiler.compile(source)
     if o_file:
@@ -661,7 +664,7 @@ def main() -> None:
         write_asm(asm_cont, target_s_file)
         compile_asm(assembler, root_dir, target_s_file, target_o_file)
         if compilable_source is not None:
-            compile_base(compile_script, compilable_source, base_o_file)
+            compile_base(compile_script, compilable_source, base_c_file, base_o_file)
     except:
         if not args.keep:
             print(f"\nDeleting directory {dirname} (run with --keep to preserve it).")
