@@ -483,7 +483,7 @@ def import_c_file(
                     "You could try --no-prune as a workaround."
                 )
                 raise
-        compilable_source = ast_util.to_c(ast)
+        compilable_source = ast_util.to_c(ast, from_import=True)
     except CandidateConstructionFailure as e:
         print(e.message)
         if should_prune and "PERM_" in source:
