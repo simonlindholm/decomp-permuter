@@ -11,6 +11,8 @@ class Compiler:
         self.show_errors = show_errors
 
     def compile(self, source: str, *, show_errors: bool = False) -> Optional[str]:
+        """Try to compile a piece of C code. Returns the filename of the resulting .o
+        temp file if it succeeds."""
         show_errors = show_errors or self.show_errors
         with tempfile.NamedTemporaryFile(
             prefix="permuter", suffix=".c", mode="w", delete=False

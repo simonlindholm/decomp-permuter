@@ -9,10 +9,13 @@ import shutil
 import argparse
 import shlex
 import toml
+import json
 from typing import Callable, Dict, List, Match, Mapping, Optional, Pattern, Set, Tuple
 from collections import defaultdict
 
-from strip_other_fns import strip_other_fns_and_write
+from src import ast_util
+from src.compiler import Compiler
+from src.error import CandidateConstructionFailure
 
 is_macos = platform.system() == "Darwin"
 
@@ -121,7 +124,7 @@ def find_root_dir(filename: str, pattern: List[str]) -> Optional[str]:
                 return dirname
         old_dirname = dirname
         dirname = os.path.dirname(dirname)
-    
+
     return None
 
 
@@ -165,7 +168,13 @@ def find_build_command_line(
     root_dir: str, c_file: str, make_flags: List[str], build_system: str
 ) -> Tuple[List[str], List[str]]:
     if build_system == "make":
-        build_invocation = [make_cmd, "--always-make", "--dry-run", "--debug=j", "PERMUTER=1"] + make_flags
+        build_invocation = [
+            make_cmd,
+            "--always-make",
+            "--dry-run",
+            "--debug=j",
+            "PERMUTER=1",
+        ] + make_flags
     elif build_system == "ninja":
         build_invocation = ["ninja", "-t", "commands"] + make_flags
     else:
@@ -275,7 +284,9 @@ def build_preserve_macros(
 def preprocess_c_with_macros(
     cpp_command: List[str], cwd: str, preserve_macros: PreserveMacros
 ) -> Tuple[str, List[str]]:
-    """Import C file, preserving function macros. Subroutine of import_c_file."""
+    """Import C file, preserving function macros. Subroutine of import_c_file.
+
+    Returns the source code and a list of preserved macros."""
 
     preserve_regex, preserve_type_fn = preserve_macros
 
@@ -396,12 +407,24 @@ def preprocess_c_with_macros(
     )
 
 
+def prune_source(source: str, func_name: str) -> str:
+    """Reduce the source to a smaller version that includes only the
+    imported function and functions/struct/variables that it uses."""
+
+
 def import_c_file(
     compiler: List[str],
     cwd: str,
     in_file: str,
     preserve_macros: Optional[PreserveMacros],
-) -> Tuple[str, List[str]]:
+    should_prune: bool,
+    func_name: str,
+) -> Tuple[str, Optional[str]]:
+    """Preprocess a C file into permuter-usable source.
+
+    Prints preserved macros as a side effect.
+
+    Returns source for base.c and compilable (macro-expanded) source."""
     in_file = os.path.relpath(in_file, cwd)
     include_next = 0
     cpp_command = CPP + [in_file, "-D__sgi", "-D_LANGUAGE_C", "-DNON_MATCHING"]
@@ -426,14 +449,12 @@ def import_c_file(
     try:
         if preserve_macros is None:
             # Simple codepath, should work even if the more complex one breaks.
-            return (
-                subprocess.check_output(
-                    cpp_command + STUB_FN_MACROS, cwd=cwd, encoding="utf-8"
-                ),
-                [],
+            source = subprocess.check_output(
+                cpp_command + STUB_FN_MACROS, cwd=cwd, encoding="utf-8"
             )
-
-        return preprocess_c_with_macros(cpp_command, cwd, preserve_macros)
+            macros: List[str] = []
+        else:
+            source, macros = preprocess_c_with_macros(cpp_command, cwd, preserve_macros)
 
     except subprocess.CalledProcessError as e:
         print(
@@ -442,6 +463,39 @@ def import_c_file(
             file=sys.stderr,
         )
         sys.exit(1)
+
+    if macros:
+        macro_str = "macros: " + ", ".join(macros)
+    else:
+        macro_str = "no macros"
+    print(f"Preserving {macro_str}. Use --preserve-macros='<regex>' to override.")
+
+    compilable_source: Optional[str] = None
+    try:
+        ast = ast_util.parse_c(source, from_import=True)
+        orig_fn, _ = ast_util.extract_fn(ast, func_name)
+        if should_prune:
+            try:
+                ast_util.prune_ast(orig_fn, ast)
+                source = ast_util.to_c_raw(ast)
+            except Exception:
+                print(
+                    "Source minimization failed! "
+                    "You could try --no-prune as a workaround."
+                )
+                raise
+        compilable_source = ast_util.to_c(ast, from_import=True)
+    except CandidateConstructionFailure as e:
+        print(e.message)
+        if should_prune and "PERM_" in source:
+            print(
+                "Please put in PERM macros after import, otherwise source "
+                "minimization does not work."
+            )
+        else:
+            print("Proceeding anyway, but expect errors when permuting!")
+
+    return source, compilable_source
 
 
 def finalize_compile_command(cmdline: List[str]) -> str:
@@ -481,17 +535,21 @@ def compile_asm(assembler: List[str], cwd: str, in_file: str, out_file: str) -> 
         sys.exit(1)
 
 
-def compile_base(compile_script: str, in_file: str, out_file: str) -> None:
-    in_file = os.path.abspath(in_file)
-    out_file = os.path.abspath(out_file)
-    compile_cmd = [compile_script, in_file, "-o", out_file]
-    try:
-        subprocess.check_call(compile_cmd)
-    except subprocess.CalledProcessError:
+def compile_base(compile_script: str, source: str, c_file: str, out_file: str) -> None:
+    if "PERM_" in source:
         print(
-            "Warning: failed to compile .c file, you'll need to adjust it manually. "
-            f"Command line:\n{formatcmd(compile_cmd)}"
+            "Cannot test-compile imported code because it contains PERM macros. "
+            "It is recommended to put in PERM macros after import."
         )
+        return
+    escaped_c_file = json.dumps(c_file)
+    source = "#line 1 " + escaped_c_file + "\n" + source
+    compiler = Compiler(compile_script, show_errors=True)
+    o_file = compiler.compile(source)
+    if o_file:
+        shutil.move(o_file, out_file)
+    else:
+        print("Warning: failed to compile .c file.")
 
 
 def write_to_file(cont: str, filename: str) -> None:
@@ -499,36 +557,20 @@ def write_to_file(cont: str, filename: str) -> None:
         f.write(cont)
 
 
-def try_strip_other_fns_and_write(
-    source: str, func_name: str, base_c_file: str
-) -> None:
-    try:
-        strip_other_fns_and_write(source, func_name, base_c_file)
-    except Exception:
-        import traceback
-
-        traceback.print_exc()
-        print(
-            "Warning: failed to remove other functions. Edit {base_c_file} and remove them manually."
-        )
-        with open(base_c_file, "w", encoding="utf-8") as f:
-            f.write(source)
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Import a function for use with the permuter. "
-        "Will create a new directory nonmatchings/<funcname>-<id>/."
+        description="""Import a function for use with the permuter.
+        Will create a new directory nonmatchings/<funcname>-<id>/."""
     )
     parser.add_argument(
         "c_file",
-        help="File containing the function. "
-        "Assumes that the file can be built with 'make' to create an .o file.",
+        help="""File containing the function.
+        Assumes that the file can be built with 'make' to create an .o file.""",
     )
     parser.add_argument(
         "asm_file",
-        help="File containing assembly for the function. "
-        "Must start with 'glabel <function_name>' and contain no other functions.",
+        help="""File containing assembly for the function.
+        Must start with 'glabel <function_name>' and contain no other functions.""",
     )
     parser.add_argument(
         "make_flags",
@@ -543,13 +585,26 @@ def main() -> None:
         "--preserve-macros",
         metavar="REGEX",
         dest="preserve_macros_regex",
-        help="Regex for which macros to preserve, or empty string for no macros. "
-        f"By default, this is read from {settings_files} in a parent directory of "
-        "the imported file. Type information is also read from this file.",
+        help=f"""Regex for which macros to preserve, or empty string for no macros.
+        By default, this is read from {settings_files} in a parent directory of
+        the imported file. Type information is also read from this file.""",
+    )
+    parser.add_argument(
+        "--no-prune",
+        dest="prune",
+        action="store_false",
+        help="""Don't minimize the source to keep only the imported function and
+        functions/struct/variables that it uses. Normally this behavior is
+        useful to make the permuter faster, but in cases where unrelated code
+        affects the generated assembly asm it can be necessary to turn off.
+        Note that regardless of this setting the permuter always removes all
+        other functions by replacing them with declarations.""",
     )
     args = parser.parse_args()
 
-    root_dir = find_root_dir(args.c_file, SETTINGS_FILES + ["Makefile", "makefile", "build.ninja"])
+    root_dir = find_root_dir(
+        args.c_file, SETTINGS_FILES + ["Makefile", "makefile", "build.ninja"]
+    )
 
     if not root_dir:
         print(f"Can't find root dir of project!", file=sys.stderr)
@@ -580,13 +635,19 @@ def main() -> None:
         assembler = shlex.split(assembler)
     else:
         assert isinstance(build_system, str)
-        compiler, assembler = find_build_command_line(root_dir, args.c_file, make_flags, build_system)
+        compiler, assembler = find_build_command_line(
+            root_dir, args.c_file, make_flags, build_system
+        )
 
     print(f"Compiler: {formatcmd(compiler)} {{input}} -o {{output}}")
     print(f"Assembler: {formatcmd(assembler)} {{input}} -o {{output}}")
 
-    preserve_macros = build_preserve_macros(root_dir, args.preserve_macros_regex, settings)
-    source, macros = import_c_file(compiler, root_dir, args.c_file, preserve_macros)
+    preserve_macros = build_preserve_macros(
+        root_dir, args.preserve_macros_regex, settings
+    )
+    source, compilable_source = import_c_file(
+        compiler, root_dir, args.c_file, preserve_macros, args.prune, func_name
+    )
 
     dirname = create_directory(func_name)
     base_c_file = f"{dirname}/base.c"
@@ -597,24 +658,19 @@ def main() -> None:
     func_name_file = f"{dirname}/function.txt"
 
     try:
-        # try_strip_other_fns_and_write(source, func_name, base_c_file)
         write_to_file(source, base_c_file)
         write_to_file(func_name, func_name_file)
         write_compile_command(compiler, root_dir, compile_script)
         write_asm(asm_cont, target_s_file)
         compile_asm(assembler, root_dir, target_s_file, target_o_file)
-        compile_base(compile_script, base_c_file, base_o_file)
+        if compilable_source is not None:
+            compile_base(compile_script, compilable_source, base_c_file, base_o_file)
     except:
         if not args.keep:
             print(f"\nDeleting directory {dirname} (run with --keep to preserve it).")
             shutil.rmtree(dirname)
         raise
 
-    if macros:
-        macro_str = "macros: " + ", ".join(macros)
-    else:
-        macro_str = "no macros"
-    print(f"Preserving {macro_str}. Use --preserve-macros='<regex>' to override.")
     print(f"\nDone. Imported into {dirname}")
 
 

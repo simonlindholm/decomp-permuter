@@ -39,44 +39,49 @@ else:
     Expression = Statement = None
 
 
-def to_c(node: ca.Node) -> str:
-    source = PatchedCGenerator().visit(node)
+def to_c_raw(node: ca.Node) -> str:
+    source: str = c_generator.CGenerator().visit(node)
+    return source
+
+
+def to_c(node: ca.Node, *, from_import: bool = False) -> str:
+    source = to_c_raw(node) if from_import else PatchedCGenerator().visit(node)
     if "#pragma" not in source:
         return source
     lines = source.split("\n")
-    out = []
+    out: List[str] = []
     same_line = 0
     ignore = 0
     for line in lines:
         stripped = line.strip()
-        if stripped.startswith("#pragma"):
-            if stripped == "#pragma _permuter sameline start":
+        if stripped.startswith("#pragma _permuter "):
+            # Expand permuter pragmas to nothing, by default. Still, keep one
+            # output line per input line to preserve line numbers for import.py
+            # error messages.
+            line = ""
+
+            stripped = stripped[len("#pragma _permuter ") :]
+            if stripped == "sameline start":
                 same_line += 1
-            elif stripped == "#pragma _permuter sameline end":
+            elif stripped == "sameline end":
                 same_line -= 1
-                if same_line == 0:
-                    out.append("\n")
-            elif stripped == "#pragma _permuter latedefine start":
+            elif stripped == "latedefine start":
                 ignore += 1
-            elif stripped == "#pragma _permuter latedefine end":
+            elif stripped == "latedefine end":
                 assert ignore > 0, "mismatched ignore pragmas"
                 ignore -= 1
-            elif stripped.startswith("#pragma _permuter define "):
+            elif stripped.startswith("define "):
                 assert ignore > 0, "define pragma must be within latedefine block"
-                out.append("#" + stripped.split(" ", 2)[2] + "\n")
-            elif stripped.startswith("#pragma _permuter b64literal "):
-                out.append(b64decode(stripped.split()[-1]).decode("utf-8"))
-                if same_line == 0:
-                    out.append("\n")
+                line = "#" + stripped
+            elif stripped.startswith("b64literal "):
+                line = b64decode(stripped.split(" ", 1)[1]).decode("utf-8")
+        elif ignore > 0:
+            # Ignore non-pragma lines within latedefine section
+            line = ""
 
-            # Ignore permuter pragmas, but leave actual pragmas in (like intrinsics)
-            if stripped.startswith("#pragma _permuter"):
-                continue
-        if ignore > 0:
-            continue
         if not same_line:
             line += "\n"
-        elif out and not out[-1].endswith("\n"):
+        elif line and out and not out[-1].endswith("\n"):
             line = " " + line.lstrip()
         out.append(line)
     assert same_line == 0
@@ -121,7 +126,7 @@ def extract_fn(ast: ca.FileAST, fn_name: str) -> Tuple[ca.FuncDef, int]:
     return ret[0]
 
 
-def parse_c(source: str) -> ca.FileAST:
+def parse_c(source: str, *, from_import: bool = False) -> ca.FileAST:
     try:
         parser = CParser()
         return parser.parse(source, "<source>")
@@ -134,7 +139,8 @@ def parse_c(source: str) -> ca.FileAST:
             posstr = f" at approximately line {lineno}"
             if len(parts) >= 3:
                 posstr += f", column {parts[2]}"
-            posstr += " (after PERM expansion)"
+            if not from_import:
+                posstr += " (after PERM expansion)"
             try:
                 line = source.split("\n")[lineno - 1].rstrip()
                 posstr += "\n\n" + line
