@@ -66,7 +66,7 @@ class Permuter:
         if fn_name is None:
             # Semi-legacy codepath; all functions imported through import.py have a
             # function name. This would ideally be done on AST level instead of on the
-            # pre-macro'ed source code, but we don't care enough to do make that
+            # pre-macro'ed source code, but we don't care enough to make that
             # refactoring.
             fns = _find_fns(source)
             if len(fns) == 0:

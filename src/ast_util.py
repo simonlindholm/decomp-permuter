@@ -39,6 +39,11 @@ else:
     Expression = Statement = None
 
 
+def to_c_raw(node: ca.Node) -> str:
+    source: str = c_generator.CGenerator().visit(node)
+    return source
+
+
 def to_c(node: ca.Node) -> str:
     source = PatchedCGenerator().visit(node)
     if "#pragma" not in source:
@@ -121,7 +126,7 @@ def extract_fn(ast: ca.FileAST, fn_name: str) -> Tuple[ca.FuncDef, int]:
     return ret[0]
 
 
-def parse_c(source: str) -> ca.FileAST:
+def parse_c(source: str, *, from_import: bool = False) -> ca.FileAST:
     try:
         parser = CParser()
         return parser.parse(source, "<source>")
@@ -134,7 +139,8 @@ def parse_c(source: str) -> ca.FileAST:
             posstr = f" at approximately line {lineno}"
             if len(parts) >= 3:
                 posstr += f", column {parts[2]}"
-            posstr += " (after PERM expansion)"
+            if not from_import:
+                posstr += " (after PERM expansion)"
             try:
                 line = source.split("\n")[lineno - 1].rstrip()
                 posstr += "\n\n" + line
