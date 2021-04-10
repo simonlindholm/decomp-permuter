@@ -147,6 +147,10 @@ def post_score(
     profiler = result.profiler
     score_value = result.score
 
+    if profiler is not None:
+        for stattype in profiler.time_stats:
+            context.overall_profiler.add_stat(stattype, profiler.time_stats[stattype])
+
     context.iteration += 1
     if score_value == permuter.scorer.PENALTY_INF:
         disp_score = "inf"
@@ -155,8 +159,6 @@ def post_score(
         disp_score = str(score_value)
     timings = ""
     if context.options.show_timings:
-        for stattype in profiler.time_stats:
-            context.overall_profiler.add_stat(stattype, profiler.time_stats[stattype])
         timings = "  \t" + context.overall_profiler.get_str_stats()
     status_line = f"iteration {context.iteration}, {context.errors} errors, score = {disp_score}{timings}"
 
@@ -313,6 +315,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
                 force_seed=force_seed,
                 force_rng_seed=force_rng_seed,
                 keep_prob=options.keep_prob,
+                need_profiler=options.show_timings,
                 need_all_sources=options.print_diffs,
                 show_errors=options.show_errors,
                 best_only=options.best_only,

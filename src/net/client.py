@@ -45,7 +45,9 @@ def _result_from_json(obj: dict, source: Optional[str]) -> EvalResult:
     if "error" in obj:
         return EvalError(exc_str=json_prop(obj, "error", str), seed=None)
 
-    profiler = _profiler_from_json(json_prop(obj, "profiler", dict))
+    profiler: Optional[Profiler] = None
+    if "profiler" in obj:
+        profiler = _profiler_from_json(json_prop(obj, "profiler", dict))
     return CandidateResult(
         score=json_prop(obj, "score", int),
         hash=json_prop(obj, "hash", str),
@@ -87,6 +89,7 @@ class PortablePermuter:
         self.fn_name = permuter.fn_name
         self.filename = permuter.source_file
         self.keep_prob = permuter.keep_prob
+        self.need_profiler = permuter.need_profiler
         self.stack_differences = permuter.scorer.stack_differences
         self.compressed_source = zlib.compress(permuter.source.encode("utf-8"))
         self.base_score = permuter.base_score
@@ -128,6 +131,7 @@ class Connection:
             "fn_name": permuter.fn_name,
             "filename": permuter.filename,
             "keep_prob": permuter.keep_prob,
+            "need_profiler": permuter.need_profiler,
             "stack_differences": permuter.stack_differences,
             "compile_script": permuter.compile_script,
         }

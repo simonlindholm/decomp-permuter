@@ -37,6 +37,7 @@ class PermuterData:
     fn_name: str
     filename: str
     keep_prob: float
+    need_profiler: bool
     stack_differences: bool
     compile_script: str
     source: str
@@ -95,6 +96,7 @@ def _create_permuter(data: PermuterData) -> Permuter:
             force_seed=None,
             force_rng_seed=None,
             keep_prob=data.keep_prob,
+            need_profiler=data.need_profiler,
             need_all_sources=False,
             show_errors=False,
             better_only=False,
@@ -122,19 +124,21 @@ def _send_result(perm_id: str, time_us: float, res: EvalResult, port: Port) -> N
         return
 
     compressed_source = getattr(res, "compressed_source")
-    port.send_json(
-        {
-            "type": "result",
-            "id": perm_id,
-            "time_us": time_us,
-            "score": res.score,
-            "hash": res.hash,
-            "has_source": compressed_source is not None,
-            "profiler": {
-                st.name: res.profiler.time_stats[st] for st in Profiler.StatType
-            },
+
+    obj = {
+        "type": "result",
+        "id": perm_id,
+        "time_us": time_us,
+        "score": res.score,
+        "hash": res.hash,
+        "has_source": compressed_source is not None,
+    }
+    if res.profiler is not None:
+        obj["profiler"] = {
+            st.name: res.profiler.time_stats[st] for st in Profiler.StatType
         }
-    )
+
+    port.send_json(obj)
 
     if compressed_source is not None:
         port.send(compressed_source)
@@ -239,6 +243,7 @@ def read_loop(task_queue: "Queue[Task]", port: Port) -> None:
                 filename = json_prop(item, "filename", str)
                 keep_prob = json_prop(item, "keep_prob", float)
                 stack_differences = json_prop(item, "stack_differences", bool)
+                need_profiler = json_prop(item, "need_profiler", bool)
                 compile_script = json_prop(item, "compile_script", str)
                 source = port.receive().decode("utf-8")
                 target_o_bin = port.receive()
@@ -251,6 +256,7 @@ def read_loop(task_queue: "Queue[Task]", port: Port) -> None:
                             filename=filename,
                             keep_prob=keep_prob,
                             stack_differences=stack_differences,
+                            need_profiler=need_profiler,
                             compile_script=compile_script,
                             source=source,
                             target_o_bin=target_o_bin,
@@ -397,11 +403,7 @@ def main() -> None:
             worker_queue.put((item, timestamp))
 
         elif isinstance(item, NeedMoreWork):
-            port.send_json(
-                {
-                    "type": "need_work",
-                }
-            )
+            port.send_json({"type": "need_work"})
 
         else:
             static_assert_unreachable(item)

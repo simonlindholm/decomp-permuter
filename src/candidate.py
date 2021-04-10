@@ -27,7 +27,7 @@ class CandidateResult:
     score: int
     hash: str
     source: Optional[str]
-    profiler: Profiler = field(default_factory=Profiler)
+    profiler: Optional[Profiler] = None
 
 
 @dataclass

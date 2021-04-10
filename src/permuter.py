@@ -80,6 +80,7 @@ class Permuter:
         force_seed: Optional[int],
         force_rng_seed: Optional[int],
         keep_prob: float,
+        need_profiler: bool,
         need_all_sources: bool,
         show_errors: bool,
         best_only: bool,
@@ -116,6 +117,7 @@ class Permuter:
         self._cur_seed: Optional[Tuple[int, int]] = None
 
         self.keep_prob = keep_prob
+        self.need_profiler = need_profiler
         self._need_all_sources = need_all_sources
         self._show_errors = show_errors
         self._best_only = best_only
@@ -192,11 +194,13 @@ class Permuter:
 
         t4 = time.time()
 
-        profiler: Profiler = result.profiler
-        profiler.add_stat(Profiler.StatType.perm, t1 - t0)
-        profiler.add_stat(Profiler.StatType.stringify, t2 - t1)
-        profiler.add_stat(Profiler.StatType.compile, t3 - t2)
-        profiler.add_stat(Profiler.StatType.score, t4 - t3)
+        if self.need_profiler:
+            profiler = Profiler()
+            profiler.add_stat(Profiler.StatType.perm, t1 - t0)
+            profiler.add_stat(Profiler.StatType.stringify, t2 - t1)
+            profiler.add_stat(Profiler.StatType.compile, t3 - t2)
+            profiler.add_stat(Profiler.StatType.score, t4 - t3)
+            result.profiler = profiler
 
         self._last_score = result.score
 
