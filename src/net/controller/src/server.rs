@@ -51,11 +51,12 @@ async fn server_read(
     server_state: &Mutex<ServerState>,
     state: &State,
     more_work_tx: mpsc::Sender<()>,
+    new_permuter: &Notify,
 ) -> SimpleResult<()> {
     loop {
         let msg = port.recv().await?;
         let msg: ServerMessage = serde_json::from_slice(&msg)?;
-        let mut log_new = false;
+        let mut has_new = false;
         let mut more_work = true;
         if let ServerMessage::Update {
             permuter: perm_id,
@@ -84,7 +85,7 @@ async fn server_read(
                     match update {
                         ServerUpdate::InitDone { .. } => {
                             job.state = JobState::Loaded;
-                            log_new = true;
+                            has_new = true;
                         }
                         ServerUpdate::InitFailed { .. } => {
                             job.state = JobState::Failed;
@@ -104,7 +105,8 @@ async fn server_read(
             }
         }
 
-        if log_new {
+        if has_new {
+            new_permuter.notify_waiters();
             state
                 .log_stats(stats::Record::ServerNewFunction {
                     server: who_id.clone(),
@@ -142,7 +144,11 @@ struct OutMessage {
     to_send: ToSend,
 }
 
-async fn next_work_message(server_state: &Mutex<ServerState>, state: &State) -> OutMessage {
+async fn next_work_message(
+    server_state: &Mutex<ServerState>,
+    state: &State,
+    new_permuter: &Notify,
+) -> OutMessage {
     let mut wait_for = None;
     loop {
         if let Some(waiter) = wait_for {
@@ -202,7 +208,14 @@ async fn next_work_message(server_state: &Mutex<ServerState>, state: &State) -> 
             None => {
                 // Nothing to work on! Register to be notified when something
                 // happens and go to sleep.
-                wait_for = Some(state.new_work_notification.notified());
+                let n1 = state.new_work_notification.notified();
+                let n2 = new_permuter.notified();
+                wait_for = Some(async move {
+                    tokio::select! {
+                        () = n1 => {}
+                        () = n2 => {}
+                    }
+                });
                 continue;
             }
             Some(tup) => tup,
@@ -254,9 +267,10 @@ async fn server_choose_work(
     mut more_work_rx: mpsc::Receiver<()>,
     next_message_tx: mpsc::Sender<OutMessage>,
     wrote_message: &Notify,
+    new_permuter: &Notify,
 ) -> SimpleResult<()> {
     loop {
-        let message = next_work_message(server_state, state).await;
+        let message = next_work_message(server_state, state, new_permuter).await;
         let requires_response = requires_response(&message);
         next_message_tx
             .send(message)
@@ -328,6 +342,7 @@ pub(crate) async fn handle_connect_server<'a>(
     let (more_work_tx, more_work_rx) = mpsc::channel(SERVER_WORK_QUEUE_SIZE);
     let (next_message_tx, next_message_rx) = mpsc::channel(1);
     let wrote_message = Notify::new();
+    let new_permuter = Notify::new();
 
     let mut server_state = Mutex::new(ServerState {
         min_priority: data.min_priority,
@@ -346,20 +361,22 @@ pub(crate) async fn handle_connect_server<'a>(
             who_name,
             &server_state,
             state,
-            more_work_tx
+            more_work_tx,
+            &new_permuter,
         ),
         server_choose_work(
             &server_state,
             state,
             more_work_rx,
             next_message_tx,
-            &wrote_message
+            &wrote_message,
+            &new_permuter,
         ),
         server_write(
             &mut write_port,
             next_message_rx,
             state.heartbeat_rx.clone(),
-            &wrote_message
+            &wrote_message,
         )
     );
 

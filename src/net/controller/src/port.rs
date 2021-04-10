@@ -58,7 +58,7 @@ impl<'a> ReadPort<'a> {
         let data =
             box_::open_precomputed(&buffer, &nonce, &self.key).map_err(|()| "Failed to decrypt")?;
         if let Some(name) = self.debug_name {
-            debug_print("Receive from ", name, &data);
+            debug_print("Receive from", name, &data);
         }
         Ok(data)
     }
