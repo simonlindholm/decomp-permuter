@@ -172,9 +172,13 @@ class Work:
     seed: int
 
 
+class NeedMoreWork:
+    pass
+
+
 LocalWork = Tuple[Union[AddPermuterLocal, RemovePermuter], int]
 GlobalWork = Tuple[Work, int]
-Task = Union[AddPermuter, RemovePermuter, Work, WorkDone]
+Task = Union[AddPermuter, RemovePermuter, Work, WorkDone, NeedMoreWork]
 
 
 def multiprocess_worker(
@@ -188,7 +192,11 @@ def multiprocess_worker(
     timestamp = 0
 
     while True:
-        work, required_timestamp = worker_queue.get()
+        try:
+            work, required_timestamp = worker_queue.get(block=False)
+        except queue.Empty:
+            task_queue.put(NeedMoreWork())
+            work, required_timestamp = worker_queue.get()
         while True:
             try:
                 block = timestamp < required_timestamp
@@ -391,6 +399,13 @@ def main() -> None:
         elif isinstance(item, Work):
             remaining_work[item.perm_id] += 1
             worker_queue.put((item, timestamp))
+
+        elif isinstance(item, NeedMoreWork):
+            port.send_json(
+                {
+                    "type": "need_work",
+                }
+            )
 
         else:
             static_assert_unreachable(item)

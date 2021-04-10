@@ -56,6 +56,7 @@ async fn server_read(
         let msg = port.recv().await?;
         let msg: ServerMessage = serde_json::from_slice(&msg)?;
         let mut log_new = false;
+        let mut more_work = true;
         if let ServerMessage::Update {
             permuter: perm_id,
             mut update,
@@ -85,8 +86,12 @@ async fn server_read(
                             job.state = JobState::Loaded;
                             log_new = true;
                         }
-                        ServerUpdate::InitFailed { .. } | ServerUpdate::Disconnect => {
+                        ServerUpdate::InitFailed { .. } => {
                             job.state = JobState::Failed;
+                        }
+                        ServerUpdate::Disconnect { .. } => {
+                            job.state = JobState::Failed;
+                            more_work = false;
                         }
                         ServerUpdate::Result { .. } => {}
                     }
@@ -107,11 +112,13 @@ async fn server_read(
                 .await?;
         }
 
-        // Try requesting more work by sending a message to the writer thread.
-        // If the queue is full (because the writer thread is blocked on a
-        // send), drop the request to avoid an unbounded backlog.
-        if let Err(TrySendError::Closed(_)) = more_work_tx.try_send(()) {
-            panic!("work chooser must not close except on error");
+        if more_work {
+            // Try requesting more work by sending a message to the writer thread.
+            // If the queue is full (because the writer thread is blocked on a
+            // send), drop the request to avoid an unbounded backlog.
+            if let Err(TrySendError::Closed(_)) = more_work_tx.try_send(()) {
+                panic!("work chooser must not close except on error");
+            }
         }
     }
 }
@@ -216,6 +223,39 @@ async fn choose_work(server_state: &Mutex<ServerState>, state: &State) -> Work {
     }
 }
 
+fn requires_response(work: &ToSend) -> bool {
+    match work {
+        ToSend::Work(..) => true,
+        ToSend::Add(..) => true,
+        ToSend::Remove => false,
+    }
+}
+
+async fn server_choose_work(
+    server_state: &Mutex<ServerState>,
+    state: &State,
+    mut more_work_rx: mpsc::Receiver<()>,
+    choose_work_tx: mpsc::Sender<Work>,
+    wrote_work: &Notify,
+) -> SimpleResult<()> {
+    loop {
+        let work = choose_work(server_state, state).await;
+        let req_work = requires_response(&work.1);
+        choose_work_tx
+            .send(work)
+            .await
+            .map_err(|_| ())
+            .expect("writer must not close except on error");
+        wrote_work.notified().await;
+        if req_work {
+            more_work_rx
+                .recv()
+                .await
+                .expect("reader must not close except on error");
+        }
+    }
+}
+
 async fn send_heartbeat(port: &mut WritePort<'_>) -> SimpleResult<()> {
     port.send_json(&json!({
         "type": "heartbeat",
@@ -258,28 +298,6 @@ async fn send_work(
         }
     };
     Ok(())
-}
-
-async fn server_choose_work(
-    server_state: &Mutex<ServerState>,
-    state: &State,
-    mut more_work_rx: mpsc::Receiver<()>,
-    choose_work_tx: mpsc::Sender<Work>,
-    wrote_work: &Notify,
-) -> SimpleResult<()> {
-    loop {
-        let work = choose_work(server_state, state).await;
-        choose_work_tx
-            .send(work)
-            .await
-            .map_err(|_| ())
-            .expect("writer must not close except on error");
-        wrote_work.notified().await;
-        more_work_rx
-            .recv()
-            .await
-            .expect("reader must not close except on error");
-    }
 }
 
 async fn server_write(

@@ -117,6 +117,10 @@ class WorkDone:
     compressed_source: Optional[bytes]
 
 
+class NeedMoreWork:
+    pass
+
+
 @dataclass
 class NetThreadDisconnected:
     token: object
@@ -139,6 +143,7 @@ Activity = Union[
     PermInitFail,
     PermInitSuccess,
     WorkDone,
+    NeedMoreWork,
     NetThreadDisconnected,
     Heartbeat,
     Shutdown,
@@ -441,6 +446,7 @@ class Server:
 
         elif isinstance(msg, Work):
             if msg.handle not in self._active:
+                self._need_work()
                 return
 
             self._evaluator_port.send_json(
@@ -487,6 +493,7 @@ class Server:
         elif isinstance(msg, PermInitFail):
             handle = int(msg.perm_id)
             if handle not in self._active:
+                self._need_work()
                 return
 
             self._active.remove(handle)
@@ -501,6 +508,7 @@ class Server:
         elif isinstance(msg, PermInitSuccess):
             handle = int(msg.perm_id)
             if handle not in self._active:
+                self._need_work()
                 return
 
             self._send_controller(
@@ -515,6 +523,7 @@ class Server:
         elif isinstance(msg, WorkDone):
             handle = int(msg.perm_id)
             if handle not in self._active:
+                self._need_work()
                 return
 
             obj = msg.obj
@@ -534,6 +543,9 @@ class Server:
                 )
             )
 
+        elif isinstance(msg, NeedMoreWork):
+            self._need_work()
+
         elif isinstance(msg, NetThreadDisconnected):
             if msg.token is not self._current_net_token:
                 return
@@ -545,9 +557,14 @@ class Server:
 
             self._stop_net_thread()
             # TODO reconnect after a while
+            # (requires another mapping of new permuter ids to evaluator ones
+            # than stringification to avoid collisions)
 
         else:
             static_assert_unreachable(msg)
+
+    def _need_work(self) -> None:
+        self._send_controller(OutputNeedMoreWork())
 
     def _remove(self, handle: int) -> None:
         self._evaluator_port.send_json(
@@ -612,6 +629,9 @@ class Server:
                         compressed_source=compressed_source,
                     )
                 )
+
+            elif msg_type == "need_work":
+                self._queue.put(NeedMoreWork())
 
             else:
                 raise Exception(f"Unknown message type from evaluator: {msg_type}")
