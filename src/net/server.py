@@ -106,14 +106,14 @@ class PermInitSuccess:
     perm_id: str
     base_score: int
     base_hash: str
-    time_cost_ms: float
+    time_us: float
 
 
 @dataclass
 class WorkDone:
     perm_id: str
     obj: dict
-    time_cost_ms: float
+    time_us: float
     compressed_source: Optional[bytes]
 
 
@@ -161,7 +161,7 @@ class OutputInitSuccess:
     handle: int
     base_hash: str
     base_score: int
-    time_cost_ms: float
+    time_us: float
 
 
 @dataclass
@@ -177,7 +177,7 @@ class OutputNeedMoreWork:
 @dataclass
 class OutputWork:
     handle: int
-    time_cost_ms: float
+    time_us: float
     obj: dict
     compressed_source: Optional[bytes]
 
@@ -340,7 +340,7 @@ class NetThread:
                 {
                     "type": "update",
                     "permuter": item.handle,
-                    "time_cost_ms": 0,
+                    "time_us": 0,
                     "update": {"type": "init_failed", "reason": item.error},
                 }
             )
@@ -350,7 +350,7 @@ class NetThread:
                 {
                     "type": "update",
                     "permuter": item.handle,
-                    "time_cost_ms": item.time_cost_ms,
+                    "time_us": item.time_us,
                     "update": {"type": "init_done", "hash": item.base_hash},
                 }
             )
@@ -360,7 +360,7 @@ class NetThread:
                 {
                     "type": "update",
                     "permuter": item.handle,
-                    "time_cost_ms": 0,
+                    "time_us": 0,
                     "update": {"type": "disconnect"},
                 }
             )
@@ -373,7 +373,7 @@ class NetThread:
                 {
                     "type": "update",
                     "permuter": item.handle,
-                    "time_cost_ms": item.time_cost_ms,
+                    "time_us": item.time_us,
                     "update": {
                         "type": "work",
                         **item.obj,
@@ -514,7 +514,7 @@ class Server:
             self._send_controller(
                 OutputInitSuccess(
                     handle=handle,
-                    time_cost_ms=msg.time_cost_ms,
+                    time_us=msg.time_us,
                     base_hash=msg.base_hash,
                     base_score=msg.base_score,
                 )
@@ -537,7 +537,7 @@ class Server:
             self._send_controller(
                 OutputWork(
                     handle=handle,
-                    time_cost_ms=msg.time_cost_ms,
+                    time_us=msg.time_us,
                     obj=obj,
                     compressed_source=msg.compressed_source,
                 )
@@ -597,14 +597,14 @@ class Server:
 
             if msg_type == "init":
                 perm_id = json_prop(msg, "id", str)
-                time_cost_ms = json_prop(msg, "time_cost_ms", float)
+                time_us = json_prop(msg, "time_us", float)
                 resp: Activity
                 if json_prop(msg, "success", bool):
                     resp = PermInitSuccess(
                         perm_id=perm_id,
                         base_score=json_prop(msg, "base_score", int),
                         base_hash=json_prop(msg, "base_hash", str),
-                        time_cost_ms=time_cost_ms,
+                        time_us=time_us,
                     )
                 else:
                     resp = PermInitFail(
@@ -618,14 +618,14 @@ class Server:
                 if msg.get("has_source") == True:
                     compressed_source = self._evaluator_port.receive()
                 perm_id = json_prop(msg, "id", str)
-                time_cost_ms = json_prop(msg, "time_cost_ms", float)
+                time_us = json_prop(msg, "time_us", float)
                 del msg["id"]
-                del msg["time_cost_ms"]
+                del msg["time_us"]
                 self._queue.put(
                     WorkDone(
                         perm_id=perm_id,
                         obj=msg,
-                        time_cost_ms=time_cost_ms,
+                        time_us=time_us,
                         compressed_source=compressed_source,
                     )
                 )

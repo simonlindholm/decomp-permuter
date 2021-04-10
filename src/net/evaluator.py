@@ -109,15 +109,13 @@ def _remove_permuter(perm: Permuter) -> None:
     os.unlink(perm.compiler.compile_cmd)
 
 
-def _send_result(
-    perm_id: str, time_cost_ms: float, res: EvalResult, port: Port
-) -> None:
+def _send_result(perm_id: str, time_us: float, res: EvalResult, port: Port) -> None:
     if isinstance(res, EvalError):
         port.send_json(
             {
                 "type": "result",
                 "id": perm_id,
-                "time_cost_ms": time_cost_ms,
+                "time_us": time_us,
                 "error": res.exc_str,
             }
         )
@@ -128,7 +126,7 @@ def _send_result(
         {
             "type": "result",
             "id": perm_id,
-            "time_cost_ms": time_cost_ms,
+            "time_us": time_us,
             "score": res.score,
             "hash": res.hash,
             "has_source": compressed_source is not None,
@@ -162,7 +160,7 @@ class RemovePermuter:
 @dataclass
 class WorkDone:
     perm_id: str
-    time_cost_ms: float
+    time_us: float
     result: EvalResult
 
 
@@ -226,10 +224,8 @@ def multiprocess_worker(
             setattr(result, "compressed_source", compressed_source)
             result.source = None
 
-        time_cost_ms = (time.time() - time_before) * 1000
-        task_queue.put(
-            WorkDone(perm_id=work.perm_id, time_cost_ms=time_cost_ms, result=result)
-        )
+        time_us = int((time.time() - time_before) * 10 ** 6)
+        task_queue.put(WorkDone(perm_id=work.perm_id, time_us=time_us, result=result))
 
 
 def read_loop(task_queue: "Queue[Task]", port: Port) -> None:
@@ -353,12 +349,12 @@ def main() -> None:
                 time_before = time.time()
                 permuter = _create_permuter(item.data)
                 permuters[item.perm_id] = permuter
-                time_cost_ms = (time.time() - time_before) * 1000
+                time_us = int((time.time() - time_before) * 10 ** 6)
 
                 msg["success"] = True
                 msg["base_score"] = permuter.base_score
                 msg["base_hash"] = permuter.base_hash
-                msg["time_cost_ms"] = time_cost_ms
+                msg["time_us"] = time_us
 
                 # Tell all the workers about the new permuter.
                 # TODO: ideally we would also seed their Candidate lru_cache's
@@ -375,7 +371,7 @@ def main() -> None:
                 # This shouldn't practically happen, since the client compiled
                 # the code successfully. Print a message if it does.
                 msg["success"] = False
-                msg["time_cost_ms"] = 0
+                msg["time_us"] = 0
                 msg["error"] = exception_to_string(e)
                 if isinstance(e, CandidateConstructionFailure):
                     print(e.message)
@@ -394,7 +390,7 @@ def main() -> None:
         elif isinstance(item, WorkDone):
             remaining_work[item.perm_id] -= 1
             try_remove(item.perm_id)
-            _send_result(item.perm_id, item.time_cost_ms, item.result, port)
+            _send_result(item.perm_id, item.time_us, item.result, port)
 
         elif isinstance(item, Work):
             remaining_work[item.perm_id] += 1

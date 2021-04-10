@@ -11,11 +11,11 @@ use crate::stats;
 use crate::util::SimpleResult;
 use crate::{
     ConnectServerData, ConnectedServer, PermuterData, PermuterId, PermuterResult, PermuterWork,
-    ServerUpdate, State, HEARTBEAT_TIME
+    ServerUpdate, State, HEARTBEAT_TIME,
 };
 
 const SERVER_WORK_QUEUE_SIZE: usize = 100;
-const TIME_COST_MS_GUESS: f64 = 100.0;
+const TIME_US_GUESS: f64 = 100_000.0;
 
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -23,7 +23,7 @@ enum ServerMessage {
     NeedWork,
     Update {
         permuter: PermuterId,
-        time_cost_ms: f64,
+        time_us: f64,
         update: ServerUpdate,
     },
 }
@@ -60,7 +60,7 @@ async fn server_read(
         if let ServerMessage::Update {
             permuter: perm_id,
             mut update,
-            time_cost_ms,
+            time_us,
         } = msg
         {
             if let ServerUpdate::Result {
@@ -78,8 +78,8 @@ async fn server_read(
             // no need to do anything.
             if let Some(job) = server_state.jobs.get_mut(&perm_id) {
                 if let Some(perm) = m.permuters.get_mut(&perm_id) {
-                    job.energy -= perm.energy_add * TIME_COST_MS_GUESS;
-                    job.energy += perm.energy_add * time_cost_ms;
+                    job.energy -= perm.energy_add * TIME_US_GUESS;
+                    job.energy += perm.energy_add * time_us;
 
                     match update {
                         ServerUpdate::InitDone { .. } => {
@@ -210,7 +210,7 @@ async fn choose_work(server_state: &Mutex<ServerState>, state: &State) -> Work {
         perm.semaphore.release();
 
         let min_energy = job.energy;
-        job.energy += perm.energy_add * TIME_COST_MS_GUESS;
+        job.energy += perm.energy_add * TIME_US_GUESS;
 
         // Adjust energies to be around zero, to avoid problems with float
         // imprecision, and to ensure that new permuters that come in with
