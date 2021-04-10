@@ -136,13 +136,13 @@ enum ToSend {
 }
 
 #[derive(Serialize)]
-struct Work {
+struct OutMessage {
     permuter: PermuterId,
     #[serde(flatten)]
     to_send: ToSend,
 }
 
-async fn choose_work(server_state: &Mutex<ServerState>, state: &State) -> Work {
+async fn next_work_message(server_state: &Mutex<ServerState>, state: &State) -> OutMessage {
     let mut wait_for = None;
     loop {
         if let Some(waiter) = wait_for {
@@ -165,7 +165,7 @@ async fn choose_work(server_state: &Mutex<ServerState>, state: &State) -> Work {
                     energy: 0.0,
                 },
             );
-            return Work {
+            return OutMessage {
                 permuter: perm_id,
                 to_send: ToSend::Add {
                     client_id: perm.client_id.clone(),
@@ -191,7 +191,7 @@ async fn choose_work(server_state: &Mutex<ServerState>, state: &State) -> Work {
                 }
             } else {
                 server_state.jobs.remove(&perm_id);
-                return Work {
+                return OutMessage {
                     permuter: perm_id,
                     to_send: ToSend::Remove,
                 };
@@ -233,14 +233,14 @@ async fn choose_work(server_state: &Mutex<ServerState>, state: &State) -> Work {
             job.energy -= min_energy;
         }
 
-        return Work {
+        return OutMessage {
             permuter: perm_id,
             to_send: ToSend::Work(work),
         };
     }
 }
 
-fn requires_response(work: &Work) -> bool {
+fn requires_response(work: &OutMessage) -> bool {
     match work.to_send {
         ToSend::Work { .. } => true,
         ToSend::Add { .. } => true,
@@ -252,19 +252,19 @@ async fn server_choose_work(
     server_state: &Mutex<ServerState>,
     state: &State,
     mut more_work_rx: mpsc::Receiver<()>,
-    choose_work_tx: mpsc::Sender<Work>,
-    wrote_work: &Notify,
+    next_message_tx: mpsc::Sender<OutMessage>,
+    wrote_message: &Notify,
 ) -> SimpleResult<()> {
     loop {
-        let work = choose_work(server_state, state).await;
-        let req_work = requires_response(&work);
-        choose_work_tx
-            .send(work)
+        let message = next_work_message(server_state, state).await;
+        let requires_response = requires_response(&message);
+        next_message_tx
+            .send(message)
             .await
             .map_err(|_| ())
             .expect("writer must not close except on error");
-        wrote_work.notified().await;
-        if req_work {
+        wrote_message.notified().await;
+        if requires_response {
             more_work_rx
                 .recv()
                 .await
@@ -280,7 +280,7 @@ async fn send_heartbeat(port: &mut WritePort<'_>) -> SimpleResult<()> {
     .await
 }
 
-async fn send_work(port: &mut WritePort<'_>, work: &Work) -> SimpleResult<()> {
+async fn send_work(port: &mut WritePort<'_>, work: &OutMessage) -> SimpleResult<()> {
     port.send_json(&work).await?;
     if let ToSend::Add { ref data, .. } = work.to_send {
         port.send(&data.compressed_source).await?;
@@ -291,16 +291,16 @@ async fn send_work(port: &mut WritePort<'_>, work: &Work) -> SimpleResult<()> {
 
 async fn server_write(
     port: &mut WritePort<'_>,
-    mut choose_work_rx: mpsc::Receiver<Work>,
+    mut next_message_rx: mpsc::Receiver<OutMessage>,
     mut heartbeat_rx: watch::Receiver<()>,
-    wrote_work: &Notify,
+    wrote_message: &Notify,
 ) -> SimpleResult<()> {
     loop {
         tokio::select! {
-            work = choose_work_rx.recv() => {
+            work = next_message_rx.recv() => {
                 let work = work.expect("chooser must not close except on error");
                 send_work(port, &work).await?;
-                wrote_work.notify_one();
+                wrote_message.notify_one();
             }
             res = heartbeat_rx.changed() => {
                 res.expect("heartbeat thread panicked");
@@ -326,8 +326,8 @@ pub(crate) async fn handle_connect_server<'a>(
         .await?;
 
     let (more_work_tx, more_work_rx) = mpsc::channel(SERVER_WORK_QUEUE_SIZE);
-    let (choose_work_tx, choose_work_rx) = mpsc::channel(1);
-    let wrote_work = Notify::new();
+    let (next_message_tx, next_message_rx) = mpsc::channel(1);
+    let wrote_message = Notify::new();
 
     let mut server_state = Mutex::new(ServerState {
         min_priority: data.min_priority,
@@ -352,14 +352,14 @@ pub(crate) async fn handle_connect_server<'a>(
             &server_state,
             state,
             more_work_rx,
-            choose_work_tx,
-            &wrote_work
+            next_message_tx,
+            &wrote_message
         ),
         server_write(
             &mut write_port,
-            choose_work_rx,
+            next_message_rx,
             state.heartbeat_rx.clone(),
-            &wrote_work
+            &wrote_message
         )
     );
 
