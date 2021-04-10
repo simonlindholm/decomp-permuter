@@ -11,7 +11,7 @@ use crate::stats;
 use crate::util::SimpleResult;
 use crate::{
     ConnectServerData, ConnectedServer, PermuterData, PermuterId, PermuterResult, PermuterWork,
-    ServerUpdate, State,
+    ServerUpdate, State, HEARTBEAT_TIME
 };
 
 const SERVER_WORK_QUEUE_SIZE: usize = 100;
@@ -332,6 +332,7 @@ pub(crate) async fn handle_connect_server<'a>(
     write_port
         .send_json(&json!({
             "docker_image": &state.docker_image,
+            "heartbeat_interval": HEARTBEAT_TIME.as_secs(),
         }))
         .await?;
 
