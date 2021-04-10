@@ -111,7 +111,7 @@ struct ConnectClientData {
     priority: f64,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 struct PermuterWork {
     seed: u64,
 }

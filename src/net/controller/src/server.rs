@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::sync::{mpsc, mpsc::error::TrySendError, watch, Notify};
 
@@ -123,13 +123,24 @@ async fn server_read(
     }
 }
 
+#[derive(Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
 enum ToSend {
     Work(PermuterWork),
-    Add(UserId, String, Arc<PermuterData>),
+    Add {
+        client_id: UserId,
+        client_name: String,
+        data: Arc<PermuterData>,
+    },
     Remove,
 }
 
-type Work = (PermuterId, ToSend);
+#[derive(Serialize)]
+struct Work {
+    permuter: PermuterId,
+    #[serde(flatten)]
+    to_send: ToSend,
+}
 
 async fn choose_work(server_state: &Mutex<ServerState>, state: &State) -> Work {
     let mut wait_for = None;
@@ -154,14 +165,14 @@ async fn choose_work(server_state: &Mutex<ServerState>, state: &State) -> Work {
                     energy: 0.0,
                 },
             );
-            return (
-                perm_id,
-                ToSend::Add(
-                    perm.client_id.clone(),
-                    perm.client_name.clone(),
-                    perm.data.clone(),
-                ),
-            );
+            return Work {
+                permuter: perm_id,
+                to_send: ToSend::Add {
+                    client_id: perm.client_id.clone(),
+                    client_name: perm.client_name.clone(),
+                    data: perm.data.clone(),
+                },
+            };
         }
 
         // If none, find an existing one to work on, or to remove.
@@ -180,7 +191,10 @@ async fn choose_work(server_state: &Mutex<ServerState>, state: &State) -> Work {
                 }
             } else {
                 server_state.jobs.remove(&perm_id);
-                return (perm_id, ToSend::Remove);
+                return Work {
+                    permuter: perm_id,
+                    to_send: ToSend::Remove,
+                };
             }
         }
 
@@ -219,14 +233,17 @@ async fn choose_work(server_state: &Mutex<ServerState>, state: &State) -> Work {
             job.energy -= min_energy;
         }
 
-        return (perm_id, ToSend::Work(work));
+        return Work {
+            permuter: perm_id,
+            to_send: ToSend::Work(work),
+        };
     }
 }
 
-fn requires_response(work: &ToSend) -> bool {
-    match work {
-        ToSend::Work(..) => true,
-        ToSend::Add(..) => true,
+fn requires_response(work: &Work) -> bool {
+    match work.to_send {
+        ToSend::Work { .. } => true,
+        ToSend::Add { .. } => true,
         ToSend::Remove => false,
     }
 }
@@ -240,7 +257,7 @@ async fn server_choose_work(
 ) -> SimpleResult<()> {
     loop {
         let work = choose_work(server_state, state).await;
-        let req_work = requires_response(&work.1);
+        let req_work = requires_response(&work);
         choose_work_tx
             .send(work)
             .await
@@ -263,40 +280,12 @@ async fn send_heartbeat(port: &mut WritePort<'_>) -> SimpleResult<()> {
     .await
 }
 
-async fn send_work(
-    port: &mut WritePort<'_>,
-    perm_id: PermuterId,
-    to_send: ToSend,
-) -> SimpleResult<()> {
-    match to_send {
-        ToSend::Work(PermuterWork { seed }) => {
-            port.send_json(&json!({
-                "type": "work",
-                "permuter": perm_id,
-                "seed": seed,
-            }))
-            .await?;
-        }
-        ToSend::Add(client_id, client_name, permuter) => {
-            port.send_json(&json!({
-                "type": "add",
-                "permuter": perm_id,
-                "client_id": client_id,
-                "client_name": client_name,
-                "data": &*permuter,
-            }))
-            .await?;
-            port.send(&permuter.compressed_source).await?;
-            port.send(&permuter.compressed_target_o_bin).await?;
-        }
-        ToSend::Remove => {
-            port.send_json(&json!({
-                "type": "remove",
-                "permuter": perm_id,
-            }))
-            .await?;
-        }
-    };
+async fn send_work(port: &mut WritePort<'_>, work: &Work) -> SimpleResult<()> {
+    port.send_json(&work).await?;
+    if let ToSend::Add { ref data, .. } = work.to_send {
+        port.send(&data.compressed_source).await?;
+        port.send(&data.compressed_target_o_bin).await?;
+    }
     Ok(())
 }
 
@@ -309,8 +298,8 @@ async fn server_write(
     loop {
         tokio::select! {
             work = choose_work_rx.recv() => {
-                let (perm_id, to_send) = work.expect("chooser must not close except on error");
-                send_work(port, perm_id, to_send).await?;
+                let work = work.expect("chooser must not close except on error");
+                send_work(port, &work).await?;
                 wrote_work.notify_one();
             }
             res = heartbeat_rx.changed() => {
