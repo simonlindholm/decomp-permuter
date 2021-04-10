@@ -41,11 +41,12 @@ class Client:
 
 @dataclass
 class PermuterData:
-    score: int
-    hash: str
+    base_score: int
+    base_hash: str
     fn_name: str
     filename: str
     keep_prob: float
+    need_profiler: bool
     stack_differences: bool
     compile_script: str
     source: str
@@ -159,8 +160,8 @@ class OutputInitFail:
 @dataclass
 class OutputInitSuccess:
     handle: int
-    base_hash: str
     base_score: int
+    base_hash: str
     time_us: float
 
 
@@ -261,11 +262,12 @@ class NetThread:
         target_o_bin = zlib.decompress(compressed_target_o_bin)
 
         return PermuterData(
-            score=json_prop(msg, "score", int),
-            hash=json_prop(msg, "hash", str),
+            base_score=json_prop(msg, "base_score", int),
+            base_hash=json_prop(msg, "base_hash", str),
             fn_name=json_prop(msg, "fn_name", str),
             filename=json_prop(msg, "filename", str),
             keep_prob=json_prop(msg, "keep_prob", float),
+            need_profiler=json_prop(msg, "need_profiler", bool),
             stack_differences=json_prop(msg, "stack_differences", bool),
             compile_script=json_prop(msg, "compile_script", str),
             source=source,
@@ -515,8 +517,8 @@ class Server:
                 OutputInitSuccess(
                     handle=handle,
                     time_us=msg.time_us,
-                    base_hash=msg.base_hash,
                     base_score=msg.base_score,
+                    base_hash=msg.base_hash,
                 )
             )
 
@@ -583,6 +585,7 @@ class Server:
                 "fn_name": perm.fn_name,
                 "filename": perm.filename,
                 "keep_prob": perm.keep_prob,
+                "need_profiler": perm.need_profiler,
                 "stack_differences": perm.stack_differences,
                 "compile_script": perm.compile_script,
             }

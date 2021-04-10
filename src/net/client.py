@@ -126,8 +126,8 @@ class Connection:
     def _send_permuter(self) -> None:
         permuter = self._permuter
         obj = {
-            "score": permuter.base_score,
-            "hash": permuter.base_hash,
+            "base_score": permuter.base_score,
+            "base_hash": permuter.base_hash,
             "fn_name": permuter.fn_name,
             "filename": permuter.filename,
             "keep_prob": permuter.keep_prob,
