@@ -24,10 +24,12 @@ from ..permuter import (
 )
 from ..profiler import Profiler
 from .core import (
+    PermuterData,
     Port,
     SocketPort,
     json_array,
     json_prop,
+    permuter_data_to_json,
 )
 
 
@@ -84,27 +86,30 @@ def _make_script_portable(source: str) -> str:
     return "\n".join(lines)
 
 
-class PortablePermuter:
-    def __init__(self, permuter: Permuter) -> None:
-        self.fn_name = permuter.fn_name
-        self.filename = permuter.source_file
-        self.keep_prob = permuter.keep_prob
-        self.need_profiler = permuter.need_profiler
-        self.stack_differences = permuter.scorer.stack_differences
-        self.compressed_source = zlib.compress(permuter.source.encode("utf-8"))
-        self.base_score = permuter.base_score
-        self.base_hash = permuter.base_hash
+def make_portable_permuter(permuter: Permuter) -> PermuterData:
+    with open(permuter.scorer.target_o, "rb") as f:
+        target_o_bin = f.read()
 
-        with open(permuter.scorer.target_o, "rb") as f:
-            self.compressed_target_o_bin = zlib.compress(f.read())
+    with open(permuter.compiler.compile_cmd, "r") as f2:
+        compile_script = _make_script_portable(f2.read())
 
-        with open(permuter.compiler.compile_cmd, "r") as f2:
-            self.compile_script = _make_script_portable(f2.read())
+    return PermuterData(
+        base_score=permuter.base_score,
+        base_hash=permuter.base_hash,
+        fn_name=permuter.fn_name,
+        filename=permuter.source_file,
+        keep_prob=permuter.keep_prob,
+        need_profiler=permuter.need_profiler,
+        stack_differences=permuter.scorer.stack_differences,
+        compile_script=compile_script,
+        source=permuter.source,
+        target_o_bin=target_o_bin,
+    )
 
 
 class Connection:
     _port: SocketPort
-    _permuter: PortablePermuter
+    _permuter_data: PermuterData
     _perm_index: int
     _task_queue: "Queue[Task]"
     _feedback_queue: "Queue[Feedback]"
@@ -112,32 +117,22 @@ class Connection:
     def __init__(
         self,
         port: SocketPort,
-        permuter: PortablePermuter,
+        permuter_data: PermuterData,
         perm_index: int,
         task_queue: "Queue[Task]",
         feedback_queue: "Queue[Feedback]",
     ) -> None:
         self._port = port
-        self._permuter = permuter
+        self._permuter_data = permuter_data
         self._perm_index = perm_index
         self._task_queue = task_queue
         self._feedback_queue = feedback_queue
 
     def _send_permuter(self) -> None:
-        permuter = self._permuter
-        obj = {
-            "base_score": permuter.base_score,
-            "base_hash": permuter.base_hash,
-            "fn_name": permuter.fn_name,
-            "filename": permuter.filename,
-            "keep_prob": permuter.keep_prob,
-            "need_profiler": permuter.need_profiler,
-            "stack_differences": permuter.stack_differences,
-            "compile_script": permuter.compile_script,
-        }
-        self._port.send_json(obj)
-        self._port.send(permuter.compressed_source)
-        self._port.send(permuter.compressed_target_o_bin)
+        data = self._permuter_data
+        self._port.send_json(permuter_data_to_json(data))
+        self._port.send(zlib.compress(data.source.encode("utf-8")))
+        self._port.send(zlib.compress(data.target_o_bin))
 
     def _feedback(self, feedback: FeedbackItem, server_nick: Optional[str]) -> None:
         self._feedback_queue.put((feedback, self._perm_index, server_nick))
@@ -153,7 +148,7 @@ class Connection:
         server_nick = json_prop(msg, "server", str)
         if msg_type == "init_done":
             base_hash = json_prop(msg, "hash", str)
-            my_base_hash = self._permuter.base_hash
+            my_base_hash = self._permuter_data.base_hash
             text = "connected"
             if base_hash != my_base_hash:
                 text += " (note: mismatching hash)"
@@ -264,12 +259,12 @@ def start_client(
     num_servers = json_prop(obj, "servers", int)
     num_clients = json_prop(obj, "clients", int)
     num_cores = json_prop(obj, "cores", float)
-    portable_permuter = PortablePermuter(permuter)
+    permuter_data = make_portable_permuter(permuter)
     task_queue: "Queue[Task]" = Queue()
 
     conn = Connection(
         port,
-        portable_permuter,
+        permuter_data,
         perm_index,
         task_queue,
         feedback_queue,

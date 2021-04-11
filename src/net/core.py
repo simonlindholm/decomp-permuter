@@ -43,6 +43,50 @@ def debug_print(message: str) -> None:
 
 
 @dataclass
+class PermuterData:
+    base_score: int
+    base_hash: str
+    fn_name: str
+    filename: str
+    keep_prob: float
+    need_profiler: bool
+    stack_differences: bool
+    compile_script: str
+    source: str
+    target_o_bin: bytes
+
+
+def permuter_data_from_json(
+    obj: dict, source: str, target_o_bin: bytes
+) -> PermuterData:
+    return PermuterData(
+        base_score=json_prop(obj, "base_score", int),
+        base_hash=json_prop(obj, "base_hash", str),
+        fn_name=json_prop(obj, "fn_name", str),
+        filename=json_prop(obj, "filename", str),
+        keep_prob=json_prop(obj, "keep_prob", float),
+        need_profiler=json_prop(obj, "need_profiler", bool),
+        stack_differences=json_prop(obj, "stack_differences", bool),
+        compile_script=json_prop(obj, "compile_script", str),
+        source=source,
+        target_o_bin=target_o_bin,
+    )
+
+
+def permuter_data_to_json(perm: PermuterData) -> dict:
+    return {
+        "base_score": perm.base_score,
+        "base_hash": perm.base_hash,
+        "fn_name": perm.fn_name,
+        "filename": perm.filename,
+        "keep_prob": perm.keep_prob,
+        "need_profiler": perm.need_profiler,
+        "stack_differences": perm.stack_differences,
+        "compile_script": perm.compile_script,
+    }
+
+
+@dataclass
 class Config:
     server_address: Optional[str] = None
     server_verify_key: Optional[VerifyKey] = None

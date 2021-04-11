@@ -26,22 +26,11 @@ from ..profiler import Profiler
 from ..scorer import Scorer
 from .core import (
     FilePort,
+    PermuterData,
     Port,
     json_prop,
+    permuter_data_from_json,
 )
-
-
-@dataclass
-class PermuterData:
-    perm_id: str
-    fn_name: str
-    filename: str
-    keep_prob: float
-    need_profiler: bool
-    stack_differences: bool
-    compile_script: str
-    source: str
-    target_o_bin: bytes
 
 
 def _fix_stdout() -> None:
@@ -240,30 +229,10 @@ def read_loop(task_queue: "Queue[Task]", port: Port) -> None:
             msg_type = json_prop(item, "type", str)
             if msg_type == "add":
                 perm_id = json_prop(item, "id", str)
-                fn_name = json_prop(item, "fn_name", str)
-                filename = json_prop(item, "filename", str)
-                keep_prob = json_prop(item, "keep_prob", float)
-                stack_differences = json_prop(item, "stack_differences", bool)
-                need_profiler = json_prop(item, "need_profiler", bool)
-                compile_script = json_prop(item, "compile_script", str)
                 source = port.receive().decode("utf-8")
                 target_o_bin = port.receive()
-                task_queue.put(
-                    AddPermuter(
-                        perm_id=perm_id,
-                        data=PermuterData(
-                            perm_id=perm_id,
-                            fn_name=fn_name,
-                            filename=filename,
-                            keep_prob=keep_prob,
-                            stack_differences=stack_differences,
-                            need_profiler=need_profiler,
-                            compile_script=compile_script,
-                            source=source,
-                            target_o_bin=target_o_bin,
-                        ),
-                    )
-                )
+                data = permuter_data_from_json(item, source, target_o_bin)
+                task_queue.put(AddPermuter(perm_id=perm_id, data=data))
 
             elif msg_type == "remove":
                 perm_id = json_prop(item, "id", str)

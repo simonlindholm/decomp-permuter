@@ -26,10 +26,13 @@ import nacl.utils
 
 from ..helpers import exception_to_string, static_assert_unreachable
 from .core import (
+    PermuterData,
     Port,
     SocketPort,
     file_read_fixed,
     json_prop,
+    permuter_data_from_json,
+    permuter_data_to_json,
 )
 
 
@@ -37,20 +40,6 @@ from .core import (
 class Client:
     id: str
     nickname: str
-
-
-@dataclass
-class PermuterData:
-    base_score: int
-    base_hash: str
-    fn_name: str
-    filename: str
-    keep_prob: float
-    need_profiler: bool
-    stack_differences: bool
-    compile_script: str
-    source: str
-    target_o_bin: bytes
 
 
 class InitState(Enum):
@@ -255,25 +244,6 @@ class NetThread:
         self._queue = queue
         self._controller_queue = controller_queue
 
-    def _parse_permuter(
-        self, msg: dict, compressed_source: bytes, compressed_target_o_bin: bytes
-    ) -> PermuterData:
-        source = zlib.decompress(compressed_source).decode("utf-8")
-        target_o_bin = zlib.decompress(compressed_target_o_bin)
-
-        return PermuterData(
-            base_score=json_prop(msg, "base_score", int),
-            base_hash=json_prop(msg, "base_hash", str),
-            fn_name=json_prop(msg, "fn_name", str),
-            filename=json_prop(msg, "filename", str),
-            keep_prob=json_prop(msg, "keep_prob", float),
-            need_profiler=json_prop(msg, "need_profiler", bool),
-            stack_differences=json_prop(msg, "stack_differences", bool),
-            compile_script=json_prop(msg, "compile_script", str),
-            source=source,
-            target_o_bin=target_o_bin,
-        )
-
     def _read_one(self) -> Activity:
         msg = self._port.receive_json()
 
@@ -292,14 +262,14 @@ class NetThread:
             client_id = json_prop(msg, "client_id", str)
             client_name = json_prop(msg, "client_name", str)
             client = Client(client_id, client_name)
-            permuter_data = json_prop(msg, "data", dict)
+            data = json_prop(msg, "data", dict)
             compressed_source = self._port.receive()
             compressed_target_o_bin = self._port.receive()
 
             try:
-                permuter = self._parse_permuter(
-                    permuter_data, compressed_source, compressed_target_o_bin
-                )
+                source = zlib.decompress(compressed_source).decode("utf-8")
+                target_o_bin = zlib.decompress(compressed_target_o_bin)
+                permuter = permuter_data_from_json(data, source, target_o_bin)
             except Exception as e:
                 # Client sent something illegible. This can legitimately happen if the
                 # client runs another version, but it's interesting to log.
@@ -569,26 +539,12 @@ class Server:
         self._send_controller(OutputNeedMoreWork())
 
     def _remove(self, handle: int) -> None:
-        self._evaluator_port.send_json(
-            {
-                "type": "remove",
-                "id": str(handle),
-            }
-        )
+        self._evaluator_port.send_json({"type": "remove", "id": str(handle)})
         self._active.remove(handle)
 
     def _send_permuter(self, id: str, perm: PermuterData) -> None:
         self._evaluator_port.send_json(
-            {
-                "type": "add",
-                "id": id,
-                "fn_name": perm.fn_name,
-                "filename": perm.filename,
-                "keep_prob": perm.keep_prob,
-                "need_profiler": perm.need_profiler,
-                "stack_differences": perm.stack_differences,
-                "compile_script": perm.compile_script,
-            }
+            {"type": "add", "id": id, **permuter_data_to_json(perm)}
         )
         self._evaluator_port.send(perm.source.encode("utf-8"))
         self._evaluator_port.send(perm.target_o_bin)
