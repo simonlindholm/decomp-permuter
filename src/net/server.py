@@ -113,7 +113,7 @@ class NeedMoreWork:
 
 @dataclass
 class NetThreadDisconnected:
-    token: object
+    thread_id: int
 
 
 class Heartbeat:
@@ -227,22 +227,40 @@ class ServerOptions:
 
 
 class NetThread:
-    _token: object
-    _port: Port
-    _queue: "queue.Queue[Activity]"
+    thread_id: int
+    _port: SocketPort
+    _main_queue: "queue.Queue[Activity]"
     _controller_queue: "queue.Queue[Output]"
+    _read_thread: "threading.Thread"
+    _write_thread: "threading.Thread"
 
     def __init__(
         self,
-        token: object,
-        port: Port,
-        queue: "queue.Queue[Activity]",
-        controller_queue: "queue.Queue[Output]",
+        thread_id: int,
+        port: SocketPort,
+        main_queue: "queue.Queue[Activity]",
     ) -> None:
-        self._token = token
+        self.thread_id = thread_id
         self._port = port
-        self._queue = queue
-        self._controller_queue = controller_queue
+        self._main_queue = main_queue
+        self._controller_queue = queue.Queue()
+
+        self._read_thread = threading.Thread(target=self.read_loop)
+        self._read_thread.daemon = True
+        self._read_thread.start()
+
+        self._write_thread = threading.Thread(target=self.write_loop)
+        self._write_thread.daemon = True
+        self._write_thread.start()
+
+    def stop(self) -> None:
+        self._controller_queue.put(Shutdown())
+        self._port.shutdown()
+        self._read_thread.join()
+        self._write_thread.join()
+
+    def send_controller(self, msg: Output) -> None:
+        self._controller_queue.put(msg)
 
     def _read_one(self) -> Activity:
         msg = self._port.receive_json()
@@ -296,11 +314,11 @@ class NetThread:
         try:
             while True:
                 msg = self._read_one()
-                self._queue.put(msg)
+                self._main_queue.put(msg)
         except Exception as e:
             if not isinstance(e, EOFError):
                 traceback.print_exc()
-            self._queue.put(NetThreadDisconnected(self._token))
+            self._main_queue.put(NetThreadDisconnected(self.thread_id))
 
     def _write_one(self, item: Output) -> None:
         if isinstance(item, Shutdown):
@@ -368,18 +386,18 @@ class NetThread:
         except Exception as e:
             if not isinstance(e, EOFError):
                 traceback.print_exc()
-            self._queue.put(NetThreadDisconnected(self._token))
+            self._main_queue.put(NetThreadDisconnected(self.thread_id))
 
 
 class Server:
     _options: ServerOptions
     _net_port: SocketPort
     _evaluator_port: Port
-    _queue: "queue.Queue[Activity]"
-    _controller_queue: "queue.Queue[Output]"
+    _main_queue: "queue.Queue[Activity]"
     _io_queue: "queue.Queue[IoActivity]"
     _state: str
-    _current_net_token: Optional[object]
+    _net_thread: Optional[NetThread]
+    _next_net_thread_id: int
     _active: Set[int]
 
     def __init__(
@@ -392,15 +410,16 @@ class Server:
         self._options = options
         self._net_port = net_port
         self._evaluator_port = evaluator_port
-        self._queue = queue.Queue()
-        self._controller_queue = queue.Queue()
+        self._main_queue = queue.Queue()
         self._io_queue = io_queue
         self._state = "notstarted"
-        self._current_net_token = None
+        self._net_thread = None
+        self._next_net_thread_id = 0
         self._active = set()
 
     def _send_controller(self, msg: Output) -> None:
-        self._controller_queue.put(msg)
+        if self._net_thread:
+            self._net_thread.send_controller(msg)
 
     def _send_io(self, handle: int, io_msg: IoMessage) -> None:
         self._io_queue.put((handle, io_msg))
@@ -519,7 +538,7 @@ class Server:
             self._need_work()
 
         elif isinstance(msg, NetThreadDisconnected):
-            if msg.token is not self._current_net_token:
+            if self._net_thread is None or msg.thread_id != self._net_thread.thread_id:
                 return
 
             for handle in list(self._active):
@@ -570,7 +589,7 @@ class Server:
                         perm_id=perm_id,
                         error=json_prop(msg, "error", str),
                     )
-                self._queue.put(resp)
+                self._main_queue.put(resp)
 
             elif msg_type == "result":
                 compressed_source: Optional[bytes] = None
@@ -580,7 +599,7 @@ class Server:
                 time_us = json_prop(msg, "time_us", float)
                 del msg["id"]
                 del msg["time_us"]
-                self._queue.put(
+                self._main_queue.put(
                     WorkDone(
                         perm_id=perm_id,
                         obj=msg,
@@ -590,7 +609,7 @@ class Server:
                 )
 
             elif msg_type == "need_work":
-                self._queue.put(NeedMoreWork())
+                self._main_queue.put(NeedMoreWork())
 
             else:
                 raise Exception(f"Unknown message type from evaluator: {msg_type}")
@@ -604,34 +623,23 @@ class Server:
 
     def _main_loop(self) -> None:
         while True:
-            msg = self._queue.get()
+            msg = self._main_queue.get()
             if isinstance(msg, Shutdown):
                 break
 
             self._handle_message(msg)
 
-            if not self._active and self._queue.empty():
+            if not self._active and self._main_queue.empty():
                 self._send_io_global(IoWillSleep())
 
     def start(self) -> None:
         assert self._state == "notstarted"
         self._state = "started"
 
-        self._current_net_token = object()
-        net_thread = NetThread(
-            self._current_net_token, self._net_port, self._queue, self._controller_queue
+        self._net_thread = NetThread(
+            self._next_net_thread_id, self._net_port, self._main_queue
         )
-
-        # Start read and write threads for the network connection.
-        net_read_thread = threading.Thread(target=net_thread.read_loop)
-        net_read_thread.daemon = True
-        net_read_thread.start()
-        self._net_read_thread = net_read_thread
-
-        net_write_thread = threading.Thread(target=net_thread.write_loop)
-        net_write_thread.daemon = True
-        net_write_thread.start()
-        self._net_write_thread = net_write_thread
+        self._next_net_thread_id += 1
 
         # Start a thread for reading evaluator results and sending them on to
         # the main loop queue.
@@ -645,21 +653,18 @@ class Server:
         main_thread.start()
 
     def remove_permuter(self, handle: int) -> None:
-        self._queue.put(Disconnect(handle=handle))
+        self._main_queue.put(Disconnect(handle=handle))
 
     def _stop_net_thread(self) -> None:
-        if self._current_net_token is None:
+        if self._net_thread is None:
             return
-        self._current_net_token = None
-        self._net_port.shutdown()
-        self._controller_queue.put(Shutdown())
-        self._net_read_thread.join()
-        self._net_write_thread.join()
+        self._net_thread.stop()
+        self._net_thread = None
 
     def stop(self) -> None:
         assert self._state == "started"
         self._state = "finished"
-        self._queue.put(Shutdown())
+        self._main_queue.put(Shutdown())
         self._stop_net_thread()
 
 
