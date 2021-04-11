@@ -580,8 +580,8 @@ def main() -> None:
         metavar="PROB",
         type=restricted_float(0.0, 1.0),
         default=DEFAULT_RAND_KEEP_PROB,
-        help="Continue randomizing the previous output with the given probability "
-        f"(float in 0..1, default %(default)s).",
+        help="""Continue randomizing the previous output with the given probability
+            (float in 0..1, default %(default)s).""",
     )
     parser.add_argument("--seed", dest="force_seed", type=str, help=argparse.SUPPRESS)
     parser.add_argument(
@@ -609,12 +609,12 @@ def main() -> None:
         metavar="PRIORITY",
         type=restricted_float(MIN_PRIO, MAX_PRIO),
         default=1.0,
-        help="Proportion of server resources to use when multiple people "
-        "are using -J at the same time. "
-        "Defaults to 1.0, meaning resources are split equally, but can be "
-        f"set to any value within [{MIN_PRIO}, {MAX_PRIO}]. "
-        "Each server runs with a priority threshold, which defaults to 0.1, "
-        "below which they will not run permuter jobs at all.",
+        help=f"""Proportion of server resources to use when multiple people
+            are using -J at the same time.
+            Defaults to 1.0, meaning resources are split equally, but can be
+            set to any value within [{MIN_PRIO}, {MAX_PRIO}].
+            Each server runs with a priority threshold, which defaults to 0.1,
+            below which they will not run permuter jobs at all.""",
     )
 
     args = parser.parse_args()

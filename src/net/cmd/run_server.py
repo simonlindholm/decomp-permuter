@@ -34,10 +34,8 @@ SYSTRAY_UPDATE_INTERVAL = 20.0
 
 class RunServerCommand(Command):
     command = "run-server"
-    help = (
-        "Run a permuter server, allowing anyone with access to the central "
-        "server to run sandboxed permuter jobs on your machine."
-    )
+    help = """Run a permuter server, allowing anyone with access to the central
+        server to run sandboxed permuter jobs on your machine. Requires docker."""
 
     @staticmethod
     def add_arguments(parser: ArgumentParser) -> None:
@@ -55,9 +53,9 @@ class RunServerCommand(Command):
             metavar="MEMORY_GB",
             type=float,
             required=True,
-            help="Restrict the sandboxed process to the given amount of memory in "
-            "gigabytes (float). If this limit is hit, the permuter will crash "
-            "horribly, but at least your system won't lock up.",
+            help="""Restrict the sandboxed process to the given amount of memory in
+            gigabytes (float). If this limit is hit, the permuter will crash
+            horribly, but at least your system won't lock up.""",
         )
         parser.add_argument(
             "--systray",
@@ -71,8 +69,8 @@ class RunServerCommand(Command):
             metavar="PRIORITY",
             type=float,
             default=0.1,
-            help="Only accept jobs from clients who pass --priority with a number "
-            "higher or equal to this value. (default: %(default)s)",
+            help="""Only accept jobs from clients who pass --priority with a number
+            higher or equal to this value. (default: %(default)s)""",
         )
 
     @staticmethod

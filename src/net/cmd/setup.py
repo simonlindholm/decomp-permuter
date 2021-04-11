@@ -17,10 +17,8 @@ from .util import ask
 
 class SetupCommand(Command):
     command = "setup"
-    help = (
-        "Set up permuter@home. This will require someone else to grant you "
-        "access to the central server."
-    )
+    help = """Set up permuter@home. This will require someone else to grant you
+        access to the central server."""
 
     @staticmethod
     def add_arguments(parser: ArgumentParser) -> None:
