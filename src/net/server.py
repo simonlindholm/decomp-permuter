@@ -37,6 +37,9 @@ from .core import (
 )
 
 
+_HEARTBEAT_INTERVAL_SLACK: float = 50.0
+
+
 class PermuterToken:
     pass
 
@@ -422,8 +425,11 @@ class ServerInner:
     _main_queue: "queue.Queue[Activity]"
     _io_queue: "queue.Queue[IoActivity]"
     _net_thread: NetThread
-    _read_eval_thread: "threading.Thread"
-    _main_thread: "threading.Thread"
+    _read_eval_thread: threading.Thread
+    _main_thread: threading.Thread
+    _heartbeat_check_interval: float
+    _last_heartbeat: float
+    _last_heartbeat_lock: threading.Lock
     _active: Set[int]
     token: PermuterToken
     _stopped: bool
@@ -433,6 +439,7 @@ class ServerInner:
         net_port: SocketPort,
         evaluator_port: "DockerPort",
         io_queue: "queue.Queue[IoActivity]",
+        heartbeat_interval: float,
     ) -> None:
         self._evaluator_port = evaluator_port
         self._main_queue = queue.Queue()
@@ -443,18 +450,25 @@ class ServerInner:
 
         self._net_thread = NetThread(net_port, self._main_queue)
 
+        # Start a thread for checking heartbeats.
+        self._heartbeat_check_interval = heartbeat_interval + _HEARTBEAT_INTERVAL_SLACK
+        self._last_heartbeat = time.time()
+        self._last_heartbeat_lock = threading.Lock()
+        self._heartbeat_stop = threading.Event()
+        self._heartbeat_thread = threading.Thread(target=self._heartbeat_loop)
+        self._heartbeat_thread.daemon = True
+        self._heartbeat_thread.start()
+
         # Start a thread for reading evaluator results and sending them on to
         # the main loop queue.
-        read_eval_thread = threading.Thread(target=self._read_eval_loop)
-        read_eval_thread.daemon = True
-        read_eval_thread.start()
-        self._read_eval_thread = read_eval_thread
+        self._read_eval_thread = threading.Thread(target=self._read_eval_loop)
+        self._read_eval_thread.daemon = True
+        self._read_eval_thread.start()
 
         # Start a thread for the main loop.
-        main_thread = threading.Thread(target=self._main_loop)
-        main_thread.daemon = True
-        main_thread.start()
-        self._main_thread = main_thread
+        self._main_thread = threading.Thread(target=self._main_loop)
+        self._main_thread.daemon = True
+        self._main_thread.start()
 
     def _send_controller(self, msg: Output) -> None:
         self._net_thread.send_controller(msg)
@@ -471,7 +485,8 @@ class ServerInner:
             pass
 
         elif isinstance(msg, Heartbeat):
-            pass
+            with self._last_heartbeat_lock:
+                self._last_heartbeat = time.time()
 
         elif isinstance(msg, Work):
             if msg.handle not in self._active:
@@ -659,6 +674,17 @@ class ServerInner:
             if not self._active and self._main_queue.empty():
                 self._send_io_global(IoWillSleep())
 
+    def _heartbeat_loop(self) -> None:
+        while True:
+            with self._last_heartbeat_lock:
+                wait_until = self._last_heartbeat + self._heartbeat_check_interval
+            delay = wait_until - time.time()
+            if delay < 0:
+                self._main_queue.put(NetThreadDisconnected())
+                return
+            if self._heartbeat_stop.wait(delay):
+                return
+
     def remove_permuter(self, handle: int) -> None:
         assert not self._stopped
         self._main_queue.put(Disconnect(handle=handle))
@@ -666,11 +692,12 @@ class ServerInner:
     def stop(self) -> None:
         assert not self._stopped
         self._stopped = True
-
+        self._main_queue.put(Shutdown())
+        self._heartbeat_stop.set()
         self._net_thread.stop()
         self._evaluator_port.shutdown()
-        self._main_queue.put(Shutdown())
         self._main_thread.join()
+        self._heartbeat_thread.join()
 
 
 class DockerPort(Port):
@@ -851,11 +878,14 @@ class Server:
         )
         obj = net_port.receive_json()
         docker_image = json_prop(obj, "docker_image", str)
+        heartbeat_interval = json_prop(obj, "heartbeat_interval", float)
 
         evaluator_port = _start_evaluator(docker_image, self._options)
 
         try:
-            self._server = ServerInner(net_port, evaluator_port, self._io_queue)
+            self._server = ServerInner(
+                net_port, evaluator_port, self._io_queue, heartbeat_interval
+            )
         except:
             evaluator_port.shutdown()
             raise
