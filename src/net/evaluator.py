@@ -322,18 +322,16 @@ def main() -> None:
                 "id": item.perm_id,
             }
 
+            time_before = time.time()
             try:
                 # Construct a permuter. This involves a compilation on the main
                 # thread, which isn't great but we can live with it for now.
-                time_before = time.time()
                 permuter = _create_permuter(item.data)
                 permuters[item.perm_id] = permuter
-                time_us = int((time.time() - time_before) * 10 ** 6)
 
                 msg["success"] = True
                 msg["base_score"] = permuter.base_score
                 msg["base_hash"] = permuter.base_hash
-                msg["time_us"] = time_us
 
                 # Tell all the workers about the new permuter.
                 # TODO: ideally we would also seed their Candidate lru_cache's
@@ -350,13 +348,13 @@ def main() -> None:
                 # This shouldn't practically happen, since the client compiled
                 # the code successfully. Print a message if it does.
                 msg["success"] = False
-                msg["time_us"] = 0
                 msg["error"] = exception_to_string(e)
                 if isinstance(e, CandidateConstructionFailure):
                     print(e.message)
                 else:
                     traceback.print_exc()
 
+            msg["time_us"] = int((time.time() - time_before) * 10 ** 6)
             port.send_json(msg)
 
         elif isinstance(item, RemovePermuter):
