@@ -50,7 +50,7 @@ def _result_from_json(obj: dict, source: Optional[str]) -> EvalResult:
         profiler = _profiler_from_json(json_prop(obj, "profiler", dict))
     return CandidateResult(
         score=json_prop(obj, "score", int),
-        hash=json_prop(obj, "hash", str),
+        hash=json_prop(obj, "hash", str) if "hash" in obj else None,
         source=source,
         profiler=profiler,
     )

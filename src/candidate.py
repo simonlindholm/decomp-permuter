@@ -19,13 +19,11 @@ from . import ast_util
 
 @dataclass
 class CandidateResult:
-    """
-    Represents the result of scoring a candidate, and is sent from child to
-    parent processes.
-    """
+    """Represents the result of scoring a candidate, and is sent from child to
+    parent processes, or server to client with p@h."""
 
     score: int
-    hash: str
+    hash: Optional[str]
     source: Optional[str]
     profiler: Optional[Profiler] = None
 

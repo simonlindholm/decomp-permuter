@@ -142,6 +142,7 @@ class Permuter:
         if not o_file:
             raise CandidateConstructionFailure(f"Unable to compile {self.source_file}")
         base_result = base_cand.score(self.scorer, o_file)
+        assert base_result.hash is not None
         return base_result.score, base_result.hash, base_cand.get_source()
 
     def _need_to_send_source(self, result: CandidateResult) -> bool:
@@ -206,6 +207,7 @@ class Permuter:
 
         if not self._need_to_send_source(result):
             result.source = None
+            result.hash = None
 
         return result
 
@@ -214,6 +216,8 @@ class Permuter:
         in child processes than in parent ones, or else sources will be missing."""
         return (
             result.score <= self.base_score
+            and result.hash is not None
+            and result.source is not None
             and not (result.score > self.best_score and self._best_only)
             and (
                 result.score < self.base_score
@@ -227,7 +231,7 @@ class Permuter:
         the set of hashes we have already seen. No hash is recorded for score
         0, since we are interested in all score 0's, not just the first."""
         self.best_score = min(self.best_score, result.score)
-        if result.score != 0:
+        if result.score != 0 and result.hash is not None:
             self.hashes.add(result.hash)
 
     def seed_iterator(self) -> Iterator[int]:

@@ -130,9 +130,10 @@ def _send_result(perm_id: str, time_us: float, res: EvalResult, port: Port) -> N
         "id": perm_id,
         "time_us": time_us,
         "score": res.score,
-        "hash": res.hash,
         "has_source": compressed_source is not None,
     }
+    if res.hash is not None:
+        obj["hash"] = res.hash
     if res.profiler is not None:
         obj["profiler"] = {
             st.name: res.profiler.time_stats[st] for st in Profiler.StatType
