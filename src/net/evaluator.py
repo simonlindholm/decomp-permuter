@@ -327,6 +327,18 @@ def main() -> None:
                 # Construct a permuter. This involves a compilation on the main
                 # thread, which isn't great but we can live with it for now.
                 permuter = _create_permuter(item.data)
+
+                if permuter.base_score != item.data.base_score:
+                    _remove_permuter(permuter)
+                    score_str = f"{permuter.base_score} vs {item.data.base_score}"
+                    if permuter.base_hash == item.data.base_hash:
+                        hash_str = "same hash; different Python or permuter versions?"
+                    else:
+                        hash_str = "different hash; different objdump versions?"
+                    raise CandidateConstructionFailure(
+                        f"mismatching score: {score_str} ({hash_str})"
+                    )
+
                 permuters[item.perm_id] = permuter
 
                 msg["success"] = True
