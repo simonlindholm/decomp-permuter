@@ -3,7 +3,7 @@ from argparse import ArgumentParser, RawDescriptionHelpFormatter
 from ..core import enable_debug_mode
 from .run_server import RunServerCommand
 from .setup import SetupCommand
-from .stats import StatsCommand
+from .ping import PingCommand
 from .vouch import VouchCommand
 
 
@@ -16,9 +16,9 @@ def main() -> None:
     )
 
     commands = [
+        PingCommand,
         RunServerCommand,
         SetupCommand,
-        StatsCommand,
         VouchCommand,
     ]
 

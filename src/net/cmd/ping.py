@@ -1,12 +1,13 @@
 from argparse import ArgumentParser, Namespace
+import time
 
 from ..core import connect
 from .base import Command
 
 
-class StatsCommand(Command):
-    command = "stats"
-    help = "Print statistics."
+class PingCommand(Command):
+    command = "ping"
+    help = "Check server connectivity."
 
     @staticmethod
     def add_arguments(parser: ArgumentParser) -> None:
@@ -14,11 +15,13 @@ class StatsCommand(Command):
 
     @staticmethod
     def run(args: Namespace) -> None:
-        run_stats()
+        run_ping()
 
 
-def run_stats() -> None:
+def run_ping() -> None:
     port = connect()
+    t0 = time.time()
     port.send_json({"method": "ping"})
     port.receive_json()
-    print("Connected! TODO: actually print stats")
+    rtt = (time.time() - t0) * 1000
+    print(f"Connected successfully! Round-trip time: {rtt:.1f} ms")
