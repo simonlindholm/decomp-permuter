@@ -34,11 +34,14 @@ from .core import (
 
 
 def _fix_stdout() -> None:
-    # Since we use sys.stdout for our own purposes, redirect it to stdout to
-    # make print() debugging work. Also, set it to flush on newlines, which
-    # does not happen by default when stderr is piped. (Requires Python 3.7,
-    # which we know is available inside the sandbox.)
+    """Redirect stdout to stderr to make print() debugging work. This function
+    *must* be called at startup for each (sub)process, since we use stdout for
+    our own communication purposes."""
     sys.stdout = sys.stderr
+
+    # In addition, we set stderr to flush on newlines, which not happen by
+    # default when it is piped. (Requires Python 3.7, but we can assume that's
+    # available inside the sandbox.)
     sys.stdout.reconfigure(line_buffering=True)  # type: ignore
 
 
@@ -263,12 +266,12 @@ def read_loop(task_queue: "Queue[Task]", port: Port) -> None:
 
 
 def main() -> None:
+    _fix_stdout()
     secret = base64.b64decode(os.environ["SECRET"])
     del os.environ["SECRET"]
     os.environ["PERMUTER_IS_REMOTE"] = "1"
 
     port = _setup_port(secret)
-    _fix_stdout()
 
     obj = port.receive_json()
     num_cores = json_prop(obj, "num_cores", float)
