@@ -11,7 +11,6 @@ from PIL import Image
 import pystray
 
 from ...helpers import static_assert_unreachable
-from ..core import connect, json_prop
 from ..server import (
     Client,
     IoActivity,
@@ -19,12 +18,14 @@ from ..server import (
     IoDisconnect,
     IoGlobalMessage,
     IoImmediateDisconnect,
+    IoServerFailed,
     IoShutdown,
+    IoUserRemovePermuter,
     IoWillSleep,
     IoWorkDone,
+    PermuterHandle,
     Server,
     ServerOptions,
-    start_evaluator,
 )
 from .base import Command
 
@@ -79,20 +80,19 @@ class RunServerCommand(Command):
             num_cores=args.num_cores,
             max_memory_gb=args.max_memory_gb,
             min_priority=args.min_priority,
-            systray=args.systray,
         )
 
-        server_main(options)
+        server_main(options, args.systray)
 
 
 class SystrayState:
-    def connect(self, handle: int, nickname: str, fn_name: str) -> None:
+    def connect(self, handle: PermuterHandle, nickname: str, fn_name: str) -> None:
         pass
 
-    def disconnect(self, handle: int) -> None:
+    def disconnect(self, handle: PermuterHandle) -> None:
         pass
 
-    def work_done(self, handle: int, is_improvement: bool) -> None:
+    def work_done(self, handle: PermuterHandle, is_improvement: bool) -> None:
         pass
 
     def will_sleep(self) -> None:
@@ -109,24 +109,22 @@ class Permuter:
 
 
 class RealSystrayState(SystrayState):
-    _permuters: Dict[int, Permuter]
+    _permuters: Dict[PermuterHandle, Permuter]
 
     def __init__(
         self,
-        server: Server,
-        output_queue: "queue.Queue[IoActivity]",
+        io_queue: "queue.Queue[IoActivity]",
         update_menu: Callable[[List[pystray.MenuItem], bool], None],
     ) -> None:
-        self._server = server
-        self._output_queue = output_queue
+        self._io_queue = io_queue
         self._update_menu = update_menu
         self._permuters = {}
 
-    def _remove_permuter(self, handle: int, *_: Any) -> None:
-        self._server.remove_permuter(handle)
+    def _remove_permuter(self, handle: PermuterHandle, *_: Any) -> None:
+        self._io_queue.put((None, (handle, IoUserRemovePermuter())))
 
     def _quit(self) -> None:
-        self._output_queue.put(IoShutdown())
+        self._io_queue.put((None, IoShutdown()))
 
     def _update(self, flush: bool = True) -> None:
         title = "Currently permuting:" if self._permuters else "<not running>"
@@ -161,15 +159,15 @@ class RealSystrayState(SystrayState):
     def initial_update(self) -> None:
         self._update()
 
-    def connect(self, handle: int, nickname: str, fn_name: str) -> None:
+    def connect(self, handle: PermuterHandle, nickname: str, fn_name: str) -> None:
         self._permuters[handle] = Permuter(nickname, fn_name)
         self._update()
 
-    def disconnect(self, handle: int) -> None:
+    def disconnect(self, handle: PermuterHandle) -> None:
         del self._permuters[handle]
         self._update()
 
-    def work_done(self, handle: int, is_improvement: bool) -> None:
+    def work_done(self, handle: PermuterHandle, is_improvement: bool) -> None:
         perm = self._permuters[handle]
         perm.iterations += 1
         if is_improvement:
@@ -184,8 +182,7 @@ class RealSystrayState(SystrayState):
 
 
 def run_with_systray(
-    server: Server,
-    output_queue: "queue.Queue[IoActivity]",
+    io_queue: "queue.Queue[IoActivity]",
     loop: Callable[[SystrayState], None],
 ) -> None:
     menu_items: List[pystray.MenuItem] = []
@@ -203,7 +200,7 @@ def run_with_systray(
         if flush:
             icon.update_menu()
 
-    systray = RealSystrayState(server, output_queue, update_menu)
+    systray = RealSystrayState(io_queue, update_menu)
     systray.initial_update()
 
     def inner(icon: pystray.Icon) -> None:
@@ -214,16 +211,28 @@ def run_with_systray(
     icon.run(inner)
 
 
-def output_loop(output_queue: "queue.Queue[IoActivity]", systray: SystrayState) -> None:
-    handle_clients: Dict[int, Client] = {}
+def main_loop(
+    io_queue: "queue.Queue[IoActivity]",
+    server: Server,
+    systray: SystrayState,
+) -> None:
+    handle_clients: Dict[PermuterHandle, Client] = {}
     while True:
-        activity = output_queue.get()
+        token, activity = io_queue.get()
+        if token and not server.is_valid_token(token):
+            continue
+
         if not isinstance(activity, tuple):
             if isinstance(activity, IoWillSleep):
                 systray.will_sleep()
 
             elif isinstance(activity, IoShutdown):
                 break
+
+            elif isinstance(activity, IoServerFailed):
+                print("disconnected from permuter@home")
+                server.stop()
+                # TODO: reconnect after a while
 
             else:
                 static_assert_unreachable(activity)
@@ -250,43 +259,27 @@ def output_loop(output_queue: "queue.Queue[IoActivity]", systray: SystrayState) 
                 # TODO: statistics
                 systray.work_done(handle, msg.is_improvement)
 
+            elif isinstance(msg, IoUserRemovePermuter):
+                server.remove_permuter(handle)
+
             else:
                 static_assert_unreachable(msg)
 
 
-def server_main(options: ServerOptions) -> None:
-    net_port = connect()
-    net_port.send_json(
-        {
-            "method": "connect_server",
-            "min_priority": options.min_priority,
-            "num_cores": options.num_cores,
-        }
-    )
-    obj = net_port.receive_json()
-    docker_image = json_prop(obj, "docker_image", str)
+def server_main(options: ServerOptions, use_systray: bool) -> None:
+    io_queue: "queue.Queue[IoActivity]" = queue.Queue()
 
-    output_queue: "queue.Queue[IoActivity]" = queue.Queue()
-
-    evaluator_port = start_evaluator(docker_image, options)
-
-    server = Server(net_port, options, evaluator_port, output_queue)
+    server = Server(options, io_queue)
     server.start()
 
     try:
 
         def cmdline_ui(systray: SystrayState) -> None:
-            output_thread = threading.Thread(
-                target=output_loop, args=(output_queue, systray)
-            )
-            output_thread.daemon = True
-            output_thread.start()
-            output_thread.join()
+            main_loop(io_queue, server, systray)
 
-        if options.systray:
-            run_with_systray(server, output_queue, cmdline_ui)
+        if use_systray:
+            run_with_systray(io_queue, cmdline_ui)
         else:
             cmdline_ui(SystrayState())
-        server.stop()
     finally:
-        evaluator_port.shutdown()
+        server.stop()

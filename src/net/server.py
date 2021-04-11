@@ -29,11 +29,16 @@ from .core import (
     PermuterData,
     Port,
     SocketPort,
+    connect,
     file_read_fixed,
     json_prop,
     permuter_data_from_json,
     permuter_data_to_json,
 )
+
+
+class PermuterToken:
+    pass
 
 
 @dataclass
@@ -111,9 +116,8 @@ class NeedMoreWork:
     pass
 
 
-@dataclass
 class NetThreadDisconnected:
-    thread_id: int
+    pass
 
 
 class Heartbeat:
@@ -199,6 +203,14 @@ class IoImmediateDisconnect:
     client: Client
 
 
+class IoUserRemovePermuter:
+    pass
+
+
+class IoServerFailed:
+    pass
+
+
 class IoShutdown:
     pass
 
@@ -213,9 +225,14 @@ class IoWorkDone:
     is_improvement: bool
 
 
-IoMessage = Union[IoConnect, IoDisconnect, IoImmediateDisconnect, IoWorkDone]
-IoGlobalMessage = Union[IoShutdown, IoWillSleep]
-IoActivity = Union[Tuple[int, IoMessage], IoGlobalMessage]
+PermuterHandle = Tuple[int, PermuterToken]
+IoMessage = Union[
+    IoConnect, IoDisconnect, IoImmediateDisconnect, IoUserRemovePermuter, IoWorkDone
+]
+IoGlobalMessage = Union[IoShutdown, IoServerFailed, IoWillSleep]
+IoActivity = Tuple[
+    Optional[PermuterToken], Union[Tuple[PermuterHandle, IoMessage], IoGlobalMessage]
+]
 
 
 @dataclass
@@ -223,12 +240,10 @@ class ServerOptions:
     num_cores: float
     max_memory_gb: float
     min_priority: float
-    systray: bool
 
 
 class NetThread:
-    thread_id: int
-    _port: SocketPort
+    _port: Optional[SocketPort]
     _main_queue: "queue.Queue[Activity]"
     _controller_queue: "queue.Queue[Output]"
     _read_thread: "threading.Thread"
@@ -236,11 +251,9 @@ class NetThread:
 
     def __init__(
         self,
-        thread_id: int,
         port: SocketPort,
         main_queue: "queue.Queue[Activity]",
     ) -> None:
-        self.thread_id = thread_id
         self._port = port
         self._main_queue = main_queue
         self._controller_queue = queue.Queue()
@@ -254,15 +267,25 @@ class NetThread:
         self._write_thread.start()
 
     def stop(self) -> None:
-        self._controller_queue.put(Shutdown())
-        self._port.shutdown()
-        self._read_thread.join()
-        self._write_thread.join()
+        if self._port is None:
+            return
+        try:
+            self._controller_queue.put(Shutdown())
+            self._port.shutdown()
+            self._read_thread.join()
+            self._write_thread.join()
+            self._port.close()
+            self._port = None
+        except Exception:
+            print("Failed to stop net thread.")
+            traceback.print_exc()
 
     def send_controller(self, msg: Output) -> None:
         self._controller_queue.put(msg)
 
     def _read_one(self) -> Activity:
+        assert self._port is not None
+
         msg = self._port.receive_json()
 
         msg_type = json_prop(msg, "type", str)
@@ -318,9 +341,11 @@ class NetThread:
         except Exception as e:
             if not isinstance(e, EOFError):
                 traceback.print_exc()
-            self._main_queue.put(NetThreadDisconnected(self.thread_id))
+            self._main_queue.put(NetThreadDisconnected())
 
     def _write_one(self, item: Output) -> None:
+        assert self._port is not None
+
         if isinstance(item, Shutdown):
             # Handled by caller
             pass
@@ -386,46 +411,59 @@ class NetThread:
         except Exception as e:
             if not isinstance(e, EOFError):
                 traceback.print_exc()
-            self._main_queue.put(NetThreadDisconnected(self.thread_id))
+            self._main_queue.put(NetThreadDisconnected())
 
 
-class Server:
-    _options: ServerOptions
-    _net_port: SocketPort
-    _evaluator_port: Port
+class ServerInner:
+    """This class represents an up-and-running server, connected to the controller and
+    to the evaluator."""
+
+    _evaluator_port: "DockerPort"
     _main_queue: "queue.Queue[Activity]"
     _io_queue: "queue.Queue[IoActivity]"
-    _state: str
-    _net_thread: Optional[NetThread]
-    _next_net_thread_id: int
+    _net_thread: NetThread
+    _read_eval_thread: "threading.Thread"
+    _main_thread: "threading.Thread"
     _active: Set[int]
+    token: PermuterToken
+    _stopped: bool
 
     def __init__(
         self,
         net_port: SocketPort,
-        options: ServerOptions,
-        evaluator_port: Port,
+        evaluator_port: "DockerPort",
         io_queue: "queue.Queue[IoActivity]",
     ) -> None:
-        self._options = options
-        self._net_port = net_port
         self._evaluator_port = evaluator_port
         self._main_queue = queue.Queue()
         self._io_queue = io_queue
-        self._state = "notstarted"
-        self._net_thread = None
-        self._next_net_thread_id = 0
         self._active = set()
+        self.token = PermuterToken()
+        self._stopped = False
+
+        self._net_thread = NetThread(net_port, self._main_queue)
+
+        # Start a thread for reading evaluator results and sending them on to
+        # the main loop queue.
+        read_eval_thread = threading.Thread(target=self._read_eval_loop)
+        read_eval_thread.daemon = True
+        read_eval_thread.start()
+        self._read_eval_thread = read_eval_thread
+
+        # Start a thread for the main loop.
+        main_thread = threading.Thread(target=self._main_loop)
+        main_thread.daemon = True
+        main_thread.start()
+        self._main_thread = main_thread
 
     def _send_controller(self, msg: Output) -> None:
-        if self._net_thread:
-            self._net_thread.send_controller(msg)
+        self._net_thread.send_controller(msg)
 
     def _send_io(self, handle: int, io_msg: IoMessage) -> None:
-        self._io_queue.put((handle, io_msg))
+        self._io_queue.put((self.token, ((handle, self.token), io_msg)))
 
     def _send_io_global(self, io_msg: IoGlobalMessage) -> None:
-        self._io_queue.put(io_msg)
+        self._io_queue.put((self.token, io_msg))
 
     def _handle_message(self, msg: Activity) -> None:
         if isinstance(msg, Shutdown):
@@ -538,18 +576,7 @@ class Server:
             self._need_work()
 
         elif isinstance(msg, NetThreadDisconnected):
-            if self._net_thread is None or msg.thread_id != self._net_thread.thread_id:
-                return
-
-            for handle in list(self._active):
-                self._remove(handle)
-
-            print("disconnected from permuter@home")
-
-            self._stop_net_thread()
-            # TODO reconnect after a while
-            # (requires another mapping of new permuter ids to evaluator ones
-            # than stringification to avoid collisions)
+            self._send_io_global(IoServerFailed())
 
         else:
             static_assert_unreachable(msg)
@@ -632,40 +659,18 @@ class Server:
             if not self._active and self._main_queue.empty():
                 self._send_io_global(IoWillSleep())
 
-    def start(self) -> None:
-        assert self._state == "notstarted"
-        self._state = "started"
-
-        self._net_thread = NetThread(
-            self._next_net_thread_id, self._net_port, self._main_queue
-        )
-        self._next_net_thread_id += 1
-
-        # Start a thread for reading evaluator results and sending them on to
-        # the main loop queue.
-        read_eval_thread = threading.Thread(target=self._read_eval_loop)
-        read_eval_thread.daemon = True
-        read_eval_thread.start()
-
-        # Start a thread for the main loop.
-        main_thread = threading.Thread(target=self._main_loop)
-        main_thread.daemon = True
-        main_thread.start()
-
     def remove_permuter(self, handle: int) -> None:
+        assert not self._stopped
         self._main_queue.put(Disconnect(handle=handle))
 
-    def _stop_net_thread(self) -> None:
-        if self._net_thread is None:
-            return
-        self._net_thread.stop()
-        self._net_thread = None
-
     def stop(self) -> None:
-        assert self._state == "started"
-        self._state = "finished"
+        assert not self._stopped
+        self._stopped = True
+
+        self._net_thread.stop()
+        self._evaluator_port.shutdown()
         self._main_queue.put(Shutdown())
-        self._stop_net_thread()
+        self._main_thread.join()
 
 
 class DockerPort(Port):
@@ -678,12 +683,14 @@ class DockerPort(Port):
     _sock: BinaryIO
     _container: docker.models.containers.Container
     _stdout_buffer: bytes
+    _closed: bool
 
     def __init__(
         self, container: docker.models.containers.Container, secret: bytes
     ) -> None:
         self._container = container
         self._stdout_buffer = b""
+        self._closed = False
 
         # Set up a socket for reading from stdout/stderr and writing to
         # stdin for the container. The docker package does not seem to
@@ -709,6 +716,9 @@ class DockerPort(Port):
         super().__init__(SecretBox(secret), "docker", is_client=True)
 
     def shutdown(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
         try:
             self._sock.close()
             self._container.remove(force=True)
@@ -742,7 +752,7 @@ class DockerPort(Port):
         self._sock.flush()
 
 
-def start_evaluator(docker_image: str, options: ServerOptions) -> DockerPort:
+def _start_evaluator(docker_image: str, options: ServerOptions) -> DockerPort:
     """Spawn a docker container and set it up to evaluate permutations in,
     returning a handle that we can use to communicate with it.
 
@@ -811,3 +821,54 @@ def start_evaluator(docker_image: str, options: ServerOptions) -> DockerPort:
 
     print("Started.")
     return port
+
+
+class Server:
+    """This class represents a server that may or may not be connected to the
+    controller and the evaluator."""
+
+    _server: Optional[ServerInner]
+    _options: ServerOptions
+    _io_queue: "queue.Queue[IoActivity]"
+
+    def __init__(
+        self, options: ServerOptions, io_queue: "queue.Queue[IoActivity]"
+    ) -> None:
+        self._server = None
+        self._options = options
+        self._io_queue = io_queue
+
+    def start(self) -> None:
+        assert self._server is None
+
+        net_port = connect()
+        net_port.send_json(
+            {
+                "method": "connect_server",
+                "min_priority": self._options.min_priority,
+                "num_cores": self._options.num_cores,
+            }
+        )
+        obj = net_port.receive_json()
+        docker_image = json_prop(obj, "docker_image", str)
+
+        evaluator_port = _start_evaluator(docker_image, self._options)
+
+        try:
+            self._server = ServerInner(net_port, evaluator_port, self._io_queue)
+        except:
+            evaluator_port.shutdown()
+            raise
+
+    def is_valid_token(self, token: PermuterToken) -> bool:
+        return self._server is not None and self._server.token is token
+
+    def stop(self) -> None:
+        if self._server is None:
+            return
+        self._server.stop()
+        self._server = None
+
+    def remove_permuter(self, handle: PermuterHandle) -> None:
+        if self._server is not None and self.is_valid_token(handle[1]):
+            self._server.remove_permuter(handle[0])
