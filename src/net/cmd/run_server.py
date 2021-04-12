@@ -194,7 +194,7 @@ def run_with_systray(
     icon = pystray.Icon(
         name="permuter@home",
         title="permuter@home",
-        icon=Image.open(os.path.join(os.path.dirname(__file__), "..", "icon.png")),
+        icon=Image.open(os.path.join(os.path.dirname(__file__), "icon.png")),
         menu=pystray.Menu(lambda: menu_items),
     )
 
