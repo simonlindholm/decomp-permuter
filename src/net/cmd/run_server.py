@@ -103,6 +103,9 @@ class SystrayState:
     def will_sleep(self) -> None:
         pass
 
+    def server_failed(self) -> None:
+        pass
+
 
 @dataclass
 class Permuter:
@@ -183,6 +186,10 @@ class RealSystrayState(SystrayState):
         self._update(flush)
 
     def will_sleep(self) -> None:
+        self._update()
+
+    def server_failed(self) -> None:
+        self._permuters = {}
         self._update()
 
 
@@ -305,6 +312,7 @@ def main_loop(
                 print("disconnected from permuter@home")
                 server.stop()
                 reconnector.mark_stop()
+                systray.server_failed()
 
                 if activity.graceful:
                     delay = reconnector.reconnect_eventually()
