@@ -3,14 +3,17 @@ from dataclasses import dataclass
 from functools import partial
 import os
 import queue
+import random
 import time
 import threading
+import traceback
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from PIL import Image
 import pystray
 
 from ...helpers import static_assert_unreachable
+from ..core import CancelToken
 from ..server import (
     Client,
     IoActivity,
@@ -18,6 +21,7 @@ from ..server import (
     IoDisconnect,
     IoGlobalMessage,
     IoImmediateDisconnect,
+    IoReconnect,
     IoServerFailed,
     IoShutdown,
     IoUserRemovePermuter,
@@ -211,15 +215,68 @@ def run_with_systray(
     icon.run(inner)
 
 
+class Reconnector:
+    _RESET_BACKOFF_AFTER_UPTIME: float = 60.0
+    _RANDOM_ADDEND_MAX: float = 60.0
+    _BACKOFF_MULTIPLIER: float = 2.0
+    _INITIAL_DELAY: float = 5.0
+
+    _io_queue: "queue.Queue[IoActivity]"
+    _reconnect_token: CancelToken
+    _reconnect_delay: float
+    _reconnect_timer: Optional[threading.Timer]
+    _start_time: float
+    _stop_time: float
+
+    def __init__(self, io_queue: "queue.Queue[IoActivity]") -> None:
+        self._io_queue = io_queue
+        self._reconnect_token = CancelToken()
+        self._reconnect_delay = self._INITIAL_DELAY
+        self._reconnect_timer = None
+        self._start_time = self._stop_time = time.time()
+
+    def mark_start(self) -> None:
+        self._start_time = time.time()
+
+    def mark_stop(self) -> None:
+        self._stop_time = time.time()
+
+    def stop(self) -> None:
+        self._reconnect_token.cancelled = True
+        if self._reconnect_timer is not None:
+            self._reconnect_timer.cancel()
+            self._reconnect_timer.join()
+            self._reconnect_timer = None
+
+    def reconnect_eventually(self) -> int:
+        if self._stop_time - self._start_time > self._RESET_BACKOFF_AFTER_UPTIME:
+            delay = self._reconnect_delay = self._INITIAL_DELAY
+        else:
+            delay = self._reconnect_delay
+            self._reconnect_delay = (
+                self._reconnect_delay * self._BACKOFF_MULTIPLIER
+                + random.uniform(1.0, self._RANDOM_ADDEND_MAX)
+            )
+        token = CancelToken()
+        self._reconnect_token = token
+        self._reconnect_timer = threading.Timer(
+            delay, lambda: self._io_queue.put((token, IoReconnect()))
+        )
+        self._reconnect_timer.daemon = True
+        self._reconnect_timer.start()
+        return int(delay)
+
+
 def main_loop(
     io_queue: "queue.Queue[IoActivity]",
     server: Server,
     systray: SystrayState,
 ) -> None:
+    reconnector = Reconnector(io_queue)
     handle_clients: Dict[PermuterHandle, Client] = {}
     while True:
         token, activity = io_queue.get()
-        if token and not server.is_valid_token(token):
+        if token and token.cancelled:
             continue
 
         if not isinstance(activity, tuple):
@@ -229,10 +286,26 @@ def main_loop(
             elif isinstance(activity, IoShutdown):
                 break
 
+            elif isinstance(activity, IoReconnect):
+                print("reconnecting...")
+                try:
+                    server.start()
+                    reconnector.mark_start()
+                except (EOFError, ConnectionRefusedError):
+                    delay = reconnector.reconnect_eventually()
+                    print(f"failed again, reconnecting in {delay} seconds...")
+                except Exception:
+                    print("failed!")
+                    traceback.print_exc()
+
             elif isinstance(activity, IoServerFailed):
                 print("disconnected from permuter@home")
                 server.stop()
-                # TODO: reconnect after a while
+                reconnector.mark_stop()
+
+                if activity.graceful:
+                    delay = reconnector.reconnect_eventually()
+                    print(f"will reconnect in {delay} seconds...")
 
             else:
                 static_assert_unreachable(activity)

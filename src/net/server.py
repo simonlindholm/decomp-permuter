@@ -26,6 +26,7 @@ import nacl.utils
 
 from ..helpers import exception_to_string, static_assert_unreachable
 from .core import (
+    CancelToken,
     PermuterData,
     Port,
     SocketPort,
@@ -38,10 +39,6 @@ from .core import (
 
 
 _HEARTBEAT_INTERVAL_SLACK: float = 50.0
-
-
-class PermuterToken:
-    pass
 
 
 @dataclass
@@ -119,8 +116,9 @@ class NeedMoreWork:
     pass
 
 
+@dataclass
 class NetThreadDisconnected:
-    pass
+    graceful: bool
 
 
 class Heartbeat:
@@ -210,7 +208,12 @@ class IoUserRemovePermuter:
     pass
 
 
+@dataclass
 class IoServerFailed:
+    graceful: bool
+
+
+class IoReconnect:
     pass
 
 
@@ -228,13 +231,13 @@ class IoWorkDone:
     is_improvement: bool
 
 
-PermuterHandle = Tuple[int, PermuterToken]
+PermuterHandle = Tuple[int, CancelToken]
 IoMessage = Union[
     IoConnect, IoDisconnect, IoImmediateDisconnect, IoUserRemovePermuter, IoWorkDone
 ]
-IoGlobalMessage = Union[IoShutdown, IoServerFailed, IoWillSleep]
+IoGlobalMessage = Union[IoReconnect, IoShutdown, IoServerFailed, IoWillSleep]
 IoActivity = Tuple[
-    Optional[PermuterToken], Union[Tuple[PermuterHandle, IoMessage], IoGlobalMessage]
+    Optional[CancelToken], Union[Tuple[PermuterHandle, IoMessage], IoGlobalMessage]
 ]
 
 
@@ -341,10 +344,11 @@ class NetThread:
             while True:
                 msg = self._read_one()
                 self._main_queue.put(msg)
-        except Exception as e:
-            if not isinstance(e, EOFError):
-                traceback.print_exc()
-            self._main_queue.put(NetThreadDisconnected())
+        except EOFError:
+            self._main_queue.put(NetThreadDisconnected(graceful=True))
+        except Exception:
+            traceback.print_exc()
+            self._main_queue.put(NetThreadDisconnected(graceful=False))
 
     def _write_one(self, item: Output) -> None:
         assert self._port is not None
@@ -411,10 +415,11 @@ class NetThread:
                 if isinstance(item, Shutdown):
                     break
                 self._write_one(item)
-        except Exception as e:
-            if not isinstance(e, EOFError):
-                traceback.print_exc()
-            self._main_queue.put(NetThreadDisconnected())
+        except EOFError:
+            self._main_queue.put(NetThreadDisconnected(graceful=True))
+        except Exception:
+            traceback.print_exc()
+            self._main_queue.put(NetThreadDisconnected(graceful=False))
 
 
 class ServerInner:
@@ -431,8 +436,7 @@ class ServerInner:
     _last_heartbeat: float
     _last_heartbeat_lock: threading.Lock
     _active: Set[int]
-    token: PermuterToken
-    _stopped: bool
+    _token: CancelToken
 
     def __init__(
         self,
@@ -445,8 +449,7 @@ class ServerInner:
         self._main_queue = queue.Queue()
         self._io_queue = io_queue
         self._active = set()
-        self.token = PermuterToken()
-        self._stopped = False
+        self._token = CancelToken()
 
         self._net_thread = NetThread(net_port, self._main_queue)
 
@@ -474,10 +477,10 @@ class ServerInner:
         self._net_thread.send_controller(msg)
 
     def _send_io(self, handle: int, io_msg: IoMessage) -> None:
-        self._io_queue.put((self.token, ((handle, self.token), io_msg)))
+        self._io_queue.put((self._token, ((handle, self._token), io_msg)))
 
     def _send_io_global(self, io_msg: IoGlobalMessage) -> None:
-        self._io_queue.put((self.token, io_msg))
+        self._io_queue.put((self._token, io_msg))
 
     def _handle_message(self, msg: Activity) -> None:
         if isinstance(msg, Shutdown):
@@ -591,7 +594,7 @@ class ServerInner:
             self._need_work()
 
         elif isinstance(msg, NetThreadDisconnected):
-            self._send_io_global(IoServerFailed())
+            self._send_io_global(IoServerFailed(msg.graceful))
 
         else:
             static_assert_unreachable(msg)
@@ -686,7 +689,7 @@ class ServerInner:
                 )
             if delay <= 0:
                 if second_attempt:
-                    self._main_queue.put(NetThreadDisconnected())
+                    self._main_queue.put(NetThreadDisconnected(graceful=True))
                     return
                 # Handle clock skew or computer going to sleep by waiting a bit
                 # longer before giving up.
@@ -699,12 +702,12 @@ class ServerInner:
                     return
 
     def remove_permuter(self, handle: int) -> None:
-        assert not self._stopped
+        assert not self._token.cancelled
         self._main_queue.put(Disconnect(handle=handle))
 
     def stop(self) -> None:
-        assert not self._stopped
-        self._stopped = True
+        assert not self._token.cancelled
+        self._token.cancelled = True
         self._main_queue.put(Shutdown())
         self._heartbeat_stop.set()
         self._net_thread.stop()
@@ -903,9 +906,6 @@ class Server:
             evaluator_port.shutdown()
             raise
 
-    def is_valid_token(self, token: PermuterToken) -> bool:
-        return self._server is not None and self._server.token is token
-
     def stop(self) -> None:
         if self._server is None:
             return
@@ -913,5 +913,5 @@ class Server:
         self._server = None
 
     def remove_permuter(self, handle: PermuterHandle) -> None:
-        if self._server is not None and self.is_valid_token(handle[1]):
+        if self._server is not None and not handle[1].cancelled:
             self._server.remove_permuter(handle[0])

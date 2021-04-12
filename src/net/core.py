@@ -42,6 +42,11 @@ def debug_print(message: str) -> None:
         print(f"\n{time} debug: {message}")
 
 
+@dataclass(eq=False)
+class CancelToken:
+    cancelled: bool = False
+
+
 @dataclass
 class PermuterData:
     base_score: int
