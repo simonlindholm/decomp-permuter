@@ -25,7 +25,7 @@ from .compiler import Compiler
 from .error import CandidateConstructionFailure
 from .helpers import static_assert_unreachable
 from .net.client import start_client
-from .net.core import connect, enable_debug_mode, MAX_PRIO, MIN_PRIO
+from .net.core import ServerError, connect, enable_debug_mode, MAX_PRIO, MIN_PRIO
 from .permuter import (
     EvalError,
     EvalResult,
@@ -370,7 +370,11 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
                 enable_debug_mode()
             first_stats: Optional[Tuple[int, int, float]] = None
             for perm_index in range(len(context.permuters)):
-                port = connect()
+                try:
+                    port = connect()
+                except (EOFError, ServerError) as e:
+                    print("Error:", e)
+                    sys.exit(1)
                 thread, queue, stats = start_client(
                     port,
                     context.permuters[perm_index],

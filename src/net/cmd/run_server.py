@@ -13,7 +13,7 @@ from PIL import Image
 import pystray
 
 from ...helpers import static_assert_unreachable
-from ..core import CancelToken
+from ..core import CancelToken, ServerError
 from ..server import (
     Client,
     IoActivity,
@@ -291,9 +291,11 @@ def main_loop(
                 try:
                     server.start()
                     reconnector.mark_start()
-                except (EOFError, ConnectionRefusedError):
+                except EOFError:
                     delay = reconnector.reconnect_eventually()
                     print(f"failed again, reconnecting in {delay} seconds...")
+                except ServerError as e:
+                    print("failed!", e.message)
                 except Exception:
                     print("failed!")
                     traceback.print_exc()

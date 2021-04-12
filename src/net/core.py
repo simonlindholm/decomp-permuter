@@ -16,6 +16,7 @@ from nacl.secret import SecretBox
 from nacl.signing import SigningKey, VerifyKey
 
 from ..error import ServerError
+from ..helpers import exception_to_string
 
 T = TypeVar("T")
 AnyBox = Union[Box, SecretBox]
@@ -337,7 +338,14 @@ def _do_connect(config: Config) -> SocketPort:
         sys.exit(1)
 
     host, port_str = config.server_address.split(":")
-    sock = socket.create_connection((host, int(port_str)))
+    try:
+        sock = socket.create_connection((host, int(port_str)))
+    except ConnectionRefusedError:
+        raise EOFError("connection refused") from None
+    except socket.gaierror as e:
+        raise EOFError(f"DNS lookup failed: {e}") from None
+    except Exception as e:
+        raise EOFError("unable to connect: " + exception_to_string(e)) from None
 
     # Send over the protocol version and an ephemeral encryption key which we
     # are going to use for all communication.
@@ -378,14 +386,6 @@ def _do_connect(config: Config) -> SocketPort:
 
 def connect(config: Optional[Config] = None) -> SocketPort:
     """Authenticate and connect to the permuter@home controller server."""
-    try:
-        if not config:
-            config = read_config()
-        return _do_connect(config)
-    except ServerError as e:
-        print(f"Failed to connect: {e.message}")
-        sys.exit(1)
-    except Exception as e:
-        print(f"Failed to connect.")
-        traceback.print_exc()
-        sys.exit(1)
+    if not config:
+        config = read_config()
+    return _do_connect(config)

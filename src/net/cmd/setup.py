@@ -74,13 +74,9 @@ def _run_initial_setup() -> None:
     print(f"Server: {config.server_address}")
     print("Testing connection...")
 
-    try:
-        port = connect(config)
-        port.send_json({"method": "ping"})
-        port.receive_json()
-    except Exception as e:
-        print("Failed to connect:", e)
-        sys.exit(1)
+    port = connect(config)
+    port.send_json({"method": "ping"})
+    port.receive_json()
 
     try:
         write_config(config)

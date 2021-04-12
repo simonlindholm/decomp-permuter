@@ -1,6 +1,7 @@
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
+import sys
 
-from ..core import enable_debug_mode
+from ..core import ServerError, enable_debug_mode
 from .run_server import RunServerCommand
 from .setup import SetupCommand
 from .ping import PingCommand
@@ -44,7 +45,14 @@ def main() -> None:
         enable_debug_mode()
 
     if "subcommand_handler" in args:
-        args.subcommand_handler(args)
+        try:
+            args.subcommand_handler(args)
+        except EOFError as e:
+            print("Network error:", e)
+            sys.exit(1)
+        except ServerError as e:
+            print("Error:", e.message)
+            sys.exit(1)
     else:
         parser.print_help()
 
