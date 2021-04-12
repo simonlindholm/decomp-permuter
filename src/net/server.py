@@ -427,7 +427,7 @@ class ServerInner:
     _net_thread: NetThread
     _read_eval_thread: threading.Thread
     _main_thread: threading.Thread
-    _heartbeat_check_interval: float
+    _heartbeat_interval: float
     _last_heartbeat: float
     _last_heartbeat_lock: threading.Lock
     _active: Set[int]
@@ -451,7 +451,7 @@ class ServerInner:
         self._net_thread = NetThread(net_port, self._main_queue)
 
         # Start a thread for checking heartbeats.
-        self._heartbeat_check_interval = heartbeat_interval + _HEARTBEAT_INTERVAL_SLACK
+        self._heartbeat_interval = heartbeat_interval
         self._last_heartbeat = time.time()
         self._last_heartbeat_lock = threading.Lock()
         self._heartbeat_stop = threading.Event()
@@ -675,15 +675,28 @@ class ServerInner:
                 self._send_io_global(IoWillSleep())
 
     def _heartbeat_loop(self) -> None:
+        second_attempt = False
         while True:
             with self._last_heartbeat_lock:
-                wait_until = self._last_heartbeat + self._heartbeat_check_interval
-            delay = wait_until - time.time()
-            if delay < 0:
-                self._main_queue.put(NetThreadDisconnected())
-                return
-            if self._heartbeat_stop.wait(delay):
-                return
+                delay = (
+                    self._last_heartbeat
+                    + self._heartbeat_interval
+                    + _HEARTBEAT_INTERVAL_SLACK / 2
+                    - time.time()
+                )
+            if delay <= 0:
+                if second_attempt:
+                    self._main_queue.put(NetThreadDisconnected())
+                    return
+                # Handle clock skew or computer going to sleep by waiting a bit
+                # longer before giving up.
+                second_attempt = True
+                if self._heartbeat_stop.wait(_HEARTBEAT_INTERVAL_SLACK / 2):
+                    return
+            else:
+                second_attempt = False
+                if self._heartbeat_stop.wait(delay):
+                    return
 
     def remove_permuter(self, handle: int) -> None:
         assert not self._stopped
