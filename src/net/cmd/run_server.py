@@ -59,14 +59,15 @@ class RunServerCommand(Command):
             type=float,
             required=True,
             help="""Restrict the sandboxed process to the given amount of memory in
-            gigabytes (float). If this limit is hit, the permuter will crash
-            horribly, but at least your system won't lock up.""",
+                gigabytes (float). If this limit is hit, the permuter will crash
+                horribly, but at least your system won't lock up.""",
         )
         parser.add_argument(
             "--systray",
             dest="systray",
             action="store_true",
-            help="Make the server controllable through the system tray.",
+            help="""Make the server controllable through the system tray.
+                Warning: buggy!""",
         )
         parser.add_argument(
             "--min-priority",
@@ -75,7 +76,7 @@ class RunServerCommand(Command):
             type=float,
             default=0.1,
             help="""Only accept jobs from clients who pass --priority with a number
-            higher or equal to this value. (default: %(default)s)""",
+                higher or equal to this value. (default: %(default)s)""",
         )
 
     @staticmethod
