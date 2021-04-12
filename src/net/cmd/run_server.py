@@ -4,13 +4,14 @@ from functools import partial
 import os
 import queue
 import random
+import sys
 import time
 import threading
 import traceback
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, TYPE_CHECKING
 
-from PIL import Image
-import pystray
+if TYPE_CHECKING:
+    import pystray
 
 from ...helpers import static_assert_unreachable
 from ..core import CancelToken, ServerError
@@ -122,7 +123,7 @@ class RealSystrayState(SystrayState):
     def __init__(
         self,
         io_queue: "queue.Queue[IoActivity]",
-        update_menu: Callable[[List[pystray.MenuItem], bool], None],
+        update_menu: "Callable[[List[pystray.MenuItem], bool], None]",
     ) -> None:
         self._io_queue = io_queue
         self._update_menu = update_menu
@@ -135,6 +136,8 @@ class RealSystrayState(SystrayState):
         self._io_queue.put((None, IoShutdown()))
 
     def _update(self, flush: bool = True) -> None:
+        import pystray
+
         title = "Currently permuting:" if self._permuters else "<not running>"
         items: List[pystray.MenuItem] = [
             pystray.MenuItem(title, None, enabled=False),
@@ -197,6 +200,16 @@ def run_with_systray(
     io_queue: "queue.Queue[IoActivity]",
     loop: Callable[[SystrayState], None],
 ) -> None:
+    try:
+        from PIL import Image
+        import pystray
+    except Exception:
+        print(
+            "Systray requires the pystray and Pillow packages to be installed.\n"
+            "Run `python3 -m pip install --upgrade pystray Pillow`."
+        )
+        sys.exit(1)
+
     menu_items: List[pystray.MenuItem] = []
 
     icon = pystray.Icon(
