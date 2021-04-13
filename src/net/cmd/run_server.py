@@ -310,8 +310,8 @@ def main_loop(
             elif isinstance(activity, IoReconnect):
                 print("reconnecting...")
                 try:
-                    server.start()
                     reconnector.mark_start()
+                    server.start()
                 except EOFError:
                     delay = reconnector.reconnect_eventually()
                     print(f"failed again, reconnecting in {delay} seconds...")
