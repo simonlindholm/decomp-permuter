@@ -1,4 +1,13 @@
 import os
+from typing import NoReturn
+
+
+def exception_to_string(e: object) -> str:
+    return str(e) or e.__class__.__name__
+
+
+def static_assert_unreachable(x: NoReturn) -> NoReturn:
+    raise Exception("Unreachable! " + repr(x))
 
 
 def try_remove(path: str) -> None:

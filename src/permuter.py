@@ -33,8 +33,33 @@ class EvalError:
 EvalResult = Union[CandidateResult, EvalError]
 
 
+@dataclass
+class Finished:
+    reason: Optional[str] = None
+
+
+@dataclass
+class Message:
+    text: str
+
+
+class NeedMoreWork:
+    pass
+
+
 class _CompileFailure(Exception):
     pass
+
+
+@dataclass
+class WorkDone:
+    perm_index: int
+    result: EvalResult
+
+
+Task = Union[Finished, Tuple[int, int]]
+FeedbackItem = Union[Finished, Message, NeedMoreWork, WorkDone]
+Feedback = Tuple[FeedbackItem, int, Optional[str]]
 
 
 class Permuter:
@@ -55,13 +80,17 @@ class Permuter:
         force_seed: Optional[int],
         force_rng_seed: Optional[int],
         keep_prob: float,
+        need_profiler: bool,
         need_all_sources: bool,
         show_errors: bool,
+        best_only: bool,
+        better_only: bool,
     ) -> None:
         self.dir = dir
         self.compiler = compiler
         self.scorer = scorer
         self.source_file = source_file
+        self.source = source
 
         if fn_name is None:
             # Semi-legacy codepath; all functions imported through import.py have a
@@ -88,8 +117,11 @@ class Permuter:
         self._cur_seed: Optional[Tuple[int, int]] = None
 
         self.keep_prob = keep_prob
+        self.need_profiler = need_profiler
         self._need_all_sources = need_all_sources
         self._show_errors = show_errors
+        self._best_only = best_only
+        self._better_only = better_only
 
         (
             self.base_score,
@@ -110,16 +142,11 @@ class Permuter:
         if not o_file:
             raise CandidateConstructionFailure(f"Unable to compile {self.source_file}")
         base_result = base_cand.score(self.scorer, o_file)
+        assert base_result.hash is not None
         return base_result.score, base_result.hash, base_cand.get_source()
 
     def _need_to_send_source(self, result: CandidateResult) -> bool:
-        if self._need_all_sources:
-            return True
-        if result.score < self.base_score:
-            return True
-        if result.score == self.base_score:
-            return result.hash != self.base_hash
-        return False
+        return self._need_all_sources or self.should_output(result)
 
     def _eval_candidate(self, seed: int) -> CandidateResult:
         t0 = time.time()
@@ -168,18 +195,44 @@ class Permuter:
 
         t4 = time.time()
 
-        profiler: Profiler = result.profiler
-        profiler.add_stat(Profiler.StatType.perm, t1 - t0)
-        profiler.add_stat(Profiler.StatType.stringify, t2 - t1)
-        profiler.add_stat(Profiler.StatType.compile, t3 - t2)
-        profiler.add_stat(Profiler.StatType.score, t4 - t3)
+        if self.need_profiler:
+            profiler = Profiler()
+            profiler.add_stat(Profiler.StatType.perm, t1 - t0)
+            profiler.add_stat(Profiler.StatType.stringify, t2 - t1)
+            profiler.add_stat(Profiler.StatType.compile, t3 - t2)
+            profiler.add_stat(Profiler.StatType.score, t4 - t3)
+            result.profiler = profiler
 
         self._last_score = result.score
 
         if not self._need_to_send_source(result):
             result.source = None
+            result.hash = None
 
         return result
+
+    def should_output(self, result: CandidateResult) -> bool:
+        """Check whether a result should be outputted. This must be more liberal
+        in child processes than in parent ones, or else sources will be missing."""
+        return (
+            result.score <= self.base_score
+            and result.hash is not None
+            and result.source is not None
+            and not (result.score > self.best_score and self._best_only)
+            and (
+                result.score < self.base_score
+                or (result.score == self.base_score and not self._better_only)
+            )
+            and result.hash not in self.hashes
+        )
+
+    def record_result(self, result: CandidateResult) -> None:
+        """Record a new result, updating the best score and adding the hash to
+        the set of hashes we have already seen. No hash is recorded for score
+        0, since we are interested in all score 0's, not just the first."""
+        self.best_score = min(self.best_score, result.score)
+        if result.score != 0 and result.hash is not None:
+            self.hashes.add(result.hash)
 
     def seed_iterator(self) -> Iterator[int]:
         """Create an iterator over all seeds for this permuter. The iterator

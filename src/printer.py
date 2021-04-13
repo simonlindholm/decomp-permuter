@@ -25,6 +25,7 @@ class Printer:
         self,
         message: str,
         permuter: Optional[Permuter],
+        who: Optional[str],
         *,
         color: str = "",
         keep_progress: bool = False,
@@ -37,6 +38,8 @@ class Printer:
                 print("\r" + " " * pad + "\r", end="")
         if permuter is not None:
             message = f"[{permuter.unique_name}] {message}"
+        if who is not None:
+            message = f"[{who}] {message}"
         if color:
             message = f"{color}{message}\u001b[0m"
         print(message)

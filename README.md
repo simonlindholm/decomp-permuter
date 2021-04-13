@@ -59,6 +59,29 @@ PERM_VAR(delayed)
 ```
 is an alternative way of writing `PERM_ONCE`.
 
+## permuter@home
+
+The permuter supports a distributed mode, where people can donate processor power to your permuter runs to speed them up.
+To use this, pass `-J` when running `permuter.py` and follow the instructions.
+You will need to be granted access by someone who is already connected to a permuter network.
+
+To allow others to use your computer for permuter runs, do the following:
+
+- install Docker (used for sandboxing and to ensure a consistent environment)
+- if on Linux, add yourself to the Docker group: `sudo usermod -aG docker $USER`
+- install required packages: `python3 -m pip install docker`
+  (optionally add `pystray` and `Pillow` for experimental systray support)
+- open a terminal, and run `./pah.py run-server` to start the server.
+  There are a few required arguments (e.g. how many cores to use), see `--help` for more details.
+
+Please be aware that being in the Docker group implies (password-less) sudo rights.
+You can avoid that for your personal account by running the permuter under a separate user.
+Unfortunately, there is currently no way to run a sandboxed permuter server without sudo rights. 😢
+
+Anyone who is granted access to permuter@home can run a server.
+
+To set up a new permuter network, see [src/net/controller/README.md](./src/net/controller/README.md).
+
 ## FAQ
 
 **What do the scores mean?** The scores are computed by taking diffs of objdump'd .o
