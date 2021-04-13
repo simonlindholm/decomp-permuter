@@ -203,7 +203,7 @@ def run_with_systray(
     try:
         from PIL import Image
         import pystray
-    except Exception:
+    except ModuleNotFoundError:
         print(
             "Systray requires the pystray and Pillow packages to be installed.\n"
             "Run `python3 -m pip install --upgrade pystray Pillow`."
