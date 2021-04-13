@@ -204,6 +204,13 @@ enum Request {
     ConnectClient(ConnectClientData),
 }
 
+#[derive(Serialize)]
+struct Load {
+    clients: usize,
+    servers: usize,
+    cores: f64,
+}
+
 #[tokio::main]
 async fn main() -> SimpleResult<()> {
     sodiumoxide::init().map_err(|()| "Failed to initialize cryptography library")?;
@@ -361,6 +368,23 @@ fn parse_signed_name(signed_name: &str, who: &UserId) -> SimpleResult<String> {
     Ok(name.to_string())
 }
 
+fn current_load(state: &State, priority: Option<f64>) -> Load {
+    let m = state.m.lock().unwrap();
+    let mut servers: usize = 0;
+    let mut cores: f64 = 0.0;
+    for server in m.servers.values() {
+        if priority.map_or(true, |p| p >= server.min_priority) {
+            servers += 1;
+            cores += server.num_cores;
+        }
+    }
+    Load {
+        clients: m.permuters.len(),
+        servers,
+        cores,
+    }
+}
+
 async fn handle_connection(
     mut socket: TcpStream,
     state: &State,
@@ -392,7 +416,8 @@ async fn handle_connection(
     match request {
         Request::Ping => {
             eprintln!("[{}] ping", &name);
-            write_port.send_json(&json!({})).await?;
+            let load = current_load(state, None);
+            write_port.send_json(&load).await?;
         }
         Request::Vouch { who, signed_name } => {
             let vouchee_name = match parse_signed_name(&signed_name, &who) {

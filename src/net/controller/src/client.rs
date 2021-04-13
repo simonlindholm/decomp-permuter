@@ -12,7 +12,7 @@ use crate::stats;
 use crate::util::SimpleResult;
 use crate::{
     ConnectClientData, Permuter, PermuterData, PermuterId, PermuterResult, PermuterWork,
-    ServerUpdate, State,
+    ServerUpdate, State, current_load,
 };
 
 const CLIENT_MAX_QUEUES_SIZE: usize = 100;
@@ -127,27 +127,8 @@ pub(crate) async fn handle_connect_client<'a>(
         Err("Priority out of range")?;
     }
 
-    let num_clients: usize;
-    let mut num_servers: usize = 0;
-    let mut num_cores: f64 = 0.0;
-    {
-        let m = state.m.lock().unwrap();
-        num_clients = m.permuters.len();
-        for server in m.servers.values() {
-            if data.priority >= server.min_priority {
-                num_servers += 1;
-                num_cores += server.num_cores;
-            }
-        }
-    }
-
-    write_port
-        .send_json(&json!({
-            "clients": num_clients,
-            "servers": num_servers,
-            "cores": num_cores,
-        }))
-        .await?;
+    let load = current_load(state, Some(data.priority));
+    write_port.send_json(&load).await?;
 
     let permuter_data = read_port.recv().await?;
     let mut permuter_data: PermuterData = serde_json::from_slice(&permuter_data)?;

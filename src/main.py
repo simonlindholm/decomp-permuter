@@ -23,7 +23,7 @@ from typing import (
 from .candidate import CandidateResult
 from .compiler import Compiler
 from .error import CandidateConstructionFailure
-from .helpers import static_assert_unreachable
+from .helpers import plural, static_assert_unreachable
 from .net.client import start_client
 from .net.core import ServerError, connect, enable_debug_mode, MAX_PRIO, MIN_PRIO
 from .permuter import (
@@ -80,11 +80,6 @@ def restricted_float(lo: float, hi: float) -> Callable[[str], float]:
         return ret
 
     return convert
-
-
-def plural(n: int, noun: str) -> str:
-    s = "s" if n != 1 else ""
-    return f"{n} {noun}{s}"
 
 
 @dataclass

@@ -1,7 +1,8 @@
 from argparse import ArgumentParser, Namespace
 import time
 
-from ..core import connect
+from ...helpers import plural
+from ..core import connect, json_prop
 from .base import Command
 
 
@@ -22,6 +23,10 @@ def run_ping() -> None:
     port = connect()
     t0 = time.time()
     port.send_json({"method": "ping"})
-    port.receive_json()
+    msg = port.receive_json()
     rtt = (time.time() - t0) * 1000
     print(f"Connected successfully! Round-trip time: {rtt:.1f} ms")
+    servers_str = plural(json_prop(msg, "servers", int), "server")
+    clients_str = plural(json_prop(msg, "clients", int), "client")
+    cores_str = plural(int(json_prop(msg, "cores", float)), "core")
+    print(f"{servers_str} online ({cores_str}, {clients_str})")
