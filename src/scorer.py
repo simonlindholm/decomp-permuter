@@ -91,8 +91,8 @@ class Scorer:
                 oldsp = re.search(sp_offset, old)
                 newsp = re.search(sp_offset, new)
                 if oldsp and newsp:
-                    oldrel = int(oldsp.group(1), 0)
-                    newrel = int(newsp.group(1), 0)
+                    oldrel = int(oldsp.group(1) or "0", 0)
+                    newrel = int(newsp.group(1) or "0", 0)
                     score += abs(oldrel - newrel) * self.PENALTY_STACKDIFF
                     ignore_last_field = True
 
