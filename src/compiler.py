@@ -26,10 +26,10 @@ class Compiler:
             o_name = f2.name
 
         try:
-            stderr = None if show_errors else subprocess.DEVNULL
+            stderr = 2 if show_errors else subprocess.DEVNULL
             subprocess.check_call(
-                self.compile_cmd + " " + c_name + " -o " + o_name,
-                shell=True,
+                [self.compile_cmd, c_name, "-o", o_name],
+                stdout=stderr,
                 stderr=stderr,
             )
         except subprocess.CalledProcessError:
