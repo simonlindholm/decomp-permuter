@@ -130,9 +130,9 @@ impl SaveableDB {
         let rx2;
         {
             let mut inner = self.0.write().unwrap();
-            inner.stale = true;
             ret = callback(&mut inner.db);
             if immediate {
+                inner.stale = true;
                 let (tx, rx) = oneshot::channel();
                 rx2 = rx;
                 inner
@@ -142,6 +142,7 @@ impl SaveableDB {
                     .expect("Failed to send message to save task");
             } else {
                 if !inner.stale {
+                    inner.stale = true;
                     inner
                         .save_chan
                         .send(SaveType::Delayed)
