@@ -14,11 +14,13 @@ import sys
 import threading
 import time
 import traceback
-from typing import BinaryIO, Dict, List, Optional, Set, Tuple, Union
+from typing import BinaryIO, Dict, List, Optional, Set, Tuple, Union, TYPE_CHECKING
 import uuid
 import zlib
 
-import docker
+if TYPE_CHECKING:
+    import docker
+
 from nacl.public import Box, PrivateKey, PublicKey
 from nacl.secret import SecretBox
 from nacl.signing import SigningKey, VerifyKey
@@ -724,12 +726,12 @@ class DockerPort(Port):
     - it was fun to implement"""
 
     _sock: BinaryIO
-    _container: docker.models.containers.Container
+    _container: "docker.models.containers.Container"
     _stdout_buffer: bytes
     _closed: bool
 
     def __init__(
-        self, container: docker.models.containers.Container, secret: bytes
+        self, container: "docker.models.containers.Container", secret: bytes
     ) -> None:
         self._container = container
         self._stdout_buffer = b""
@@ -816,8 +818,16 @@ def _start_evaluator(docker_image: str, options: ServerOptions) -> DockerPort:
     src_path = pathlib.Path(__file__).parent.parent.absolute()
 
     try:
+        import docker
+
         client = docker.from_env()
         client.info()
+    except ModuleNotFoundError:
+        print(
+            "Running a server requires the docker Python package to be installed.\n"
+            "Run `python3 -m pip install --upgrade docker`."
+        )
+        sys.exit(1)
     except Exception:
         traceback.print_exc()
         print()
