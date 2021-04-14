@@ -39,7 +39,7 @@ def _fix_stdout() -> None:
     our own communication purposes."""
     sys.stdout = sys.stderr
 
-    # In addition, we set stderr to flush on newlines, which not happen by
+    # In addition, we set stderr to flush on newlines, which does not happen by
     # default when it is piped. (Requires Python 3.7, but we can assume that's
     # available inside the sandbox.)
     sys.stdout.reconfigure(line_buffering=True)  # type: ignore

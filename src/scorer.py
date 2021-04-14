@@ -86,6 +86,7 @@ class Scorer:
             if lo_hi_match(old, new):
                 return
 
+            ignore_last_field = False
             if self.stack_differences:
                 oldsp = re.search(sp_offset, old)
                 newsp = re.search(sp_offset, new)
@@ -93,12 +94,15 @@ class Scorer:
                     oldrel = int(oldsp.group(1), 0)
                     newrel = int(newsp.group(1), 0)
                     score += abs(oldrel - newrel) * self.PENALTY_STACKDIFF
-                    return
+                    ignore_last_field = True
 
             # Probably regalloc difference, or signed vs unsigned
 
             # Compare each field in order
             newfields, oldfields = new.split(","), old.split(",")
+            if ignore_last_field:
+                newfields = newfields[:-1]
+                oldfields = oldfields[:-1]
             for nf, of in zip(newfields, oldfields):
                 if nf != of:
                     score += self.PENALTY_REGALLOC
