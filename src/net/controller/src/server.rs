@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -10,8 +10,8 @@ use crate::port::{ReadPort, WritePort};
 use crate::stats;
 use crate::util::SimpleResult;
 use crate::{
-    ConnectServerData, ConnectedServer, PermuterData, PermuterId, PermuterResult, PermuterWork,
-    ServerUpdate, State, HEARTBEAT_TIME,
+    ConnectServerData, ConnectedServer, MutableState, PermuterData, PermuterId, PermuterResult,
+    PermuterWork, ServerUpdate, State, HEARTBEAT_TIME,
 };
 
 const SERVER_WORK_QUEUE_SIZE: usize = 100;
@@ -144,20 +144,12 @@ struct OutMessage {
     to_send: ToSend,
 }
 
-async fn next_work_message(
-    server_state: &Mutex<ServerState>,
-    state: &State,
-    new_permuter: &Notify,
-) -> OutMessage {
-    let mut wait_for = None;
+fn try_next_work_message(
+    m: &mut MutableState,
+    server_state: &mut ServerState,
+) -> Option<OutMessage> {
+    let mut skip = HashSet::new();
     loop {
-        if let Some(waiter) = wait_for {
-            waiter.await;
-        }
-
-        let mut m = state.m.lock().unwrap();
-        let mut server_state = server_state.lock().unwrap();
-
         // If possible, send a new permuter.
         if let Some((&perm_id, perm)) = m
             .permuters
@@ -171,14 +163,14 @@ async fn next_work_message(
                     energy: 0.0,
                 },
             );
-            return OutMessage {
+            return Some(OutMessage {
                 permuter: perm_id,
                 to_send: ToSend::Add {
                     client_id: perm.client_id.clone(),
                     client_name: perm.client_name.clone(),
                     data: perm.data.clone(),
                 },
-            };
+            });
         }
 
         // If none, find an existing one to work on, or to remove.
@@ -188,7 +180,7 @@ async fn next_work_message(
         for (&perm_id, job) in server_state.jobs.iter_mut() {
             if let Some(perm) = m.permuters.get(&perm_id) {
                 if matches!(job.state, JobState::Loaded)
-                    && !perm.stale
+                    && !skip.contains(&perm_id)
                     && perm.priority >= min_priority
                     && (best.is_none() || job.energy < best_cost)
                 {
@@ -197,43 +189,31 @@ async fn next_work_message(
                 }
             } else {
                 server_state.jobs.remove(&perm_id);
-                return OutMessage {
+                return Some(OutMessage {
                     permuter: perm_id,
                     to_send: ToSend::Remove,
-                };
+                });
             }
         }
 
         let (perm_id, job) = match best {
-            None => {
-                // Nothing to work on! Register to be notified when something
-                // happens and go to sleep.
-                let n1 = state.new_work_notification.notified();
-                let n2 = new_permuter.notified();
-                wait_for = Some(async move {
-                    tokio::select! {
-                        () = n1 => {}
-                        () = n2 => {}
-                    }
-                });
-                continue;
-            }
+            None => return None,
             Some(tup) => tup,
         };
 
         let perm = m.permuters.get_mut(&perm_id).unwrap();
         let work = match perm.work_queue.pop_front() {
             None => {
-                // Chosen permuter is out of work. Ask it for more, and mark it
-                // as stale. When it goes unstale all sleeping writers will be
-                // notified.
+                // Chosen permuter is out of work. Ask it for more, and try
+                // again without it as a candidate. When the queue becomes
+                // non-empty again all sleeping writers will be notified.
                 perm.send_result(PermuterResult::NeedWork);
-                perm.stale = true;
-                wait_for = None;
+                skip.insert(perm_id.clone());
                 continue;
             }
             Some(work) => work,
         };
+
         perm.semaphore.release();
 
         let min_energy = job.energy;
@@ -246,10 +226,40 @@ async fn next_work_message(
             job.energy -= min_energy;
         }
 
-        return OutMessage {
+        return Some(OutMessage {
             permuter: perm_id,
             to_send: ToSend::Work(work),
-        };
+        });
+    }
+}
+
+async fn next_work_message(
+    server_state: &Mutex<ServerState>,
+    state: &State,
+    new_permuter: &Notify,
+) -> OutMessage {
+    let mut wait_for = None;
+    loop {
+        if let Some(waiter) = wait_for {
+            waiter.await;
+        }
+        let mut m = state.m.lock().unwrap();
+        let mut server_state = server_state.lock().unwrap();
+        match try_next_work_message(&mut m, &mut server_state) {
+            Some(message) => return message,
+            None => {
+                // Nothing to work on! Register to be notified when something
+                // happens (while the lock is still held) and go to sleep.
+                let n1 = state.new_work_notification.notified();
+                let n2 = new_permuter.notified();
+                wait_for = Some(async move {
+                    tokio::select! {
+                        () = n1 => {}
+                        () = n2 => {}
+                    }
+                });
+            }
+        }
     }
 }
 

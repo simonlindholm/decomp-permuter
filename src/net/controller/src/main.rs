@@ -150,7 +150,6 @@ struct Permuter {
     work_queue: VecDeque<PermuterWork>,
     result_tx: mpsc::UnboundedSender<PermuterResult>,
     semaphore: Arc<FlimsySemaphore>,
-    stale: bool,
     priority: f64,
     energy_add: f64,
 }

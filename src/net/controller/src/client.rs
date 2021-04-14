@@ -11,8 +11,8 @@ use crate::port::{ReadPort, WritePort};
 use crate::stats;
 use crate::util::SimpleResult;
 use crate::{
-    ConnectClientData, Permuter, PermuterData, PermuterId, PermuterResult, PermuterWork,
-    ServerUpdate, State, current_load,
+    current_load, ConnectClientData, Permuter, PermuterData, PermuterId, PermuterResult,
+    PermuterWork, ServerUpdate, State,
 };
 
 const CLIENT_MAX_QUEUES_SIZE: usize = 100;
@@ -49,11 +49,10 @@ async fn client_read(
 
         let mut m = state.m.lock().unwrap();
         let perm = m.permuters.get_mut(perm_id).unwrap();
-        perm.work_queue.push_back(work);
-        if perm.stale {
-            perm.stale = false;
+        if perm.work_queue.is_empty() {
             state.new_work_notification.notify_waiters();
         }
+        perm.work_queue.push_back(work);
     }
 }
 
@@ -167,7 +166,6 @@ pub(crate) async fn handle_connect_client<'a>(
                 work_queue: VecDeque::new(),
                 result_tx: result_tx.clone(),
                 semaphore: semaphore.clone(),
-                stale: false,
                 priority: data.priority,
                 energy_add,
             },
