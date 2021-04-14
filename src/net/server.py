@@ -790,6 +790,12 @@ class DockerPort(Port):
         self._stdout_buffer = self._stdout_buffer[length:]
         return ret
 
+    def _receive_max(self, length: int) -> bytes:
+        length = min(length, len(self._stdout_buffer))
+        ret = self._stdout_buffer[:length]
+        self._stdout_buffer = self._stdout_buffer[length:]
+        return ret
+
     def _send(self, data: bytes) -> None:
         while data:
             written = self._sock.write(data)

@@ -148,36 +148,46 @@ def write_config(config: Config) -> None:
         toml.dump(obj, f)
 
 
-def file_read_fixed(inf: BinaryIO, n: int) -> bytes:
+def file_read_max(inf: BinaryIO, n: int) -> bytes:
     try:
         ret = []
         while n > 0:
             data = inf.read(n)
             if not data:
-                raise EOFError
+                break
             ret.append(data)
             n -= len(data)
         return b"".join(ret)
-    except EOFError:
-        raise
     except Exception as e:
         raise EOFError from e
 
 
-def socket_read_fixed(sock: socket.socket, n: int) -> bytes:
+def file_read_fixed(inf: BinaryIO, n: int) -> bytes:
+    ret = file_read_max(inf, n)
+    if len(ret) != n:
+        raise EOFError
+    return ret
+
+
+def socket_read_max(sock: socket.socket, n: int) -> bytes:
     try:
         ret = []
         while n > 0:
             data = sock.recv(min(n, 4096))
             if not data:
-                raise EOFError
+                break
             ret.append(data)
             n -= len(data)
         return b"".join(ret)
-    except EOFError:
-        raise
     except Exception as e:
         raise EOFError from e
+
+
+def socket_read_fixed(sock: socket.socket, n: int) -> bytes:
+    ret = socket_read_max(sock, n)
+    if len(ret) != n:
+        raise EOFError
+    return ret
 
 
 def socket_shutdown(sock: socket.socket, how: int) -> None:
@@ -238,6 +248,10 @@ class Port(abc.ABC):
     def _receive(self, length: int) -> bytes:
         ...
 
+    @abc.abstractmethod
+    def _receive_max(self, length: int) -> bytes:
+        ...
+
     def send(self, msg: bytes) -> None:
         """Send a binary message, potentially blocking."""
         if DEBUG_MODE:
@@ -261,7 +275,10 @@ class Port(abc.ABC):
         if length_data[0]:
             # Lengths above 2^56 are unreasonable, so if we get one someone is
             # sending us bad data. Raise an exception to help debugging.
-            raise Exception("Got unexpected data: " + repr(length_data))
+            length_data += self._receive_max(1024)
+            raise Exception(
+                f"Got unexpected data from {self._who}: " + repr(length_data)
+            )
         length = struct.unpack(">Q", length_data)[0]
         data = self._receive(length)
         nonce = struct.pack(">16xQ", self._receive_nonce)
@@ -301,6 +318,9 @@ class SocketPort(Port):
     def _receive(self, length: int) -> bytes:
         return socket_read_fixed(self._sock, length)
 
+    def _receive_max(self, length: int) -> bytes:
+        return socket_read_max(self._sock, length)
+
     def shutdown(self, how: int = socket.SHUT_RDWR) -> None:
         socket_shutdown(self._sock, how)
 
@@ -322,6 +342,9 @@ class FilePort(Port):
 
     def _receive(self, length: int) -> bytes:
         return file_read_fixed(self._inf, length)
+
+    def _receive_max(self, length: int) -> bytes:
+        return file_read_max(self._inf, length)
 
 
 def _do_connect(config: Config) -> SocketPort:
