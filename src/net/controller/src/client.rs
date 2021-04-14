@@ -187,6 +187,7 @@ pub(crate) async fn handle_connect_client<'a>(
     );
 
     state.m.lock().unwrap().permuters.remove(&perm_id);
+    state.new_work_notification.notify_waiters();
     r?;
     Ok(())
 }
