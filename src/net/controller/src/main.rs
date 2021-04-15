@@ -272,7 +272,10 @@ async fn run_server(opts: RunServerOpts) -> SimpleResult<()> {
                 if let Some(e) = e.downcast_ref::<std::io::Error>() {
                     if matches!(
                         e.kind(),
-                        ErrorKind::UnexpectedEof | ErrorKind::ConnectionReset | ErrorKind::TimedOut
+                        ErrorKind::UnexpectedEof
+                            | ErrorKind::ConnectionReset
+                            | ErrorKind::TimedOut
+                            | ErrorKind::BrokenPipe
                     ) {
                         eprintln!("[{}] disconnected", &who);
                         return;
