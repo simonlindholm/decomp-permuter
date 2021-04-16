@@ -758,7 +758,6 @@ def perm_expand_expr(
     # Step 2: find the assignment it uses
     reads = all_reads[var]
     writes = all_writes.get(var, [])
-    read = random.choice(reads)
     i = bisect.bisect_left(writes, index)
     # if i == 0, there is no write to replace the read by.
     ensure(i > 0)
