@@ -8,7 +8,7 @@ import sys
 import time
 import threading
 import traceback
-from typing import Any, Callable, Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     import pystray
@@ -20,7 +20,6 @@ from ..server import (
     IoActivity,
     IoConnect,
     IoDisconnect,
-    IoGlobalMessage,
     IoImmediateDisconnect,
     IoReconnect,
     IoServerFailed,

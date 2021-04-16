@@ -1,26 +1,16 @@
 from base64 import b64decode
-import bisect
 from collections import defaultdict
 import copy
 from dataclasses import dataclass
 from random import Random
 import re
-import sys
-import time
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, TYPE_CHECKING, Union
 
-from pycparser import CParser, c_ast as ca, c_parser, c_generator
+from pycparser import CParser, c_ast as ca, c_generator
 from pycparser.plyparser import ParseError
 
 from .error import CandidateConstructionFailure
-from .ast_types import (
-    SimpleType,
-    TypeMap,
-    build_typemap,
-    decayed_expr_type,
-    resolve_typedefs,
-    set_decl_name,
-)
+from .ast_types import SimpleType, set_decl_name
 
 
 @dataclass

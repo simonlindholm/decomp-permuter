@@ -1,29 +1,19 @@
-import abc
 import base64
-from dataclasses import dataclass, field
-from enum import Enum
-import json
-import os
+from dataclasses import dataclass
 import pathlib
 import queue
-import socket
-import socketserver
 import struct
-import subprocess
 import sys
 import threading
 import time
 import traceback
-from typing import BinaryIO, Dict, List, Optional, Set, Tuple, Union, TYPE_CHECKING
-import uuid
+from typing import BinaryIO, Optional, Set, Tuple, Union, TYPE_CHECKING
 import zlib
 
 if TYPE_CHECKING:
     import docker
 
-from nacl.public import Box, PrivateKey, PublicKey
 from nacl.secret import SecretBox
-from nacl.signing import SigningKey, VerifyKey
 import nacl.utils
 
 from ..helpers import exception_to_string, static_assert_unreachable
@@ -47,19 +37,6 @@ _HEARTBEAT_INTERVAL_SLACK: float = 50.0
 class Client:
     id: str
     nickname: str
-
-
-class InitState(Enum):
-    UNINIT = 0
-    WAITING = 1
-    READY = 2
-
-
-@dataclass
-class ClientState:
-    handle: int
-    client: Client
-    init_state: InitState = InitState.UNINIT
 
 
 @dataclass
@@ -767,7 +744,7 @@ class DockerPort(Port):
         try:
             self._sock.close()
             self._container.remove(force=True)
-        except Exception as e:
+        except Exception:
             print("Failed to shut down Docker")
             traceback.print_exc()
 
@@ -819,7 +796,6 @@ def _start_evaluator(docker_image: str, options: ServerOptions) -> DockerPort:
     print("Starting docker...")
     command = ["python3", "-m", "src.net.evaluator"]
     secret = nacl.utils.random(32)
-    box = SecretBox(secret)
     enc_secret = base64.b64encode(secret).decode("utf-8")
     src_path = pathlib.Path(__file__).parent.parent.absolute()
 

@@ -6,13 +6,12 @@ import math
 from multiprocessing import Process, Queue
 import os
 import queue
-import struct
 import sys
 from tempfile import mkstemp
 import threading
 import time
 import traceback
-from typing import BinaryIO, Counter, Dict, List, Optional, Set, Tuple, Union
+from typing import Counter, Dict, List, Optional, Set, Tuple, Union
 import zlib
 
 from nacl.secret import SecretBox
@@ -320,8 +319,8 @@ def main() -> None:
         del remaining_work[perm_id]
         should_remove.remove(perm_id)
         timestamp += 1
-        for queue in local_queues:
-            queue.put((RemovePermuter(perm_id=perm_id), timestamp))
+        for q in local_queues:
+            q.put((RemovePermuter(perm_id=perm_id), timestamp))
         _remove_permuter(permuters[perm_id])
         del permuters[perm_id]
 
@@ -363,8 +362,8 @@ def main() -> None:
                 # TODO: ideally we would also seed their Candidate lru_cache's
                 # to avoid all workers having to parse the source...
                 timestamp += 1
-                for queue in local_queues:
-                    queue.put(
+                for q in local_queues:
+                    q.put(
                         (
                             AddPermuterLocal(perm_id=item.perm_id, permuter=permuter),
                             timestamp,

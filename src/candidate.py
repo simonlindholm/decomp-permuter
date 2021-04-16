@@ -1,19 +1,17 @@
 import copy
 from dataclasses import dataclass, field
 import functools
-import os
-from typing import List, Dict, Optional, Callable, Optional, Tuple, Iterable
+from typing import Optional, Tuple
 
 from pycparser import c_ast as ca
 
 from .compiler import Compiler
 from .randomizer import Randomizer
 from .scorer import Scorer
-from .perm.perm import EvalState, Perm
+from .perm.perm import EvalState
 from .perm.ast import apply_ast_perms
 from .helpers import try_remove
 from .profiler import Profiler
-from . import perm
 from . import ast_util
 
 

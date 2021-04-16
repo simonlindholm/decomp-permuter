@@ -4,14 +4,13 @@ import os
 import random
 import string
 import sys
-import time
 from typing import Optional
 
 from nacl.public import SealedBox
 from nacl.signing import SigningKey, VerifyKey
 
 from .base import Command
-from ..core import connect, Config, read_config, sign_with_magic, write_config
+from ..core import connect, read_config, sign_with_magic, write_config
 from .util import ask
 
 

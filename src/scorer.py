@@ -2,7 +2,6 @@ from dataclasses import dataclass, field
 import difflib
 import hashlib
 import re
-import subprocess
 from typing import Tuple, List, Optional
 from collections import Counter
 
@@ -25,7 +24,6 @@ class Scorer:
 
     PENALTY_STACKDIFF = 1
     PENALTY_REGALLOC = 5
-    PENALTY_SPLIT_DIFF = 20
     PENALTY_REORDERING = 60
     PENALTY_INSERTION = 100
     PENALTY_DELETION = 100
@@ -117,7 +115,6 @@ class Scorer:
         def diff_delete(line: str) -> None:
             deletions.append(line)
 
-        first_ins = None
         self.differ.set_seq1(cand_seq)
         for (tag, i1, i2, j1, j2) in self.differ.get_opcodes():
             if tag == "equal":

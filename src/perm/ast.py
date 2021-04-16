@@ -2,7 +2,7 @@ from typing import List, Optional, Tuple
 
 from .. import ast_util
 from .perm import EvalState, Perm
-from ..ast_util import Block, Statement, Expression
+from ..ast_util import Block, Statement
 from ..error import CandidateConstructionFailure
 
 from pycparser import c_ast as ca

@@ -6,9 +6,8 @@ import socket
 import struct
 import sys
 import toml
-import traceback
 import typing
-from typing import BinaryIO, List, Optional, Tuple, Type, TypeVar, Union
+from typing import BinaryIO, List, Optional, Type, TypeVar, Union
 
 from nacl.encoding import HexEncoder
 from nacl.public import Box, PrivateKey, PublicKey

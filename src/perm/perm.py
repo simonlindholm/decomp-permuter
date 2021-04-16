@@ -3,7 +3,6 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Dict, List, Tuple, TypeVar, Optional
 import math
-import itertools
 
 from pycparser import c_ast as ca
 

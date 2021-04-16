@@ -2,8 +2,6 @@ import bisect
 import copy
 from dataclasses import dataclass, field
 from random import Random
-import sys
-import time
 import typing
 from typing import (
     Any,
@@ -27,7 +25,6 @@ from .ast_types import (
     Type,
     TypeMap,
     allowed_basic_type,
-    basic_type,
     build_typemap,
     decayed_expr_type,
     get_decl_type,
@@ -1467,8 +1464,6 @@ def perm_float_literal(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> None:
     """Converts a Float Literal"""
-    typemap = build_typemap(ast)
-
     cands: List[ca.Constant] = []
 
     class Visitor(ca.NodeVisitor):

@@ -5,8 +5,6 @@ import multiprocessing
 from multiprocessing import Queue
 import os
 import queue
-import random
-from random import Random
 import sys
 import threading
 import time

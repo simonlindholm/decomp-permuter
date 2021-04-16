@@ -1,11 +1,7 @@
-from dataclasses import dataclass
-import json
 from multiprocessing import Queue
 import re
-import socket
-import struct
 import threading
-from typing import List, Optional, Tuple, TypeVar
+from typing import Optional, Tuple
 import zlib
 
 from ..candidate import CandidateResult
@@ -25,9 +21,7 @@ from ..permuter import (
 from ..profiler import Profiler
 from .core import (
     PermuterData,
-    Port,
     SocketPort,
-    json_array,
     json_prop,
     permuter_data_to_json,
 )

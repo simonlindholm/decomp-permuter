@@ -9,7 +9,6 @@ For the purposes of the randomizer these restrictions are acceptable."""
 
 from dataclasses import dataclass, field
 from typing import Union, Dict, Set, List
-import sys
 
 from pycparser import c_ast
 from pycparser.c_ast import ArrayDecl, TypeDecl, PtrDecl, FuncDecl, IdentifierType
