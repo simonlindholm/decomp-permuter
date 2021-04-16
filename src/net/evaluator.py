@@ -183,6 +183,11 @@ def multiprocess_worker(
 ) -> None:
     _fix_stdout()
 
+    # Prevent deadlocks in case the parent process dies.
+    worker_queue.cancel_join_thread()
+    local_queue.cancel_join_thread()
+    task_queue.cancel_join_thread()
+
     permuters: Dict[str, Permuter] = {}
     timestamp = 0
 
@@ -249,20 +254,26 @@ def read_loop(task_queue: "Queue[Task]", port: Port) -> None:
             else:
                 raise Exception(f"Invalid message type {msg_type}")
 
-    except EOFError:
-        # Port closed from the other side. Silently exit, to avoid ugly error
-        # messages and to ensure that the Docker container really stops and
-        # gets removed. (The parent server has a "finally:" that does that, but
-        # it's evidently not 100% trustworthy. I'm speculating that pystray
-        # might be to blame, by reverting the signal handler for SIGINT to
-        # the default, making Ctrl+C kill the program directly without firing
-        # "finally"s. Either way, defense in depth here doesn't hurt, since
-        # leaking Docker containers is pretty bad.)
-        os._exit(1)
+    except Exception as e:
+        # In case the port is closed from the other side, skip writing an ugly
+        # error message.
+        if not isinstance(e, EOFError):
+            traceback.print_exc()
 
-    except Exception:
-        traceback.print_exc()
-        os._exit(1)
+        # Exit the whole process, to improve the odds that the Docker container
+        # really stops and gets removed.
+        #
+        # The parent server has a "finally:" that does that, but it's not 100%
+        # trustworthy. In particular, pystray has a tendency to hard-crash
+        # (which doesn't fire "finally"s), and also reverts the signal handler
+        # for SIGINT to the default on Linux, making Ctrl+C not run cleanup.
+        # Either way, defense in depth here doesn't hurt, since leaking Docker
+        # containers is pretty bad.
+        #
+        # Unfortunately this still doesn't fix the problem, since we typically
+        # don't get a port closure signal when the parent process stops...
+        # TODO: listen to heartbeats as well.
+        sys.exit(1)
 
 
 def main() -> None:
@@ -287,10 +298,12 @@ def main() -> None:
             target=multiprocess_worker,
             args=(worker_queue, local_queue, task_queue),
         )
+        p.daemon = True
         p.start()
         local_queues.append(local_queue)
 
     reader_thread = threading.Thread(target=read_loop, args=(task_queue, port))
+    reader_thread.daemon = True
     reader_thread.start()
 
     remaining_work: Counter[str] = Counter()
