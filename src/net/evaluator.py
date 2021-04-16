@@ -55,6 +55,8 @@ def _setup_port(secret: bytes) -> Port:
         is_client=False,
     )
 
+    _fix_stdout()
+
     # Follow the controlling process's sanity check protocol.
     magic = port.receive()
     port.send(magic)
@@ -282,7 +284,6 @@ def main() -> None:
     os.environ["PERMUTER_IS_REMOTE"] = "1"
 
     port = _setup_port(secret)
-    _fix_stdout()
 
     obj = port.receive_json()
     num_cores = json_prop(obj, "num_cores", float)
