@@ -328,7 +328,7 @@ async fn handshake<'a>(
     let (our_pk, our_sk) = box_::gen_keypair();
     let signed_data = concat3(b"HELLO:", their_pk.as_ref(), our_pk.as_ref());
     let signature = sign::sign_detached(&signed_data, &sign_sk);
-    wr.write(&concat(our_pk.as_ref(), signature.as_ref()))
+    wr.write_all(&concat(our_pk.as_ref(), signature.as_ref()))
         .await?;
 
     let key = box_::precompute(&their_pk, &our_sk);
