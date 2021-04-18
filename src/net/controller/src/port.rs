@@ -93,7 +93,7 @@ impl<'a> WritePort<'a> {
         self.nonce += 2;
         let data = box_::seal_precomputed(data, &nonce, &self.key);
         self.write_half.write_u64(data.len() as u64).await?;
-        self.write_half.write(&data).await?;
+        self.write_half.write_all(&data).await?;
         Ok(())
     }
 
