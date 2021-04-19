@@ -10,12 +10,18 @@ use crate::port::{ReadPort, WritePort};
 use crate::stats;
 use crate::util::SimpleResult;
 use crate::{
-    ConnectServerData, ConnectedServer, MutableState, PermuterData, PermuterId, PermuterResult,
-    PermuterWork, ServerUpdate, State, HEARTBEAT_TIME,
+    ConnectedServer, MutableState, PermuterData, PermuterId, PermuterResult, PermuterWork,
+    ServerUpdate, State, HEARTBEAT_TIME,
 };
 
 const SERVER_WORK_QUEUE_SIZE: usize = 100;
 const TIME_US_GUESS: f64 = 100_000.0;
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct ConnectServerData {
+    min_priority: f64,
+    num_cores: f64,
+}
 
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -337,7 +343,7 @@ async fn server_write(
 pub(crate) async fn handle_connect_server<'a>(
     mut read_port: ReadPort<'a>,
     mut write_port: WritePort<'a>,
-    who_id: &UserId,
+    who_id: UserId,
     who_name: &str,
     state: &State,
     data: ConnectServerData,
@@ -367,7 +373,7 @@ pub(crate) async fn handle_connect_server<'a>(
     let r = tokio::try_join!(
         server_read(
             &mut read_port,
-            who_id,
+            &who_id,
             who_name,
             &server_state,
             state,

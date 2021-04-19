@@ -11,13 +11,18 @@ use crate::port::{ReadPort, WritePort};
 use crate::stats;
 use crate::util::SimpleResult;
 use crate::{
-    current_load, ConnectClientData, Permuter, PermuterData, PermuterId, PermuterResult,
-    PermuterWork, ServerUpdate, State,
+    current_load, Permuter, PermuterData, PermuterId, PermuterResult, PermuterWork, ServerUpdate,
+    State,
 };
 
 const CLIENT_MAX_QUEUES_SIZE: usize = 100;
 const MIN_PRIORITY: f64 = 0.001;
 const MAX_PRIORITY: f64 = 10.0;
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct ConnectClientData {
+    priority: f64,
+}
 
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -117,7 +122,7 @@ async fn client_write(
 pub(crate) async fn handle_connect_client<'a>(
     mut read_port: ReadPort<'a>,
     mut write_port: WritePort<'a>,
-    who_id: &UserId,
+    who_id: UserId,
     who_name: &str,
     state: &State,
     data: ConnectClientData,
@@ -182,7 +187,7 @@ pub(crate) async fn handle_connect_client<'a>(
             &semaphore,
             state,
             result_rx,
-            who_id
+            &who_id
         )
     );
 

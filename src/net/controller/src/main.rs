@@ -4,11 +4,9 @@ use std::collections::{HashMap, VecDeque};
 use std::convert::TryInto;
 use std::default::Default;
 use std::io::ErrorKind;
-use std::str;
 use std::sync::{Arc, Mutex};
 
 use argh::FromArgs;
-use hex::FromHex;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use slotmap::{new_key_type, SlotMap};
@@ -21,7 +19,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, watch, Notify};
 use tokio::time;
 
-use crate::db::{ByteString, User, UserId};
+use crate::db::{ByteString, UserId};
 use crate::flimsy_semaphore::FlimsySemaphore;
 use crate::port::{ReadPort, WritePort};
 use crate::save::SaveableDB;
@@ -36,6 +34,7 @@ mod server;
 mod setup;
 mod stats;
 mod util;
+mod vouch;
 
 const HEARTBEAT_TIME: time::Duration = time::Duration::from_secs(300);
 
@@ -98,17 +97,6 @@ struct PermuterData {
     compressed_target_o_bin: Vec<u8>,
     #[serde(flatten)]
     more_props: HashMap<String, serde_json::Value>,
-}
-
-#[derive(Debug, Deserialize)]
-struct ConnectServerData {
-    min_priority: f64,
-    num_cores: f64,
-}
-
-#[derive(Debug, Deserialize)]
-struct ConnectClientData {
-    priority: f64,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
@@ -198,9 +186,9 @@ impl State {
 #[serde(tag = "method", rename_all = "snake_case")]
 enum Request {
     Ping,
-    Vouch { who: UserId, signed_name: String },
-    ConnectServer(ConnectServerData),
-    ConnectClient(ConnectClientData),
+    Vouch(vouch::VouchData),
+    ConnectServer(server::ConnectServerData),
+    ConnectClient(client::ConnectClientData),
 }
 
 #[derive(Serialize)]
@@ -295,23 +283,6 @@ fn concat3<T: Clone>(a: &[T], b: &[T], c: &[T]) -> Vec<T> {
     a.iter().chain(b).chain(c).cloned().collect()
 }
 
-fn verify_with_magic<'a>(
-    magic: &[u8],
-    data: &'a [u8],
-    key: &sign::PublicKey,
-) -> SimpleResult<&'a [u8]> {
-    if data.len() < 64 {
-        Err("signature too short")?;
-    }
-    let (signature, data) = data.split_at(64);
-    let signed_data = concat(magic, data);
-    let signature = sign::Signature::from_slice(signature).unwrap();
-    if !sign::verify_detached(&signature, &signed_data, key) {
-        Err("bad signature")?;
-    }
-    Ok(data)
-}
-
 async fn handshake<'a>(
     mut rd: ReadHalf<'a>,
     mut wr: WriteHalf<'a>,
@@ -355,19 +326,6 @@ async fn handshake<'a>(
         UserId::from_pubkey(&client_ver_key),
         permuter_version,
     ))
-}
-
-fn parse_signed_name(signed_name: &str, who: &UserId) -> SimpleResult<String> {
-    let signed_name = Vec::from_hex(signed_name).map_err(|_| "not a valid hex string")?;
-    let name_bytes = verify_with_magic(b"NAME:", &signed_name, &who.to_pubkey())?;
-    let name = str::from_utf8(name_bytes)?;
-    if name.is_empty() {
-        Err("name is empty")?;
-    }
-    if name.chars().any(char::is_control) {
-        Err("name cannot contain control characters")?;
-    }
-    Ok(name.to_string())
 }
 
 fn current_load(state: &State, priority: Option<f64>) -> Load {
@@ -421,40 +379,19 @@ async fn handle_connection(
             let load = current_load(state, None);
             write_port.send_json(&load).await?;
         }
-        Request::Vouch { who, signed_name } => {
-            let vouchee_name = match parse_signed_name(&signed_name, &who) {
-                Ok(name) => name,
-                Err(e) => {
-                    write_port.send_error(&format!("{}", &e)).await?;
-                    Err(e)?
-                }
-            };
-            write_port.send_json(&json!({})).await?;
-            read_port.recv().await?;
-            state
-                .db
-                .write(true, |db| {
-                    db.users.entry(who).or_insert_with(|| User {
-                        trusted_by: Some(user_id),
-                        name: vouchee_name.clone(),
-                        client_stats: Default::default(),
-                        server_stats: Default::default(),
-                    });
-                })
-                .await;
-            write_port.send_json(&json!({})).await?;
-            eprintln!("[{}] vouch {}", &name, &vouchee_name);
+        Request::Vouch(data) => {
+            vouch::handle_vouch(read_port, write_port, user_id, &name, state, data).await?;
         }
         Request::ConnectServer(data) => {
             eprintln!(
                 "[{}] start server ({}, {})",
                 &name, data.min_priority, data.num_cores
             );
-            server::handle_connect_server(read_port, write_port, &user_id, &name, state, data)
+            server::handle_connect_server(read_port, write_port, user_id, &name, state, data)
                 .await?;
         }
         Request::ConnectClient(data) => {
-            client::handle_connect_client(read_port, write_port, &user_id, &name, state, data)
+            client::handle_connect_client(read_port, write_port, user_id, &name, state, data)
                 .await?;
         }
     };
