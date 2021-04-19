@@ -738,15 +738,22 @@ class DockerPort(Port):
         super().__init__(SecretBox(secret), "docker", is_client=True)
 
     def shutdown(self) -> None:
+        import docker
+
         if self._closed:
             return
         self._closed = True
         try:
             self._sock.close()
             self._container.remove(force=True)
-        except Exception:
-            print("Failed to shut down Docker")
-            traceback.print_exc()
+        except Exception as e:
+            if not (
+                isinstance(e, docker.errors.APIError)
+                and e.status_code == 409
+                and "is already in progress" in str(e)
+            ):
+                print("Failed to shut down Docker")
+                traceback.print_exc()
 
     def _read_one(self) -> None:
         header = file_read_fixed(self._sock, 8)
