@@ -262,7 +262,10 @@ class Port(abc.ABC):
         self._send_nonce += 2
         data = self._box.encrypt(msg, nonce).ciphertext
         length_data = struct.pack(">Q", len(data))
-        self._send(length_data + data)
+        try:
+            self._send(length_data + data)
+        except BrokenPipeError:
+            raise EOFError from None
 
     def send_json(self, msg: dict) -> None:
         """Send a message in the form of a JSON dict, potentially blocking."""
