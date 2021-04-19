@@ -14,8 +14,12 @@ use crate::{
     ServerUpdate, State, HEARTBEAT_TIME,
 };
 
+const MIN_PERMUTER_VERSION: u32 = 1;
+
 const SERVER_WORK_QUEUE_SIZE: usize = 100;
 const TIME_US_GUESS: f64 = 100_000.0;
+const MIN_OVERHEAD_US: f64 = 100_000.0;
+const MAX_OVERHEAD_FACTOR: i64 = 2;
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct ConnectServerData {
@@ -43,10 +47,13 @@ enum JobState {
 struct Job {
     state: JobState,
     energy: f64,
+    active_work: i64,
 }
 
 struct ServerState {
     min_priority: f64,
+    /// sum of active_work across all jobs
+    active_work: i64,
     jobs: HashMap<PermuterId, Job>,
 }
 
@@ -63,7 +70,7 @@ async fn server_read(
         let msg = port.recv().await?;
         let msg: ServerMessage = serde_json::from_slice(&msg)?;
         let mut has_new = false;
-        let mut more_work = true;
+        let mut more_work: i32 = 1;
         if let ServerMessage::Update {
             permuter: perm_id,
             mut update,
@@ -82,25 +89,64 @@ async fn server_read(
             let mut server_state = server_state.lock().unwrap();
 
             // If we get back a message referring to a since-removed permuter,
-            // no need to do anything.
+            // no need to do anything. Just request one more piece of work to
+            // make up for it.
             if let Some(job) = server_state.jobs.get_mut(&perm_id) {
                 if let Some(perm) = m.permuters.get_mut(&perm_id) {
-                    job.energy -= perm.energy_add * TIME_US_GUESS;
                     job.energy += perm.energy_add * time_us;
 
                     match update {
                         ServerUpdate::InitDone { .. } => {
+                            if !matches!(job.state, JobState::Loading) {
+                                Err("Got InitDone while not in Loading state")?;
+                            }
                             job.state = JobState::Loaded;
                             has_new = true;
                         }
                         ServerUpdate::InitFailed { .. } => {
+                            if !matches!(job.state, JobState::Loading) {
+                                Err("Got InitFailed while not in Loading state")?;
+                            }
                             job.state = JobState::Failed;
                         }
                         ServerUpdate::Disconnect { .. } => {
+                            if !matches!(job.state, JobState::Loaded) {
+                                Err("Got Disconnect while not in Loaded state")?;
+                            }
                             job.state = JobState::Failed;
-                            more_work = false;
+                            let work = job.active_work;
+                            job.active_work = 0;
+                            server_state.active_work -= work;
+                            more_work = 0;
                         }
-                        ServerUpdate::Result { .. } => {}
+                        ServerUpdate::Result { overhead_us, .. } => {
+                            if !matches!(job.state, JobState::Loaded) {
+                                Err("Got result while not in Loaded state")?;
+                            }
+                            // If the work item spent less than some given
+                            // amount of time in queues, request more work.
+                            // This ensures we saturate all server cores.
+                            // On the other hand, if it spends too much time
+                            // in queues, it's best if we reduce the amount of
+                            // work.
+                            // We don't need to adjust for time spent on the
+                            // network, because we have backpressure on slow
+                            // writes on both ends, and read continuously.
+                            job.active_work -= 1;
+                            server_state.active_work -= 1;
+                            let min_overhead_us = (time_us + MIN_OVERHEAD_US) as i64;
+                            if overhead_us == 0 {
+                                // Legacy server, skip this logic.
+                            } else if overhead_us > MAX_OVERHEAD_FACTOR * min_overhead_us {
+                                if server_state.active_work > 0 {
+                                    // Don't reset it to zero if it would lead
+                                    // to total starvation.
+                                    more_work = 0;
+                                }
+                            } else if overhead_us < min_overhead_us {
+                                more_work = 2;
+                            }
+                        }
                     }
                     perm.send_result(PermuterResult::Result(
                         who_id.clone(),
@@ -120,7 +166,7 @@ async fn server_read(
                 .await?;
         }
 
-        if more_work {
+        for _ in 0..more_work {
             // Try requesting more work by sending a message to the writer thread.
             // If the queue is full (because the writer thread is blocked on a
             // send), drop the request to avoid an unbounded backlog.
@@ -167,6 +213,7 @@ fn try_next_work_message(
                 Job {
                     state: JobState::Loading,
                     energy: 0.0,
+                    active_work: 0,
                 },
             );
             return Some(OutMessage {
@@ -185,15 +232,18 @@ fn try_next_work_message(
         let min_priority = server_state.min_priority;
         for (&perm_id, job) in server_state.jobs.iter_mut() {
             if let Some(perm) = m.permuters.get(&perm_id) {
+                let energy =
+                    job.energy + (job.active_work as f64) * perm.energy_add * TIME_US_GUESS;
                 if matches!(job.state, JobState::Loaded)
                     && !skip.contains(&perm_id)
                     && perm.priority >= min_priority
-                    && (best.is_none() || job.energy < best_cost)
+                    && (best.is_none() || energy < best_cost)
                 {
-                    best_cost = job.energy;
+                    best_cost = energy;
                     best = Some((perm_id, job));
                 }
             } else {
+                server_state.active_work -= job.active_work;
                 server_state.jobs.remove(&perm_id);
                 return Some(OutMessage {
                     permuter: perm_id,
@@ -214,7 +264,7 @@ fn try_next_work_message(
                 // again without it as a candidate. When the queue becomes
                 // non-empty again all sleeping writers will be notified.
                 perm.send_result(PermuterResult::NeedWork);
-                skip.insert(perm_id.clone());
+                skip.insert(perm_id);
                 continue;
             }
             Some(work) => work,
@@ -223,7 +273,8 @@ fn try_next_work_message(
         perm.semaphore.release();
 
         let min_energy = job.energy;
-        job.energy += perm.energy_add * TIME_US_GUESS;
+        job.active_work += 1;
+        server_state.active_work += 1;
 
         // Adjust energies to be around zero, to avoid problems with float
         // imprecision, and to ensure that new permuters that come in with
@@ -345,9 +396,19 @@ pub(crate) async fn handle_connect_server<'a>(
     mut write_port: WritePort<'a>,
     who_id: UserId,
     who_name: &str,
+    permuter_version: u32,
     state: &State,
     data: ConnectServerData,
 ) -> SimpleResult<()> {
+    if permuter_version < MIN_PERMUTER_VERSION {
+        Err("Permuter version too old!")?;
+    }
+
+    eprintln!(
+        "[{}] start server ({}, {})",
+        who_name, data.min_priority, data.num_cores
+    );
+
     write_port
         .send_json(&json!({
             "docker_image": &state.docker_image,
@@ -362,6 +423,7 @@ pub(crate) async fn handle_connect_server<'a>(
 
     let mut server_state = Mutex::new(ServerState {
         min_priority: data.min_priority,
+        active_work: 0,
         jobs: HashMap::new(),
     });
 

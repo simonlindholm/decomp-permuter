@@ -108,6 +108,8 @@ struct PermuterWork {
 #[serde(tag = "type", rename_all = "snake_case")]
 enum ServerUpdate {
     Result {
+        #[serde(skip_serializing, default)]
+        overhead_us: i64,
         #[serde(skip)]
         compressed_source: Option<Vec<u8>>,
         has_source: bool,
@@ -144,6 +146,9 @@ struct Permuter {
 
 impl Permuter {
     fn send_result(&mut self, res: PermuterResult) {
+        // We can't use a blocking semaphore acquire here, because we don't
+        // want server sends to block on random client receives. In practice,
+        // this is probably fine.
         let _ = self.result_tx.send(res);
         self.semaphore.acquire_ignore_limit();
     }
@@ -383,16 +388,28 @@ async fn handle_connection(
             vouch::handle_vouch(read_port, write_port, user_id, &name, state, data).await?;
         }
         Request::ConnectServer(data) => {
-            eprintln!(
-                "[{}] start server ({}, {})",
-                &name, data.min_priority, data.num_cores
-            );
-            server::handle_connect_server(read_port, write_port, user_id, &name, state, data)
-                .await?;
+            server::handle_connect_server(
+                read_port,
+                write_port,
+                user_id,
+                &name,
+                permuter_version,
+                state,
+                data,
+            )
+            .await?;
         }
         Request::ConnectClient(data) => {
-            client::handle_connect_client(read_port, write_port, user_id, &name, state, data)
-                .await?;
+            client::handle_connect_client(
+                read_port,
+                write_port,
+                user_id,
+                &name,
+                permuter_version,
+                state,
+                data,
+            )
+            .await?;
         }
     };
 

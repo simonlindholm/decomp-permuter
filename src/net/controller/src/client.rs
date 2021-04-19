@@ -15,6 +15,8 @@ use crate::{
     State,
 };
 
+const MIN_PERMUTER_VERSION: u32 = 1;
+
 const CLIENT_MAX_QUEUES_SIZE: usize = 100;
 const MIN_PRIORITY: f64 = 0.001;
 const MAX_PRIORITY: f64 = 10.0;
@@ -124,9 +126,14 @@ pub(crate) async fn handle_connect_client<'a>(
     mut write_port: WritePort<'a>,
     who_id: UserId,
     who_name: &str,
+    permuter_version: u32,
     state: &State,
     data: ConnectClientData,
 ) -> SimpleResult<()> {
+    if permuter_version < MIN_PERMUTER_VERSION {
+        Err("Permuter version too old!")?;
+    }
+
     if !(MIN_PRIORITY <= data.priority && data.priority <= MAX_PRIORITY) {
         Err("Priority out of range")?;
     }

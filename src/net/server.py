@@ -7,7 +7,7 @@ import sys
 import threading
 import time
 import traceback
-from typing import BinaryIO, Optional, Set, Tuple, Union, TYPE_CHECKING
+from typing import BinaryIO, Dict, Optional, Set, Tuple, Union, TYPE_CHECKING
 import zlib
 
 if TYPE_CHECKING:
@@ -30,7 +30,7 @@ from .core import (
 )
 
 
-_HEARTBEAT_INTERVAL_SLACK: float = 50.0
+_HEARTBEAT_INTERVAL_SLACK_SEC: float = 50.0
 
 
 @dataclass
@@ -42,6 +42,7 @@ class Client:
 @dataclass
 class AddPermuter:
     handle: int
+    time_start: float
     client: Client
     permuter_data: PermuterData
 
@@ -54,6 +55,8 @@ class RemovePermuter:
 @dataclass
 class Work:
     handle: int
+    id: int
+    time_start: float
     seed: int
 
 
@@ -80,14 +83,15 @@ class PermInitSuccess:
     perm_id: str
     base_score: int
     base_hash: str
-    time_us: float
+    time_us: int
 
 
 @dataclass
 class WorkDone:
     perm_id: str
+    id: int
     obj: dict
-    time_us: float
+    time_us: int
     compressed_source: Optional[bytes]
 
 
@@ -133,9 +137,9 @@ class OutputInitFail:
 @dataclass
 class OutputInitSuccess:
     handle: int
+    time_us: int
     base_score: int
     base_hash: str
-    time_us: float
 
 
 @dataclass
@@ -151,7 +155,8 @@ class OutputNeedMoreWork:
 @dataclass
 class OutputWork:
     handle: int
-    time_us: float
+    time_start: float
+    time_us: int
     obj: dict
     compressed_source: Optional[bytes]
 
@@ -233,6 +238,7 @@ class NetThread:
     _controller_queue: "queue.Queue[Output]"
     _read_thread: "threading.Thread"
     _write_thread: "threading.Thread"
+    _next_work_id: int
 
     def __init__(
         self,
@@ -242,6 +248,7 @@ class NetThread:
         self._port = port
         self._main_queue = main_queue
         self._controller_queue = queue.Queue()
+        self._next_work_id = 0
 
         self._read_thread = threading.Thread(target=self.read_loop)
         self._read_thread.daemon = True
@@ -272,6 +279,7 @@ class NetThread:
         assert self._port is not None
 
         msg = self._port.receive_json()
+        time_start = time.time()
 
         msg_type = json_prop(msg, "type", str)
 
@@ -282,7 +290,9 @@ class NetThread:
 
         if msg_type == "work":
             seed = json_prop(msg, "seed", int)
-            return Work(handle=handle, seed=seed)
+            id = self._next_work_id
+            self._next_work_id += 1
+            return Work(handle=handle, id=id, time_start=time_start, seed=seed)
 
         elif msg_type == "add":
             client_id = json_prop(msg, "client_id", str)
@@ -308,6 +318,7 @@ class NetThread:
 
             return AddPermuter(
                 handle=handle,
+                time_start=time_start,
                 client=client,
                 permuter_data=permuter,
             )
@@ -370,6 +381,7 @@ class NetThread:
             self._port.send_json({"type": "need_work"})
 
         elif isinstance(item, OutputWork):
+            overhead_us = int((time.time() - item.time_start) * 10 ** 6) - item.time_us
             self._port.send_json(
                 {
                     "type": "update",
@@ -377,6 +389,7 @@ class NetThread:
                     "time_us": item.time_us,
                     "update": {
                         "type": "work",
+                        "overhead_us": overhead_us,
                         **item.obj,
                     },
                 }
@@ -415,6 +428,7 @@ class ServerInner:
     _last_heartbeat: float
     _last_heartbeat_lock: threading.Lock
     _active: Set[int]
+    _time_starts: Dict[int, float]
     _token: CancelToken
 
     def __init__(
@@ -428,6 +442,7 @@ class ServerInner:
         self._main_queue = queue.Queue()
         self._io_queue = io_queue
         self._active = set()
+        self._time_starts = {}
         self._token = CancelToken()
 
         self._net_thread = NetThread(net_port, self._main_queue)
@@ -475,10 +490,12 @@ class ServerInner:
                 self._need_work()
                 return
 
+            self._time_starts[msg.id] = msg.time_start
             self._evaluator_port.send_json(
                 {
                     "type": "work",
-                    "id": str(msg.handle),
+                    "permuter": str(msg.handle),
+                    "id": msg.id,
                     "seed": msg.seed,
                 }
             )
@@ -511,10 +528,8 @@ class ServerInner:
             if msg.handle in self._active:
                 raise Exception("ImmediateDisconnect is not immediate")
 
-            self._send_io(
-                msg.handle, IoImmediateDisconnect("sent garbage message", msg.client)
-            )
-            self._send_controller(OutputDisconnect(handle=msg.handle))
+            self._send_io(msg.handle, IoImmediateDisconnect(msg.reason, msg.client))
+            self._send_controller(OutputInitFail(handle=msg.handle, error=msg.reason))
 
         elif isinstance(msg, PermInitFail):
             handle = int(msg.perm_id)
@@ -548,6 +563,7 @@ class ServerInner:
 
         elif isinstance(msg, WorkDone):
             handle = int(msg.perm_id)
+            time_start = self._time_starts.pop(msg.id)
             if handle not in self._active:
                 self._need_work()
                 return
@@ -563,6 +579,7 @@ class ServerInner:
             self._send_controller(
                 OutputWork(
                     handle=handle,
+                    time_start=time_start,
                     time_us=msg.time_us,
                     obj=obj,
                     compressed_source=msg.compressed_source,
@@ -582,12 +599,16 @@ class ServerInner:
         self._send_controller(OutputNeedMoreWork())
 
     def _remove(self, handle: int) -> None:
-        self._evaluator_port.send_json({"type": "remove", "id": str(handle)})
+        self._evaluator_port.send_json({"type": "remove", "permuter": str(handle)})
         self._active.remove(handle)
 
-    def _send_permuter(self, id: str, perm: PermuterData) -> None:
+    def _send_permuter(self, perm_id: str, perm: PermuterData) -> None:
         self._evaluator_port.send_json(
-            {"type": "add", "id": id, **permuter_data_to_json(perm)}
+            {
+                "type": "add",
+                "permuter": perm_id,
+                **permuter_data_to_json(perm),
+            }
         )
         self._evaluator_port.send(perm.source.encode("utf-8"))
         self._evaluator_port.send(perm.target_o_bin)
@@ -598,8 +619,8 @@ class ServerInner:
             msg_type = json_prop(msg, "type", str)
 
             if msg_type == "init":
-                perm_id = json_prop(msg, "id", str)
-                time_us = json_prop(msg, "time_us", float)
+                perm_id = json_prop(msg, "permuter", str)
+                time_us = json_prop(msg, "time_us", int)
                 resp: Activity
                 if json_prop(msg, "success", bool):
                     resp = PermInitSuccess(
@@ -619,21 +640,21 @@ class ServerInner:
                 compressed_source: Optional[bytes] = None
                 if msg.get("has_source") == True:
                     compressed_source = self._evaluator_port.receive()
-                perm_id = json_prop(msg, "id", str)
-                time_us = json_prop(msg, "time_us", float)
+                perm_id = json_prop(msg, "permuter", str)
+                id = json_prop(msg, "id", int)
+                time_us = json_prop(msg, "time_us", int)
+                del msg["permuter"]
                 del msg["id"]
                 del msg["time_us"]
                 self._main_queue.put(
                     WorkDone(
                         perm_id=perm_id,
+                        id=id,
                         obj=msg,
                         time_us=time_us,
                         compressed_source=compressed_source,
                     )
                 )
-
-            elif msg_type == "need_work":
-                self._main_queue.put(NeedMoreWork())
 
             else:
                 raise Exception(f"Unknown message type from evaluator: {msg_type}")
@@ -663,7 +684,7 @@ class ServerInner:
                 delay = (
                     self._last_heartbeat
                     + self._heartbeat_interval
-                    + _HEARTBEAT_INTERVAL_SLACK / 2
+                    + _HEARTBEAT_INTERVAL_SLACK_SEC / 2
                     - time.time()
                 )
             if delay <= 0:
@@ -673,7 +694,7 @@ class ServerInner:
                 # Handle clock skew or computer going to sleep by waiting a bit
                 # longer before giving up.
                 second_attempt = True
-                if self._heartbeat_stop.wait(_HEARTBEAT_INTERVAL_SLACK / 2):
+                if self._heartbeat_stop.wait(_HEARTBEAT_INTERVAL_SLACK_SEC / 2):
                     return
             else:
                 second_attempt = False

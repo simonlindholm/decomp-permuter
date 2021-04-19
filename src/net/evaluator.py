@@ -100,44 +100,6 @@ def _create_permuter(data: PermuterData) -> Permuter:
         raise
 
 
-def _remove_permuter(perm: Permuter) -> None:
-    os.unlink(perm.compiler.compile_cmd)
-
-
-def _send_result(perm_id: str, time_us: float, res: EvalResult, port: Port) -> None:
-    if isinstance(res, EvalError):
-        port.send_json(
-            {
-                "type": "result",
-                "id": perm_id,
-                "time_us": time_us,
-                "error": res.exc_str,
-            }
-        )
-        return
-
-    compressed_source = getattr(res, "compressed_source")
-
-    obj = {
-        "type": "result",
-        "id": perm_id,
-        "time_us": time_us,
-        "score": res.score,
-        "has_source": compressed_source is not None,
-    }
-    if res.hash is not None:
-        obj["hash"] = res.hash
-    if res.profiler is not None:
-        obj["profiler"] = {
-            st.name: res.profiler.time_stats[st] for st in Profiler.StatType
-        }
-
-    port.send_json(obj)
-
-    if compressed_source is not None:
-        port.send(compressed_source)
-
-
 @dataclass
 class AddPermuter:
     perm_id: str
@@ -158,23 +120,56 @@ class RemovePermuter:
 @dataclass
 class WorkDone:
     perm_id: str
-    time_us: float
+    id: int
+    time_us: int
     result: EvalResult
 
 
 @dataclass
 class Work:
     perm_id: str
+    id: int
     seed: int
-
-
-class NeedMoreWork:
-    pass
 
 
 LocalWork = Tuple[Union[AddPermuterLocal, RemovePermuter], int]
 GlobalWork = Tuple[Work, int]
-Task = Union[AddPermuter, RemovePermuter, Work, WorkDone, NeedMoreWork]
+Task = Union[AddPermuter, RemovePermuter, Work, WorkDone]
+
+
+def _remove_permuter(perm: Permuter) -> None:
+    os.unlink(perm.compiler.compile_cmd)
+
+
+def _send_result(item: WorkDone, port: Port) -> None:
+    obj = {
+        "type": "result",
+        "permuter": item.perm_id,
+        "id": item.id,
+        "time_us": item.time_us,
+    }
+
+    res = item.result
+    if isinstance(res, EvalError):
+        obj["error"] = res.exc_str
+        port.send_json(obj)
+        return
+
+    compressed_source = getattr(res, "compressed_source")
+
+    obj["score"] = res.score
+    obj["has_source"] = compressed_source is not None
+    if res.hash is not None:
+        obj["hash"] = res.hash
+    if res.profiler is not None:
+        obj["profiler"] = {
+            st.name: res.profiler.time_stats[st] for st in Profiler.StatType
+        }
+
+    port.send_json(obj)
+
+    if compressed_source is not None:
+        port.send(compressed_source)
 
 
 def multiprocess_worker(
@@ -193,11 +188,7 @@ def multiprocess_worker(
     timestamp = 0
 
     while True:
-        try:
-            work, required_timestamp = worker_queue.get(block=False)
-        except queue.Empty:
-            task_queue.put(NeedMoreWork())
-            work, required_timestamp = worker_queue.get()
+        work, required_timestamp = worker_queue.get()
         while True:
             try:
                 block = timestamp < required_timestamp
@@ -228,7 +219,9 @@ def multiprocess_worker(
             result.source = None
 
         time_us = int((time.time() - time_before) * 10 ** 6)
-        task_queue.put(WorkDone(perm_id=work.perm_id, time_us=time_us, result=result))
+        task_queue.put(
+            WorkDone(perm_id=work.perm_id, id=work.id, time_us=time_us, result=result)
+        )
 
 
 def read_loop(task_queue: "Queue[Task]", port: Port) -> None:
@@ -237,20 +230,21 @@ def read_loop(task_queue: "Queue[Task]", port: Port) -> None:
             item = port.receive_json()
             msg_type = json_prop(item, "type", str)
             if msg_type == "add":
-                perm_id = json_prop(item, "id", str)
+                perm_id = json_prop(item, "permuter", str)
                 source = port.receive().decode("utf-8")
                 target_o_bin = port.receive()
                 data = permuter_data_from_json(item, source, target_o_bin)
                 task_queue.put(AddPermuter(perm_id=perm_id, data=data))
 
             elif msg_type == "remove":
-                perm_id = json_prop(item, "id", str)
+                perm_id = json_prop(item, "permuter", str)
                 task_queue.put(RemovePermuter(perm_id=perm_id))
 
             elif msg_type == "work":
-                perm_id = json_prop(item, "id", str)
+                perm_id = json_prop(item, "permuter", str)
+                id = json_prop(item, "id", int)
                 seed = json_prop(item, "seed", int)
-                task_queue.put(Work(perm_id=perm_id, seed=seed))
+                task_queue.put(Work(perm_id=perm_id, id=id, seed=seed))
 
             else:
                 raise Exception(f"Invalid message type {msg_type}")
@@ -332,7 +326,7 @@ def main() -> None:
 
             msg: Dict[str, object] = {
                 "type": "init",
-                "id": item.perm_id,
+                "permuter": item.perm_id,
             }
 
             time_before = time.time()
@@ -392,14 +386,11 @@ def main() -> None:
         elif isinstance(item, WorkDone):
             remaining_work[item.perm_id] -= 1
             try_remove(item.perm_id)
-            _send_result(item.perm_id, item.time_us, item.result, port)
+            _send_result(item, port)
 
         elif isinstance(item, Work):
             remaining_work[item.perm_id] += 1
             worker_queue.put((item, timestamp))
-
-        elif isinstance(item, NeedMoreWork):
-            port.send_json({"type": "need_work"})
 
         else:
             static_assert_unreachable(item)

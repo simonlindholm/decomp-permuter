@@ -20,7 +20,7 @@ from ..helpers import exception_to_string
 T = TypeVar("T")
 AnyBox = Union[Box, SecretBox]
 
-PERMUTER_VERSION = 1
+PERMUTER_VERSION = 2
 
 CONFIG_FILENAME = "pah.conf"
 
