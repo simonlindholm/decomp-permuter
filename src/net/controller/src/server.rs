@@ -54,6 +54,8 @@ struct ServerState {
     min_priority: f64,
     /// sum of active_work across all jobs
     active_work: i64,
+    /// fractional part of how much work should be requested, in [0, 1)
+    more_work_acc: f64,
     jobs: HashMap<PermuterId, Job>,
 }
 
@@ -68,92 +70,110 @@ async fn server_read(
 ) -> SimpleResult<()> {
     loop {
         let msg = port.recv().await?;
-        let msg: ServerMessage = serde_json::from_slice(&msg)?;
-        let mut has_new = false;
-        let mut more_work: i32 = 1;
+        let mut msg: ServerMessage = serde_json::from_slice(&msg)?;
         if let ServerMessage::Update {
-            permuter: perm_id,
-            mut update,
-            time_us,
+            update:
+                ServerUpdate::Result {
+                    ref mut compressed_source,
+                    has_source: true,
+                    ..
+                },
+            ..
         } = msg
         {
-            if let ServerUpdate::Result {
-                ref mut compressed_source,
-                has_source: true,
-                ..
-            } = &mut update
-            {
-                *compressed_source = Some(port.recv().await?);
-            }
+            *compressed_source = Some(port.recv().await?);
+        }
+
+        let mut has_new = false;
+        let mut request_work;
+
+        {
             let mut m = state.m.lock().unwrap();
             let mut server_state = server_state.lock().unwrap();
 
-            // If we get back a message referring to a since-removed permuter,
-            // no need to do anything. Just request one more piece of work to
-            // make up for it.
-            if let Some(job) = server_state.jobs.get_mut(&perm_id) {
-                if let Some(perm) = m.permuters.get_mut(&perm_id) {
-                    job.energy += perm.energy_add * time_us;
+            let mut more_work: f64 = 1.0;
 
-                    match update {
-                        ServerUpdate::InitDone { .. } => {
-                            if !matches!(job.state, JobState::Loading) {
-                                Err("Got InitDone while not in Loading state")?;
-                            }
-                            job.state = JobState::Loaded;
-                            has_new = true;
-                        }
-                        ServerUpdate::InitFailed { .. } => {
-                            if !matches!(job.state, JobState::Loading) {
-                                Err("Got InitFailed while not in Loading state")?;
-                            }
-                            job.state = JobState::Failed;
-                        }
-                        ServerUpdate::Disconnect { .. } => {
-                            if !matches!(job.state, JobState::Loaded) {
-                                Err("Got Disconnect while not in Loaded state")?;
-                            }
-                            job.state = JobState::Failed;
-                            let work = job.active_work;
-                            job.active_work = 0;
-                            server_state.active_work -= work;
-                            more_work = 0;
-                        }
-                        ServerUpdate::Result { overhead_us, .. } => {
-                            if !matches!(job.state, JobState::Loaded) {
-                                Err("Got result while not in Loaded state")?;
-                            }
-                            // If the work item spent less than some given
-                            // amount of time in queues, request more work.
-                            // This ensures we saturate all server cores.
-                            // On the other hand, if it spends too much time
-                            // in queues, it's best if we reduce the amount of
-                            // work.
-                            // We don't need to adjust for time spent on the
-                            // network, because we have backpressure on slow
-                            // writes on both ends, and read continuously.
-                            job.active_work -= 1;
-                            server_state.active_work -= 1;
-                            let min_overhead_us = (time_us + MIN_OVERHEAD_US) as i64;
-                            if overhead_us == 0 {
-                                // Legacy server, skip this logic.
-                            } else if overhead_us > MAX_OVERHEAD_FACTOR * min_overhead_us {
-                                if server_state.active_work > 0 {
-                                    // Don't reset it to zero if it would lead
-                                    // to total starvation.
-                                    more_work = 0;
+            if let ServerMessage::Update {
+                permuter: perm_id,
+                update,
+                time_us,
+            } = msg
+            {
+                // If we get back a message referring to a since-removed
+                // permuter, no need to do anything. Just request one more
+                // piece of work to make up for it.
+                if let Some(job) = server_state.jobs.get_mut(&perm_id) {
+                    if let Some(perm) = m.permuters.get_mut(&perm_id) {
+                        job.energy += perm.energy_add * time_us;
+
+                        match update {
+                            ServerUpdate::InitDone { .. } => {
+                                if !matches!(job.state, JobState::Loading) {
+                                    Err("Got InitDone while not in Loading state")?;
                                 }
-                            } else if overhead_us < min_overhead_us {
-                                more_work = 2;
+                                job.state = JobState::Loaded;
+                                has_new = true;
+                            }
+                            ServerUpdate::InitFailed { .. } => {
+                                if !matches!(job.state, JobState::Loading) {
+                                    Err("Got InitFailed while not in Loading state")?;
+                                }
+                                job.state = JobState::Failed;
+                            }
+                            ServerUpdate::Disconnect { .. } => {
+                                if !matches!(job.state, JobState::Loaded) {
+                                    Err("Got Disconnect while not in Loaded state")?;
+                                }
+                                job.state = JobState::Failed;
+                                let work = job.active_work;
+                                job.active_work = 0;
+                                server_state.active_work -= work;
+                                more_work = 0.0;
+                            }
+                            ServerUpdate::Result { overhead_us, .. } => {
+                                if !matches!(job.state, JobState::Loaded) {
+                                    Err("Got result while not in Loaded state")?;
+                                }
+                                // If the work item spent less than some given
+                                // amount of time in queues, request more work.
+                                // This ensures we saturate all server cores.
+                                // On the other hand, if it spends too much time
+                                // in queues, it's best if we reduce the amount
+                                // of work.
+                                // We don't need to adjust for time spent on the
+                                // network, because we have backpressure on slow
+                                // writes on both ends, and read continuously.
+                                job.active_work -= 1;
+                                server_state.active_work -= 1;
+                                let min_overhead_us = (time_us + MIN_OVERHEAD_US) as i64;
+                                if overhead_us == 0 {
+                                    // Legacy server, skip this logic.
+                                } else if overhead_us > MAX_OVERHEAD_FACTOR * min_overhead_us {
+                                    more_work = 0.5;
+                                } else if overhead_us < min_overhead_us {
+                                    more_work = 1.5;
+                                }
                             }
                         }
+                        perm.send_result(PermuterResult::Result(
+                            who_id.clone(),
+                            who_name.to_string(),
+                            update,
+                        ));
                     }
-                    perm.send_result(PermuterResult::Result(
-                        who_id.clone(),
-                        who_name.to_string(),
-                        update,
-                    ));
                 }
+            }
+
+            more_work += server_state.more_work_acc;
+            request_work = more_work as i32;
+            server_state.more_work_acc = more_work - request_work as f64;
+
+            if request_work == 0
+                && server_state.active_work == 0
+                && more_work_tx.capacity() == SERVER_WORK_QUEUE_SIZE
+            {
+                // Don't request 0 work if it would lead to total starvation.
+                request_work = 1;
             }
         }
 
@@ -166,7 +186,7 @@ async fn server_read(
                 .await?;
         }
 
-        for _ in 0..more_work {
+        for _ in 0..request_work {
             // Try requesting more work by sending a message to the writer thread.
             // If the queue is full (because the writer thread is blocked on a
             // send), drop the request to avoid an unbounded backlog.
@@ -424,6 +444,7 @@ pub(crate) async fn handle_connect_server<'a>(
     let mut server_state = Mutex::new(ServerState {
         min_priority: data.min_priority,
         active_work: 0,
+        more_work_acc: 0.0,
         jobs: HashMap::new(),
     });
 
