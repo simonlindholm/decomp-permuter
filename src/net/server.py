@@ -842,9 +842,9 @@ def _start_evaluator(docker_image: str, options: ServerOptions) -> DockerPort:
         traceback.print_exc()
         print()
         print(
-            "Failed to start docker. Make sure you have docker installed, "
-            "and either run the permuter with sudo or add yourself to the "
-            '"docker" UNIX group.'
+            "Failed to start docker. Make sure you have docker installed and "
+            "the docker daemon running, and either run the permuter with sudo "
+            'or add yourself to the "docker" UNIX group.'
         )
         sys.exit(1)
 
