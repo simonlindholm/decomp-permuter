@@ -291,13 +291,14 @@ def main() -> None:
         p = Process(
             target=multiprocess_worker,
             args=(worker_queue, local_queue, task_queue),
+            daemon=True,
         )
-        p.daemon = True
         p.start()
         local_queues.append(local_queue)
 
-    reader_thread = threading.Thread(target=read_loop, args=(task_queue, port))
-    reader_thread.daemon = True
+    reader_thread = threading.Thread(
+        target=read_loop, args=(task_queue, port), daemon=True
+    )
     reader_thread.start()
 
     remaining_work: Counter[str] = Counter()

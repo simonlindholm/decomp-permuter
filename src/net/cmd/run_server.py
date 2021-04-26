@@ -1,22 +1,24 @@
 from argparse import ArgumentParser, Namespace
+import base64
 from dataclasses import dataclass
+from enum import Enum
 from functools import partial
+import json
 import os
 import queue
 import random
+from subprocess import Popen, PIPE
 import sys
 import time
 import threading
 import traceback
 from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 
-if TYPE_CHECKING:
-    import pystray
-
 from ...helpers import static_assert_unreachable
-from ..core import CancelToken, ServerError
+from ..core import CancelToken, ServerError, read_config
 from ..server import (
     Client,
+    Config,
     IoActivity,
     IoConnect,
     IoDisconnect,
@@ -25,16 +27,12 @@ from ..server import (
     IoServerFailed,
     IoShutdown,
     IoUserRemovePermuter,
-    IoWillSleep,
     IoWorkDone,
     PermuterHandle,
     Server,
     ServerOptions,
 )
 from .base import Command
-
-
-SYSTRAY_UPDATE_INTERVAL = 20.0
 
 
 class RunServerCommand(Command):
@@ -91,6 +89,15 @@ class RunServerCommand(Command):
 
 
 class SystrayState:
+    def server_reconnecting(self) -> None:
+        pass
+
+    def server_connected(self) -> None:
+        pass
+
+    def server_failed(self, graceful: bool, message: Optional[str] = None) -> None:
+        pass
+
     def connect(self, handle: PermuterHandle, nickname: str, fn_name: str) -> None:
         pass
 
@@ -100,10 +107,7 @@ class SystrayState:
     def work_done(self, handle: PermuterHandle, is_improvement: bool) -> None:
         pass
 
-    def will_sleep(self) -> None:
-        pass
-
-    def server_failed(self) -> None:
+    def stop(self) -> None:
         pass
 
 
@@ -114,125 +118,308 @@ class Permuter:
     iterations: int = 0
     improvements: int = 0
     last_systray_update: float = 0.0
+    slot: "Optional[ClientSlot]" = None
+
+
+@dataclass
+class ClientSlot:
+    menu_id: int
+    iterations_id: int
+    improvements_id: int
+    stop_id: int
+    permuter: Optional[PermuterHandle] = None
+
+
+class SystrayStatus(Enum):
+    CONNECTING = 0
+    CONNECTED = 1
+    FAILED = 2
+    RECONNECTING = 3
 
 
 class RealSystrayState(SystrayState):
+    _CLIENT_SLOTS = 10
+    _UPDATE_INTERVAL = 2.0
+    _MENU_TOOLTIP = "permuter@home"
     _permuters: Dict[PermuterHandle, Permuter]
+    _onclick: Dict[int, Callable[[], None]]
+    _client_slots: List[ClientSlot]
 
     def __init__(
         self,
+        config: Config,
         io_queue: "queue.Queue[IoActivity]",
-        update_menu: "Callable[[List[pystray.MenuItem], bool], None]",
     ) -> None:
         self._io_queue = io_queue
-        self._update_menu = update_menu
         self._permuters = {}
+        self._onclick = {}
+        self._status = SystrayStatus.CONNECTING
+        self._fail_message: Optional[str] = None
 
-    def _remove_permuter(self, handle: PermuterHandle, *_: Any) -> None:
+        def load_icon(fname: str) -> str:
+            path = os.path.join(os.path.dirname(__file__), "icons", fname)
+            with open(path, "rb") as f:
+                data = f.read()
+            return base64.b64encode(data).decode("ascii")
+
+        self._icons = {
+            "working": load_icon("okthink.png"),
+            "passive": load_icon("ok.ico"),
+            "fail": load_icon("notok.ico"),
+        }
+        self._current_icon = "working"
+
+        next_id = 100
+
+        def add_item(
+            menu: List[dict],
+            title: str,
+            onclick: Optional[Callable[[], None]] = None,
+            *,
+            submenu: Optional[List[dict]] = None,
+            hidden: bool = False,
+        ) -> int:
+            nonlocal next_id
+            next_id += 1
+            obj = {
+                "title": title,
+                "enabled": onclick is not None or submenu is not None,
+                "hidden": hidden,
+                "__id": next_id,
+            }
+            if onclick is not None:
+                self._onclick[next_id] = onclick
+            if submenu is not None:
+                obj["items"] = submenu
+            menu.append(obj)
+            return next_id
+
+        menu: List[dict] = []
+        self._status_id = add_item(menu, "Connecting...")
+        self._client_slots = []
+        for i in range(self._CLIENT_SLOTS):
+            submenu: List[dict] = []
+            remove_cb = partial(self._remove_permuter, i)
+            self._client_slots.append(
+                ClientSlot(
+                    iterations_id=add_item(submenu, ""),
+                    improvements_id=add_item(submenu, ""),
+                    stop_id=add_item(submenu, "Stop", remove_cb),
+                    menu_id=add_item(menu, "", submenu=submenu, hidden=True),
+                )
+            )
+        self._more_id = add_item(menu, "", hidden=True)
+        add_item(menu, "Quit", self._quit)
+
+        try:
+            path = os.path.join(
+                os.path.dirname(__file__), "systray", "tray_linux_release"
+            )
+            self._proc = Popen(
+                [path],
+                stdout=PIPE,
+                stdin=PIPE,
+                universal_newlines=True,
+            )
+            assert self._proc.stdout is not None
+            self._proc_stdout = self._proc.stdout
+            assert self._proc.stdin is not None
+            self._proc_stdin = self._proc.stdin
+
+            self._send(
+                {
+                    "icon": self._icons[self._current_icon],
+                    "tooltip": self._MENU_TOOLTIP,
+                    "items": menu,
+                }
+            )
+
+            resp_str = self._proc_stdout.readline()
+            assert resp_str
+            resp = json.loads(resp_str)
+            assert isinstance(resp, dict)
+            assert resp.get("type") == "ready"
+        except Exception:
+            raise Exception("Failed to initialize systray!")
+
+        self._read_thread = threading.Thread(target=self._read_loop, daemon=True)
+        self._read_thread.start()
+
+    def _send(self, msg: dict) -> None:
+        data = json.dumps(msg)
+        self._proc_stdin.write(data + "\n")
+        self._proc_stdin.flush()
+
+    def _update_item(
+        self, id: int, title: str, *, hidden: bool = False, enabled: bool = False
+    ) -> None:
+        self._send(
+            {
+                "type": "update-item",
+                "item": {
+                    "title": title,
+                    "enabled": enabled,
+                    "hidden": hidden,
+                    "__id": id,
+                },
+                "seq_id": -1,
+            }
+        )
+
+    def _remove_permuter(self, slot_index: int) -> None:
+        slot = self._client_slots[slot_index]
+        if not slot.permuter:
+            return
+        handle = slot.permuter
         self._io_queue.put((None, (handle, IoUserRemovePermuter())))
 
     def _quit(self) -> None:
         self._io_queue.put((None, IoShutdown()))
 
-    def _update(self, flush: bool = True) -> None:
-        import pystray
+    def _read_loop(self) -> None:
+        while True:
+            resp_str = self._proc_stdout.readline()
+            if not resp_str:
+                break
+            try:
+                resp = json.loads(resp_str)
+            except Exception:
+                raise Exception(f"Failed to parse systray JSON: {resp_str}") from None
+            if resp["type"] == "clicked":
+                id = resp["__id"]
+                if id in self._onclick:
+                    self._onclick[id]()
 
-        title = "Currently permuting:" if self._permuters else "<not running>"
-        items: List[pystray.MenuItem] = [
-            pystray.MenuItem(title, None, enabled=False),
-        ]
+    def _permuter_slot(self, perm: Permuter) -> Optional[ClientSlot]:
+        for slot in self._client_slots:
+            if slot.permuter is not None and self._permuters[slot.permuter] is perm:
+                return slot
+        return None
 
-        for handle, perm in self._permuters.items():
-            items.append(
-                pystray.MenuItem(
-                    f"{perm.fn_name} ({perm.nickname})",
-                    pystray.Menu(
-                        pystray.MenuItem(
-                            f"Iterations: {perm.iterations}", None, enabled=False
-                        ),
-                        pystray.MenuItem(
-                            f"Improvements found: {perm.improvements}",
-                            None,
-                            enabled=False,
-                        ),
-                        pystray.MenuItem(
-                            "Stop", partial(self._remove_permuter, handle)
-                        ),
-                    ),
-                ),
+    def _update_permuter(self, perm: Permuter, slot: ClientSlot) -> None:
+        self._update_item(
+            slot.iterations_id,
+            f"Iterations: {perm.iterations}",
+        )
+        self._update_item(
+            slot.improvements_id,
+            f"Improvements found: {perm.improvements}",
+        )
+
+    def _update_status(self) -> None:
+        if self._status == SystrayStatus.CONNECTING:
+            status = "Reconnecting..."
+            icon = "working"
+        elif self._status == SystrayStatus.RECONNECTING:
+            status = "Disconnected, will reconnect..."
+            icon = "fail"
+        elif self._status == SystrayStatus.CONNECTED:
+            if self._permuters:
+                status = "Currently permuting:"
+                icon = "working"
+            else:
+                status = "Not running"
+                icon = "passive"
+        elif self._status == SystrayStatus.FAILED:
+            if self._fail_message:
+                status = f"Error: {self._fail_message}"
+            else:
+                status = "Error occurred"
+            icon = "fail"
+        else:
+            assert False, f"bad status {self._status}"
+
+        self._update_item(self._status_id, status)
+        if self._current_icon != icon:
+            self._current_icon = icon
+            self._send(
+                {
+                    "type": "update-menu",
+                    "menu": {
+                        "tooltip": self._MENU_TOOLTIP,
+                        "icon": self._icons[icon],
+                    },
+                }
             )
 
-        items.append(pystray.MenuItem("Quit", self._quit))
+    def _fill_slots(self) -> None:
+        has_more = False
+        while True:
+            key = next((k for k, p in self._permuters.items() if p.slot is None), None)
+            if key is None:
+                break
+            chosen_slot: Optional[ClientSlot] = None
+            for i in range(self._CLIENT_SLOTS - 1, -1, -1):
+                slot = self._client_slots[i]
+                if slot.permuter is None:
+                    chosen_slot = slot
+                elif chosen_slot is not None:
+                    break
+            if chosen_slot is None:
+                has_more = True
+                break
+            perm = self._permuters[key]
+            perm.slot = chosen_slot
+            chosen_slot.permuter = key
+            self._update_permuter(perm, chosen_slot)
+            self._update_item(
+                chosen_slot.menu_id, f"{perm.fn_name} ({perm.nickname})", enabled=True
+            )
+        self._update_item(self._more_id, "More...", hidden=not has_more)
 
-        self._update_menu(items, flush)
+    def _hide_slot(self, slot: ClientSlot) -> None:
+        if slot.permuter is not None:
+            self._update_item(slot.menu_id, "", hidden=True)
+        slot.permuter = None
 
-    def initial_update(self) -> None:
-        self._update()
+    def server_reconnecting(self) -> None:
+        self._status = SystrayStatus.CONNECTING
+        self._update_status()
+
+    def server_connected(self) -> None:
+        self._status = SystrayStatus.CONNECTED
+        self._update_status()
+
+    def server_failed(self, graceful: bool, message: Optional[str] = None) -> None:
+        self._status = SystrayStatus.RECONNECTING if graceful else SystrayStatus.FAILED
+        self._fail_message = message
+        self._permuters = {}
+        self._update_status()
+        for slot in self._client_slots:
+            self._hide_slot(slot)
+        self._fill_slots()
 
     def connect(self, handle: PermuterHandle, nickname: str, fn_name: str) -> None:
-        self._permuters[handle] = Permuter(nickname, fn_name)
-        self._update()
+        perm = Permuter(nickname, fn_name)
+        self._permuters[handle] = perm
+        self._fill_slots()
+        self._update_status()
 
     def disconnect(self, handle: PermuterHandle) -> None:
+        slot = self._permuters[handle].slot
         del self._permuters[handle]
-        self._update()
+        self._update_status()
+        if slot:
+            self._hide_slot(slot)
+        self._fill_slots()
 
     def work_done(self, handle: PermuterHandle, is_improvement: bool) -> None:
         perm = self._permuters[handle]
         perm.iterations += 1
         if is_improvement:
             perm.improvements += 1
-        flush = time.time() > perm.last_systray_update + SYSTRAY_UPDATE_INTERVAL
-        if flush:
+        if perm.slot and time.time() > perm.last_systray_update + self._UPDATE_INTERVAL:
             perm.last_systray_update = time.time()
-        self._update(flush)
+            self._update_permuter(perm, perm.slot)
 
-    def will_sleep(self) -> None:
-        self._update()
-
-    def server_failed(self) -> None:
-        self._permuters = {}
-        self._update()
-
-
-def run_with_systray(
-    io_queue: "queue.Queue[IoActivity]",
-    loop: Callable[[SystrayState], None],
-) -> None:
-    try:
-        from PIL import Image
-        import pystray
-    except ModuleNotFoundError:
-        print(
-            "Systray requires the pystray and Pillow packages to be installed.\n"
-            "Run `python3 -m pip install --upgrade pystray Pillow`."
-        )
-        sys.exit(1)
-
-    menu_items: List[pystray.MenuItem] = []
-
-    icon = pystray.Icon(
-        name="permuter@home",
-        title="permuter@home",
-        icon=Image.open(os.path.join(os.path.dirname(__file__), "icon.png")),
-        menu=pystray.Menu(lambda: menu_items),
-    )
-
-    def update_menu(items: List[pystray.MenuItem], flush: bool) -> None:
-        nonlocal menu_items
-        menu_items = items
-        if flush:
-            icon.update_menu()
-
-    systray = RealSystrayState(io_queue, update_menu)
-    systray.initial_update()
-
-    def inner(icon: pystray.Icon) -> None:
-        icon.visible = True
-        loop(systray)
-        icon.stop()
-
-    icon.run(inner)
+    def stop(self) -> None:
+        try:
+            self._send({"type": "exit"})
+        except BrokenPipeError:
+            # The systray process may have been killed by Ctrl+C.
+            pass
+        self._proc.wait()
+        self._read_thread.join()
 
 
 class Reconnector:
@@ -300,31 +487,35 @@ def main_loop(
             continue
 
         if not isinstance(activity, tuple):
-            if isinstance(activity, IoWillSleep):
-                systray.will_sleep()
-
-            elif isinstance(activity, IoShutdown):
+            if isinstance(activity, IoShutdown):
                 break
 
             elif isinstance(activity, IoReconnect):
                 print("reconnecting...")
                 try:
+                    systray.server_reconnecting()
                     reconnector.mark_start()
                     server.start()
+                    systray.server_connected()
                 except EOFError:
                     delay = reconnector.reconnect_eventually()
                     print(f"failed again, reconnecting in {delay} seconds...")
+                    systray.server_failed(True)
                 except ServerError as e:
                     print("failed!", e.message)
+                    systray.server_failed(False, e.message)
                 except Exception:
                     print("failed!")
                     traceback.print_exc()
+                    systray.server_failed(False)
 
             elif isinstance(activity, IoServerFailed):
+                if activity.message:
+                    print("Server error:", activity.message)
                 print("disconnected from permuter@home")
                 server.stop()
                 reconnector.mark_stop()
-                systray.server_failed()
+                systray.server_failed(activity.graceful, activity.message)
 
                 if activity.graceful:
                     delay = reconnector.reconnect_eventually()
@@ -364,18 +555,22 @@ def main_loop(
 
 def server_main(options: ServerOptions, use_systray: bool) -> None:
     io_queue: "queue.Queue[IoActivity]" = queue.Queue()
+    config = read_config()
 
-    server = Server(options, io_queue)
-    server.start()
+    systray: SystrayState
+    if use_systray:
+        systray = RealSystrayState(config, io_queue)
+    else:
+        systray = SystrayState()
 
     try:
+        server = Server(options, config, io_queue)
+        server.start()
 
-        def cmdline_ui(systray: SystrayState) -> None:
+        try:
+            systray.server_connected()
             main_loop(io_queue, server, systray)
-
-        if use_systray:
-            run_with_systray(io_queue, cmdline_ui)
-        else:
-            cmdline_ui(SystrayState())
+        finally:
+            server.stop()
     finally:
-        server.stop()
+        systray.stop()

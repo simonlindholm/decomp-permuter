@@ -70,7 +70,6 @@ To allow others to use your computer for permuter runs, do the following:
 - install Docker (used for sandboxing and to ensure a consistent environment)
 - if on Linux, add yourself to the Docker group: `sudo usermod -aG docker $USER`
 - install required packages: `python3 -m pip install docker`
-  (optionally add `pystray` and `Pillow` for experimental systray support)
 - open a terminal, and run `./pah.py run-server` to start the server.
   There are a few required arguments (e.g. how many cores to use), see `--help` for more details.
 
