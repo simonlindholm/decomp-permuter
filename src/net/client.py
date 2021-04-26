@@ -264,8 +264,7 @@ def start_client(
         feedback_queue,
     )
 
-    thread = threading.Thread(target=conn.run)
-    thread.daemon = True
+    thread = threading.Thread(target=conn.run, daemon=True)
     thread.start()
 
     stats = (num_clients, num_servers, num_cores)

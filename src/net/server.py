@@ -19,8 +19,10 @@ import nacl.utils
 from ..helpers import exception_to_string, static_assert_unreachable
 from .core import (
     CancelToken,
+    Config,
     PermuterData,
     Port,
+    ServerError,
     SocketPort,
     connect,
     file_read_fixed,
@@ -102,6 +104,7 @@ class NeedMoreWork:
 @dataclass
 class NetThreadDisconnected:
     graceful: bool
+    message: Optional[str] = None
 
 
 class Heartbeat:
@@ -195,6 +198,7 @@ class IoUserRemovePermuter:
 @dataclass
 class IoServerFailed:
     graceful: bool
+    message: Optional[str]
 
 
 class IoReconnect:
@@ -202,10 +206,6 @@ class IoReconnect:
 
 
 class IoShutdown:
-    pass
-
-
-class IoWillSleep:
     pass
 
 
@@ -219,7 +219,7 @@ PermuterHandle = Tuple[int, CancelToken]
 IoMessage = Union[
     IoConnect, IoDisconnect, IoImmediateDisconnect, IoUserRemovePermuter, IoWorkDone
 ]
-IoGlobalMessage = Union[IoReconnect, IoShutdown, IoServerFailed, IoWillSleep]
+IoGlobalMessage = Union[IoReconnect, IoShutdown, IoServerFailed]
 IoActivity = Tuple[
     Optional[CancelToken], Union[Tuple[PermuterHandle, IoMessage], IoGlobalMessage]
 ]
@@ -250,12 +250,10 @@ class NetThread:
         self._controller_queue = queue.Queue()
         self._next_work_id = 0
 
-        self._read_thread = threading.Thread(target=self.read_loop)
-        self._read_thread.daemon = True
+        self._read_thread = threading.Thread(target=self.read_loop, daemon=True)
         self._read_thread.start()
 
-        self._write_thread = threading.Thread(target=self.write_loop)
-        self._write_thread.daemon = True
+        self._write_thread = threading.Thread(target=self.write_loop, daemon=True)
         self._write_thread.start()
 
     def stop(self) -> None:
@@ -336,6 +334,10 @@ class NetThread:
                 self._main_queue.put(msg)
         except EOFError:
             self._main_queue.put(NetThreadDisconnected(graceful=True))
+        except ServerError as e:
+            self._main_queue.put(
+                NetThreadDisconnected(graceful=False, message=e.message)
+            )
         except Exception:
             traceback.print_exc()
             self._main_queue.put(NetThreadDisconnected(graceful=False))
@@ -452,19 +454,20 @@ class ServerInner:
         self._last_heartbeat = time.time()
         self._last_heartbeat_lock = threading.Lock()
         self._heartbeat_stop = threading.Event()
-        self._heartbeat_thread = threading.Thread(target=self._heartbeat_loop)
-        self._heartbeat_thread.daemon = True
+        self._heartbeat_thread = threading.Thread(
+            target=self._heartbeat_loop, daemon=True
+        )
         self._heartbeat_thread.start()
 
         # Start a thread for reading evaluator results and sending them on to
         # the main loop queue.
-        self._read_eval_thread = threading.Thread(target=self._read_eval_loop)
-        self._read_eval_thread.daemon = True
+        self._read_eval_thread = threading.Thread(
+            target=self._read_eval_loop, daemon=True
+        )
         self._read_eval_thread.start()
 
         # Start a thread for the main loop.
-        self._main_thread = threading.Thread(target=self._main_loop)
-        self._main_thread.daemon = True
+        self._main_thread = threading.Thread(target=self._main_loop, daemon=True)
         self._main_thread.start()
 
     def _send_controller(self, msg: Output) -> None:
@@ -590,7 +593,7 @@ class ServerInner:
             self._need_work()
 
         elif isinstance(msg, NetThreadDisconnected):
-            self._send_io_global(IoServerFailed(msg.graceful))
+            self._send_io_global(IoServerFailed(msg.graceful, msg.message))
 
         else:
             static_assert_unreachable(msg)
@@ -673,9 +676,6 @@ class ServerInner:
                 break
 
             self._handle_message(msg)
-
-            if not self._active and self._main_queue.empty():
-                self._send_io_global(IoWillSleep())
 
     def _heartbeat_loop(self) -> None:
         second_attempt = False
@@ -894,19 +894,24 @@ class Server:
 
     _server: Optional[ServerInner]
     _options: ServerOptions
+    _config: Config
     _io_queue: "queue.Queue[IoActivity]"
 
     def __init__(
-        self, options: ServerOptions, io_queue: "queue.Queue[IoActivity]"
+        self,
+        options: ServerOptions,
+        config: Config,
+        io_queue: "queue.Queue[IoActivity]",
     ) -> None:
         self._server = None
         self._options = options
+        self._config = config
         self._io_queue = io_queue
 
     def start(self) -> None:
         assert self._server is None
 
-        net_port = connect()
+        net_port = connect(self._config)
         net_port.send_json(
             {
                 "method": "connect_server",
