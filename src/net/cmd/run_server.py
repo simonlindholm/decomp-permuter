@@ -163,7 +163,7 @@ class RealSystrayState(SystrayState):
             return base64.b64encode(data).decode("ascii")
 
         self._icons = {
-            "working": load_icon("okthink.png"),
+            "working": load_icon("okthink.ico"),
             "passive": load_icon("ok.ico"),
             "fail": load_icon("notok.ico"),
         }
