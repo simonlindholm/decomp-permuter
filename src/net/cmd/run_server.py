@@ -5,6 +5,7 @@ from enum import Enum
 from functools import partial
 import json
 import os
+import platform
 import queue
 import random
 from subprocess import Popen, PIPE
@@ -212,9 +213,13 @@ class RealSystrayState(SystrayState):
         add_item(menu, "Quit", self._quit)
 
         try:
-            path = os.path.join(
-                os.path.dirname(__file__), "systray", "tray_linux_release"
-            )
+            fname = "permuter-systray"
+            if (
+                sys.platform in ("win32", "msys", "cygwin")
+                or "microsoft" in platform.uname().release.lower()
+            ):
+                fname += ".exe"
+            path = os.path.join(os.path.dirname(__file__), "systray", fname)
             self._proc = Popen(
                 [path],
                 stdout=PIPE,
