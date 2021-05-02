@@ -220,6 +220,10 @@ class RealSystrayState(SystrayState):
             ):
                 fname += ".exe"
             path = os.path.join(os.path.dirname(__file__), "systray", fname)
+            try:
+                os.chmod(path, 0o755)
+            except Exception:
+                pass
             self._proc = Popen(
                 [path],
                 stdout=PIPE,
@@ -244,8 +248,17 @@ class RealSystrayState(SystrayState):
             resp = json.loads(resp_str)
             assert isinstance(resp, dict)
             assert resp.get("type") == "ready"
+        except FileNotFoundError:
+            print("Failed to initialize systray: helper process not found.")
+            print()
+            print("See src/net/cmd/systray/README.md for details on how to set it up.")
+            sys.exit(1)
         except Exception:
-            raise Exception("Failed to initialize systray!")
+            print("Failed to initialize systray!")
+            print()
+            print("See src/net/cmd/systray/README.md for details on how to set it up.")
+            traceback.print_exc()
+            sys.exit(1)
 
         self._read_thread = threading.Thread(target=self._read_loop, daemon=True)
         self._read_thread.start()
