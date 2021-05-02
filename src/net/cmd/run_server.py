@@ -8,6 +8,7 @@ import os
 import platform
 import queue
 import random
+import shutil
 from subprocess import Popen, PIPE
 import sys
 import time
@@ -34,6 +35,7 @@ from ..server import (
     ServerOptions,
 )
 from .base import Command
+from .util import ask
 
 
 class RunServerCommand(Command):
@@ -212,13 +214,7 @@ class RealSystrayState(SystrayState):
         add_item(menu, "Quit", self._quit)
 
         try:
-            fname = "permuter-systray"
-            if (
-                sys.platform in ("win32", "msys", "cygwin")
-                or "microsoft" in platform.uname().release.lower()
-            ):
-                fname += ".exe"
-            path = os.path.join(os.path.dirname(__file__), "systray", fname)
+            path = self._setup_helper()
             self._proc = Popen(
                 [path],
                 stdout=PIPE,
@@ -244,10 +240,50 @@ class RealSystrayState(SystrayState):
             assert isinstance(resp, dict)
             assert resp.get("type") == "ready"
         except Exception:
-            raise Exception("Failed to initialize systray!")
+            print("Failed to initialize systray!")
+            print()
+            print("See src/net/cmd/systray/README.md for details on how to set it up.")
+            traceback.print_exc()
+            sys.exit(1)
 
         self._read_thread = threading.Thread(target=self._read_loop, daemon=True)
         self._read_thread.start()
+
+    @staticmethod
+    def _setup_helper() -> str:
+        fname = "permuter-systray"
+        suffix = ""
+        osname = sys.platform.replace("darwin", "macos")
+        arch = platform.machine().replace("AMD64", "x86_64")
+        if (
+            osname in ("win32", "msys", "cygwin")
+            or "microsoft" in platform.uname().release.lower()
+        ):
+            osname = "win"
+            suffix = ".exe"
+
+        dir = os.path.join(os.path.dirname(__file__), "systray")
+        target_binary = os.path.join(dir, fname + suffix)
+        if os.path.exists(target_binary):
+            return target_binary
+
+        prebuilt_file = f"{fname}-{osname}-{arch}{suffix}"
+        prebuilt_file = os.path.join(dir, "prebuilt", prebuilt_file)
+
+        print("An external helper binary is required for systray support.")
+        print(
+            "To build it from source (requires Go), see src/net/cmd/systray/README.md."
+        )
+
+        if os.path.exists(prebuilt_file):
+            print("Alternatively, a pre-built binary can be used.")
+            if ask("Use pre-built binary?", default=False):
+                shutil.copy(prebuilt_file, target_binary)
+                os.chmod(target_binary, 0o755)
+                return target_binary
+
+        print("Aborting.")
+        sys.exit(1)
 
     def _send(self, msg: dict) -> None:
         data = json.dumps(msg)
