@@ -345,7 +345,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
                     break
     else:
         seed_iterators: List[Optional[Iterator[int]]] = [
-            itertools.repeat(perm_ind)
+            permuter.seed_iterator()
             for perm_ind, permuter in enumerate(context.permuters)
         ]
         seed_iterators_remaining = len(seed_iterators)
