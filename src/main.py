@@ -55,6 +55,7 @@ class Options:
     abort_exceptions: bool = False
     better_only: bool = False
     best_only: bool = False
+    quiet: bool = False
     stop_on_zero: bool = False
     keep_prob: float = DEFAULT_RAND_KEEP_PROB
     force_seed: Optional[str] = None
@@ -173,7 +174,8 @@ def post_score(
         context.printer.print(msg, permuter, who, color=color)
 
         write_candidate(permuter, result)
-    context.printer.progress(status_line)
+    if not context.options.quiet:
+        context.printer.progress(status_line)
     return score_value == 0
 
 
@@ -566,6 +568,12 @@ def main() -> None:
         help="Stop after producing an output with score 0.",
     )
     parser.add_argument(
+        "--quiet",
+        dest="quiet",
+        action="store_true",
+        help="Don't print a status line with the number of iterations.",
+    )
+    parser.add_argument(
         "--stack-diffs",
         dest="stack_differences",
         action="store_true",
@@ -628,6 +636,7 @@ def main() -> None:
         abort_exceptions=args.abort_exceptions,
         better_only=args.better_only,
         best_only=args.best_only,
+        quiet=args.quiet,
         stack_differences=args.stack_differences,
         stop_on_zero=args.stop_on_zero,
         keep_prob=args.keep_prob,
