@@ -6,7 +6,7 @@ from typing import Tuple, List, Optional
 from collections import Counter
 
 
-from .objdump import objdump, sp_offset
+from .objdump import objdump, get_arch
 
 
 @dataclass(init=False, unsafe_hash=True)
@@ -30,6 +30,7 @@ class Scorer:
 
     def __init__(self, target_o: str, *, stack_differences: bool):
         self.target_o = target_o
+        self.arch = get_arch(target_o)
         self.stack_differences = stack_differences
         _, self.target_seq = self._objdump(target_o)
         self.differ: difflib.SequenceMatcher[DiffAsmLine] = difflib.SequenceMatcher(
@@ -39,7 +40,7 @@ class Scorer:
 
     def _objdump(self, o_file: str) -> Tuple[str, List[DiffAsmLine]]:
         ret = []
-        lines = objdump(o_file, stack_differences=self.stack_differences)
+        lines = objdump(o_file, self.arch, stack_differences=self.stack_differences)
         for line in lines:
             ret.append(DiffAsmLine(line))
         return "\n".join(lines), ret
@@ -86,8 +87,8 @@ class Scorer:
 
             ignore_last_field = False
             if self.stack_differences:
-                oldsp = re.search(sp_offset, old)
-                newsp = re.search(sp_offset, new)
+                oldsp = re.search(self.arch.re_sprel, old)
+                newsp = re.search(self.arch.re_sprel, new)
                 if oldsp and newsp:
                     oldrel = int(oldsp.group(1) or "0", 0)
                     newrel = int(newsp.group(1) or "0", 0)
