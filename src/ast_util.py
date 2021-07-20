@@ -36,6 +36,10 @@ def to_c_raw(node: ca.Node) -> str:
 
 def to_c(node: ca.Node, *, from_import: bool = False) -> str:
     source = to_c_raw(node) if from_import else PatchedCGenerator().visit(node)
+    return process_pragmas(source)
+
+
+def process_pragmas(source: str) -> str:
     if "#pragma" not in source:
         return source
     lines = source.split("\n")
