@@ -21,12 +21,16 @@ is_macos = platform.system() == "Darwin"
 
 
 def homebrew_gcc_cpp() -> str:
-    lookup_path = "/usr/local/bin"
-    try:
-        return max(f for f in os.listdir(lookup_path) if f.startswith("cpp-"))
-    except ValueError:
-        print("Error while looking up in " + lookup_path + " for cpp- executable")
-        sys.exit(1)
+    lookup_paths = ["/usr/local/bin", "/opt/homebrew/bin"]
+
+    for lookup_path in lookup_paths:
+        try:
+            return max(f for f in os.listdir(lookup_path) if f.startswith("cpp-"))
+        except ValueError:
+            pass
+
+    print("Error while looking up in " + ":".join(lookup_paths) + " for cpp- executable")
+    sys.exit(1)
 
 
 cpp_cmd = homebrew_gcc_cpp() if is_macos else "cpp"
