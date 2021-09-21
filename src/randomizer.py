@@ -1017,6 +1017,11 @@ def perm_refer_to_var(
     ensure(ins_cands)
 
     cond = copy.deepcopy(expr)
+
+    # Repeat the condition up to two times: if (x && x && x) {} sometimes helps.
+    for i in range(random.choice((0, 0, 0, 0, 0, 1, 2, 2))):
+        cond = ca.BinaryOp("&&", cond, copy.deepcopy(expr))
+
     stmt = ca.If(cond=cond, iftrue=ca.Compound(block_items=[]), iffalse=None)
     tob, toi, _ = random.choice(ins_cands)
     ast_util.insert_statement(tob, toi, stmt)
