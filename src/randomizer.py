@@ -1139,7 +1139,7 @@ def perm_sameline(
     )
 
 
-def perm_associative(
+def perm_commutative(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> None:
     """Change a+b into b+a, or similar for other commutative operations."""
@@ -1160,6 +1160,33 @@ def perm_associative(
         node.op = ">" + node.op[1:]
     elif node.op[0] == ">":
         node.op = "<" + node.op[1:]
+
+
+def perm_add_sub(
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
+) -> None:
+    """Change a-b into a+(-b), or a+b into a-(-b)."""
+    cands: List[ca.BinaryOp] = []
+
+    class Visitor(ca.NodeVisitor):
+        def visit_BinaryOp(self, node: ca.BinaryOp) -> None:
+            if node.op in ("+", "-") and region.contains_node(node):
+                cands.append(node)
+            self.generic_visit(node)
+
+    Visitor().visit(fn.body)
+    ensure(cands)
+    node = random.choice(cands)
+    node.left, node.right = node.right, node.left
+    node.op = "+" if node.op == "-" else "-"
+    if isinstance(node.right, ca.Constant):
+        val = node.right.value
+        node.right.value = val[1:] if val.startswith("-") else "-" + val
+    elif isinstance(node.right, ca.UnaryOp) and node.right.op == "-":
+        assert not isinstance(node.right.expr, ca.Typename)
+        node.right = node.right.expr
+    else:
+        node.right = ca.UnaryOp("-", node.right)
 
 
 def perm_condition(
@@ -1924,7 +1951,8 @@ class Randomizer:
             (perm_condition, 10),
             (perm_dummy_comma_expr, 5),
             (perm_add_self_assignment, 5),
-            (perm_associative, 5),
+            (perm_commutative, 5),
+            (perm_add_sub, 5),
             (perm_inequalities, 5),
             (perm_compound_assignment, 5),
             (perm_remove_ast, 5),
