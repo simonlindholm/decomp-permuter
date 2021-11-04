@@ -1253,7 +1253,7 @@ def perm_condition(
 def perm_add_self_assignment(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> None:
-    """Introduce a "x = x;" somewhere."""
+    """Introduce a "x = x;" or "x += 0;" somewhere."""
     cands = get_insertion_points(fn, region)
     vars: List[str] = []
 
@@ -1268,7 +1268,10 @@ def perm_add_self_assignment(
     ensure(cands)
     var = random.choice(vars)
     where = random.choice(cands)
-    assignment = ca.Assignment("=", ca.ID(var), ca.ID(var))
+    if random_bool(random, 0.5):
+        assignment = ca.Assignment("=", ca.ID(var), ca.ID(var))
+    else:
+        assignment = ca.Assignment("+=", ca.ID(var), ca.Constant("int", "0"))
     ast_util.insert_statement(where[0], where[1], assignment)
 
 
