@@ -431,7 +431,7 @@ def random_type(random: Random) -> SimpleType:
     quals = []
     if random_bool(random, 0.5):
         quals = ["volatile"]
-    return ca.TypeDecl(declname=None, quals=quals, type=idtype)
+    return ca.TypeDecl(declname=None, quals=quals, align=[], type=idtype)
 
 
 def randomize_type(
@@ -1595,8 +1595,8 @@ def perm_cast_simple(
         new_type = random.choice(floating_type)
 
     # Surround the original expression with a cast to the chosen type
-    typedecl = ca.TypeDecl(None, [], ca.IdentifierType(new_type))
-    new_expr = ca.Cast(ca.Typename(None, [], typedecl), expr)
+    typedecl = ca.TypeDecl(None, [], [], ca.IdentifierType(new_type))
+    new_expr = ca.Cast(ca.Typename(None, [], [], typedecl), expr)
     replace_node(fn.body, expr, new_expr)
 
 
