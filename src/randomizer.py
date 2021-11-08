@@ -367,7 +367,7 @@ def visit_replace(top_node: ca.Node, callback: Callable[[ca.Node, bool], Any]) -
         ):
             pass
         else:
-            _: None = node
+            _: ca.Alignas = node
             assert False, f"Node with unknown type: {node}"
         return node
 
@@ -960,7 +960,7 @@ def perm_randomize_function_type(
             main_fndecl.type = random_type(random)
         elif random_bool(random, PROB_RET_VOID):
             idtype = ca.IdentifierType(names=["void"])
-            main_fndecl.type = ca.TypeDecl(declname=None, quals=[], type=idtype)
+            main_fndecl.type = ca.TypeDecl(declname=None, quals=[], align=[], type=idtype)
         else:
             main_fndecl.type = randomize_type(
                 type, typemap, random, ensure_changed=True
