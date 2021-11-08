@@ -363,7 +363,7 @@ class Decl(Node):
     align: List[Alignas]
     storage: List[str]  # e.g. register
     funcspec: List[str]  # e.g. inline
-    type: Type
+    type: Union_[Type, "Struct", "Union", "Enum"]
     init: Optional[Union_[Expression, "InitList"]]
     bitsize: Optional[Expression]
 
@@ -374,8 +374,8 @@ class Decl(Node):
         align: List[Alignas],
         storage: List[str],
         funcspec: List[str],
-        type: Type,
-        init: Optional[Expression],
+        type: Union_[Type, "Struct", "Union", "Enum"],
+        init: Optional[Union_[Expression, "InitList"]],
         bitsize: Optional[Expression],
         coord: Optional[Coord] = None,
     ):
