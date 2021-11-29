@@ -458,6 +458,17 @@ def randomize_innermost_type(
     return new_type
 
 
+def ensure_arithmetic_type(expr: Expression, typemap: TypeMap) -> None:
+    type: SimpleType = decayed_expr_type(expr, typemap)
+    ensure(
+        allowed_basic_type(
+            type,
+            typemap,
+            ["int", "char", "long", "short", "signed", "unsigned", "float", "double"],
+        )
+    )
+
+
 def get_insertion_points(
     fn: ca.FuncDef, region: Region, *, allow_within_decl: bool = False
 ) -> List[Tuple[Block, int, Optional[ca.Node]]]:
@@ -960,7 +971,9 @@ def perm_randomize_function_type(
             main_fndecl.type = random_type(random)
         elif random_bool(random, PROB_RET_VOID):
             idtype = ca.IdentifierType(names=["void"])
-            main_fndecl.type = ca.TypeDecl(declname=None, quals=[], align=[], type=idtype)
+            main_fndecl.type = ca.TypeDecl(
+                declname=None, quals=[], align=[], type=idtype
+            )
         else:
             main_fndecl.type = randomize_type(
                 type, typemap, random, ensure_changed=True
@@ -1520,6 +1533,35 @@ def perm_xor_zero(
     replace_node(fn.body, expr, new_expr)
 
 
+def perm_mult_zero(
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
+) -> None:
+    """Convert 0 to x*0 for some randomly chosen x."""
+    typemap = build_typemap(ast)
+
+    # Find all expressions in the region
+    cands: List[Expression] = get_block_expressions(fn.body, region)
+    ensure(cands)
+
+    # Find a random expression for x
+    expr = random.choice(cands)
+    ensure_arithmetic_type(expr, typemap)
+    ensure(not ast_util.is_effectful(expr))
+
+    # Find a random zero
+    zeroes = [
+        e
+        for e in cands
+        if isinstance(e, ca.Constant) and e.value in ("0", "0.0", "0.0f")
+    ]
+    ensure(zeroes)
+    zero = random.choice(zeroes)
+
+    new_expr = ca.BinaryOp("*", copy.deepcopy(expr), zero)
+
+    replace_node(fn.body, zero, new_expr)
+
+
 def perm_float_literal(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> None:
@@ -1574,14 +1616,7 @@ def perm_cast_simple(
     ensure(cands)
 
     expr = random.choice(cands)
-    type: SimpleType = decayed_expr_type(expr, typemap)
-    ensure(
-        allowed_basic_type(
-            type,
-            typemap,
-            ["int", "char", "long", "short", "signed", "unsigned", "float", "double"],
-        )
-    )
+    ensure_arithmetic_type(expr, typemap)
 
     integral_type = [["int"], ["char"], ["long"], ["short"], ["long", "long"]]
     floating_type = [["float"], ["double"]]
@@ -1952,6 +1987,7 @@ class Randomizer:
             (perm_struct_ref, 10),
             (perm_empty_stmt, 10),
             (perm_condition, 10),
+            (perm_mult_zero, 5),
             (perm_dummy_comma_expr, 5),
             (perm_add_self_assignment, 5),
             (perm_commutative, 5),
