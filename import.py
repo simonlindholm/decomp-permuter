@@ -561,8 +561,6 @@ def get_decompme_compiler_name(
             available = json_data["compilers"]
             if not isinstance(available, dict):
                 raise Exception("compilers must be a dict")
-            if not all(isinstance(compiler, str) for compiler in available):
-                raise Exception("compilers must be a list of strings")
             available_ids = available.keys()
     except Exception as e:
         print(f"Failed to request available compilers from decomp.me:\n{e}")
