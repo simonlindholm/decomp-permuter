@@ -558,11 +558,10 @@ def get_decompme_compiler_name(
     try:
         with urllib.request.urlopen(f"{api_base}/api/compilers") as f:
             json_data = json.load(f)
-            available = json_data["compiler_ids"]
-            if not isinstance(available, list):
-                raise Exception("compiler_ids must be a list")
-            if not all(isinstance(name, str) for name in available):
-                raise Exception("compiler_ids must be a list of strings")
+            available = json_data["compilers"]
+            if not isinstance(available, dict):
+                raise Exception("compilers must be a dict")
+            available_ids = available.keys()
     except Exception as e:
         print(f"Failed to request available compilers from decomp.me:\n{e}")
 
@@ -571,7 +570,7 @@ def get_decompme_compiler_name(
         f'Unable to map compiler path "{compiler_path}" to something '
         "decomp.me understands."
     )
-    trail = "permuter_settings.toml, where ... is one of: " + ", ".join(available)
+    trail = "permuter_settings.toml, where ... is one of: " + ", ".join(available_ids)
     if compiler_mappings:
         print(
             "Please add an entry:\n\n"
@@ -757,6 +756,7 @@ def main() -> None:
         try:
             post_data = urllib.parse.urlencode(
                 {
+                    "name": func_name,
                     "target_asm": asm_cont,
                     "context": context,
                     "source_code": source,
