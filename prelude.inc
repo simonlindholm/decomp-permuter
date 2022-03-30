@@ -7,7 +7,7 @@
 .endm
 
 
-# Float register aliases (o32 ABI, odd ones are rarely used)
+# Float register aliases (o32 ABI)
 
 .set $fv0,          $f0
 .set $fv0f,         $f1
