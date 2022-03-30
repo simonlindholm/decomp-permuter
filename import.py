@@ -40,16 +40,8 @@ def homebrew_gcc_cpp() -> str:
 cpp_cmd = homebrew_gcc_cpp() if is_macos else "cpp"
 make_cmd = "gmake" if is_macos else "make"
 
-ASM_PRELUDE: str = """
-.set noat
-.set noreorder
-.set gp=64
-.macro glabel label
-    .global \label
-    .type \label, @function
-    \label:
-.endm
-"""
+dir_path = os.path.dirname(os.path.realpath(__file__))
+prelude_file = os.path.join(dir_path, "prelude.inc")
 
 DEFAULT_AS_CMDLINE: List[str] = ["mips-linux-gnu-as", "-march=vr4300", "-mabi=32"]
 
@@ -614,8 +606,10 @@ def write_compile_command(compiler: List[str], cwd: str, out_file: str) -> None:
 
 
 def write_asm(asm_cont: str, out_file: str) -> None:
+    with open(prelude_file, "r") as p:
+        asm_prelude = p.read()
     with open(out_file, "w", encoding="utf-8") as f:
-        f.write(ASM_PRELUDE)
+        f.write(asm_prelude)
         f.write(asm_cont)
 
 
