@@ -164,8 +164,12 @@ def fixup_build_command(
         )
         ind1 = res.index("--", ind0 + 1)
         ind2 = res.index("--", ind1 + 1)
+        compiler = res[ind0 + 1 : ind1]
         assembler = res[ind1 + 1 : ind2]
-        res = res[ind0 + 1 : ind1] + res[ind2 + 1 :]
+        compiler_args = res[ind2 + 1 :]
+        while compiler and compiler[0].startswith("-"):
+            compiler.pop(0)
+        res = compiler + compiler_args
     except ValueError:
         pass
 
