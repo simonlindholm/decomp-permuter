@@ -3,6 +3,7 @@
 .set gp=64
 .macro glabel label
     .global \label
+    .type \label, @function
     \label:
 .endm
 
