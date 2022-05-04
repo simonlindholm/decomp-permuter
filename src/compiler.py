@@ -30,7 +30,7 @@ class Compiler:
             # print("trying new C source: ", c_name)
             stderr = 2 if show_errors else subprocess.DEVNULL
             subprocess.check_call(
-                ["bash", "new_tools/mwcc_compile_and_dump.sh", c_name, o_name],
+                ["bash", "tools_for_mwcc/mwcc_compile_and_dump.sh", c_name, o_name, self.dir],
                 stdout=stderr,
                 stderr=stderr,
             )

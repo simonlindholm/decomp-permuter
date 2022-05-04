@@ -276,6 +276,8 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
     for i, d in enumerate(options.directories):
         heartbeat()
         #compile_cmd = os.path.join(d, "compile.sh")
+        ### Example target dump command:  
+        # $DEVKITPPC/bin/powerpc-eabi-objdump -D -bbinary -EB -mpowerpc -M gekko --start-address=0x6A69C --stop-address=0x6A7D4 --no-addresses  ~/Personal/melee/baserom.dol > matching_target.dump
         target_dump = os.path.join(d, "matching_target.dump")
         base_c = os.path.join(d, "base.c")
         for fname in [target_dump, base_c]:
@@ -287,12 +289,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         #     sys.exit(1)
 
         fn_name: Optional[str] = None
-        try:
-            fn_name = "func_8006DABC"  ## Set Function name here
-            # with open(os.path.join(d, "function.txt"), encoding="utf-8") as f:
-            #     fn_name = f.read().strip()
-        except FileNotFoundError:
-            pass
+        fn_name = "func_8006DABC"  ## Set Function name here see TODOs in permuter.py
 
         if fn_name:
             print(f"{base_c} ({fn_name})")

@@ -88,6 +88,7 @@ class Permuter:
     ) -> None:
         self.dir = dir
         self.compiler = compiler
+        self.compiler.dir = dir
         self.scorer = scorer
         self.source_file = source_file
         self.source = source
@@ -98,6 +99,8 @@ class Permuter:
             # pre-macro'ed source code, but we don't care enough to make that
             # refactoring.
             fns = _find_fns(source)
+            ###### TODO ignore inlines so you don't need to set a function name
+            ###### Or ignore functions in the .h file
             if len(fns) == 0:
                 raise Exception(f"{self.source_file} does not contain any function!")
             if len(fns) > 1:
@@ -122,7 +125,6 @@ class Permuter:
         self._show_errors = show_errors
         self._best_only = best_only
         self._better_only = better_only
-
         (
             self.base_score,
             #self.base_hash,
