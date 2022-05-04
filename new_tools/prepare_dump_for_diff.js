@@ -8,7 +8,12 @@ const hex2bin = (hex) => {
     return (parseInt(hex, 16).toString(2)).padStart(8, '0')
 }
 
-lines.slice(7, lines.length-2).forEach(line => {
+
+//// Note: OBJDump leaves 2 blank lines at the end by default
+//// Option to ignore epilogue lines, TODO make this auto detect 
+const ignoreBottomLines = parseInt(process.argv[4])
+
+lines.slice(7, lines.length-2-ignoreBottomLines).forEach(line => {
     const bytes = line.split('\t')[1]
     const first_byte = bytes.split(' ')[0]
     const second_byte = bytes.split(' ')[1]

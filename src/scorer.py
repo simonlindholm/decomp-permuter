@@ -32,8 +32,10 @@ class Scorer:
 
         print("target dump: ", target_dump)
 
+        self.ignore_epilogue_lines = 3
+
         check_call(
-            ["node", "new_tools/prepare_dump_for_diff.js", target_dump, "/tmp/permuter-target.dump"],
+            ["node", "new_tools/prepare_dump_for_diff.js", target_dump, "/tmp/permuter-target.dump", str(self.ignore_epilogue_lines)],
             stdout=2,
             stderr=2,
         )
@@ -59,7 +61,7 @@ class Scorer:
         #print("candiate dump", cand_o)
 
         check_call(
-            ["node", "new_tools/prepare_dump_for_diff.js", cand_o, cand_o + ".mod"],
+            ["node", "new_tools/prepare_dump_for_diff.js", cand_o, cand_o + ".mod", str(self.ignore_epilogue_lines)],
             stdout=2,
             stderr=2,
         )
