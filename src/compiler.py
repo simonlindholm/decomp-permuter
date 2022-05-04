@@ -19,6 +19,7 @@ class Compiler:
         ) as f:
             c_name = f.name
             f.write(source)
+            # print(source)
 
         with tempfile.NamedTemporaryFile(
             prefix="permuter", suffix=".o", delete=False
@@ -26,9 +27,10 @@ class Compiler:
             o_name = f2.name
 
         try:
+            # print("trying new C source: ", c_name)
             stderr = 2 if show_errors else subprocess.DEVNULL
             subprocess.check_call(
-                [self.compile_cmd, c_name, "-o", o_name],
+                ["bash", "new_tools/mwcc_compile_and_dump.sh", c_name, o_name],
                 stdout=stderr,
                 stderr=stderr,
             )

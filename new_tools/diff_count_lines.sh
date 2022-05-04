@@ -1,0 +1,1 @@
+diff -y --suppress-common-lines  $1 $2  | wc -l

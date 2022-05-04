@@ -89,11 +89,13 @@ class Candidate:
     def score(self, scorer: Scorer, o_file: Optional[str]) -> CandidateResult:
         self.score_value = None
         self.score_hash = None
-        try:
-            self.score_value, self.score_hash = scorer.score(o_file)
+        try:  
+            # self.score_value, self.score_hash = scorer.score(o_file)
+            self.score_value = scorer.score(o_file)
         finally:
             if o_file:
                 try_remove(o_file)
-        return CandidateResult(
-            score=self.score_value, hash=self.score_hash, source=self.get_source()
-        )
+        return self.score_value
+        # return CandidateResult(
+        #     score=self.score_value, hash=self.score_hash, source=self.get_source()
+        # )

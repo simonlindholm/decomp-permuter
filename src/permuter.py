@@ -5,6 +5,7 @@ import random
 import re
 import time
 import traceback
+import os
 from typing import (
     Any,
     List,
@@ -60,7 +61,6 @@ class WorkDone:
 Task = Union[Finished, Tuple[int, int]]
 FeedbackItem = Union[Finished, Message, NeedMoreWork, WorkDone]
 Feedback = Tuple[FeedbackItem, int, Optional[str]]
-
 
 class Permuter:
     """
@@ -125,11 +125,12 @@ class Permuter:
 
         (
             self.base_score,
-            self.base_hash,
+            #self.base_hash,
             self.base_source,
         ) = self._create_and_score_base()
+        print("finished scoring base")
         self.best_score = self.base_score
-        self.hashes = {self.base_hash}
+        #self.hashes = {self.base_hash}
         self._cur_cand: Optional[Candidate] = None
         self._last_score: Optional[int] = None
 
@@ -138,12 +139,14 @@ class Permuter:
         base_cand = Candidate.from_source(
             base_source, eval_state, self.fn_name, rng_seed=0
         )
-        o_file = base_cand.compile(self.compiler, show_errors=True)
-        if not o_file:
+        dump_file = base_cand.compile(self.compiler, show_errors=True)
+        if not dump_file:
             raise CandidateConstructionFailure(f"Unable to compile {self.source_file}")
-        base_result = base_cand.score(self.scorer, o_file)
-        assert base_result.hash is not None
-        return base_result.score, base_result.hash, base_cand.get_source()
+        
+        base_result = base_cand.score(self.scorer, dump_file)
+        #assert base_result.hash is not None
+        # return base_result.score, base_result.hash, base_cand.get_source()
+        return base_result, base_cand.get_source()
 
     def _need_to_send_source(self, result: CandidateResult) -> bool:
         return self._need_all_sources or self.should_output(result)
@@ -156,8 +159,8 @@ class Permuter:
         keep = (
             self._permutations.is_random()
             and random.uniform(0, 1) < self.keep_prob
-            and self._last_score != 0
-            and self._last_score != self.scorer.PENALTY_INF
+            #and self._last_score != 0
+            #and self._last_score != self.scorer.PENALTY_INF
         ) or self._force_rng_seed
 
         self._last_score = None
@@ -170,6 +173,8 @@ class Permuter:
             eval_state = EvalState()
             cand_c = self._permutations.evaluate(seed, eval_state)
             rng_seed = self._force_rng_seed or random.randrange(1, 10 ** 20)
+            ### force a seed
+            # rng_seed = 89666451845887651756
             self._cur_seed = (seed, rng_seed)
             self._cur_cand = Candidate.from_source(
                 cand_c, eval_state, self.fn_name, rng_seed=rng_seed
@@ -183,15 +188,26 @@ class Permuter:
 
         self._cur_cand.get_source()
 
+        # print(self._cur_cand.get_source())
+
         t2 = time.time()
 
-        o_file = self._cur_cand.compile(self.compiler)
-        if not o_file and self._show_errors:
+        dump_file = self._cur_cand.compile(self.compiler)
+        if not dump_file and self._show_errors:
             raise _CompileFailure()
 
         t3 = time.time()
 
-        result = self._cur_cand.score(self.scorer, o_file)
+        result = self._cur_cand.score(self.scorer, dump_file)
+
+        if (result < self.base_score):
+            print("Score: ", result, " --- current seed:", self._cur_seed)
+
+
+        ### optional print source and/or quit at threshold score
+        # if result < 3:
+        #     print(self._cur_cand.get_source())
+        #     quit()
 
         t4 = time.time()
 
@@ -203,11 +219,11 @@ class Permuter:
             profiler.add_stat(Profiler.StatType.score, t4 - t3)
             result.profiler = profiler
 
-        self._last_score = result.score
+        self._last_score = result #result.score
 
-        if not self._need_to_send_source(result):
-            result.source = None
-            result.hash = None
+        # if not self._need_to_send_source(result):
+        #     result.source = None
+        #     result.hash = None
 
         return result
 

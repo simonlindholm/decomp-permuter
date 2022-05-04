@@ -116,6 +116,9 @@ def write_candidate(perm: Permuter, result: CandidateResult) -> None:
 def post_score(
     context: EvalContext, permuter: Permuter, result: EvalResult, who: Optional[str]
 ) -> bool:
+
+    return True
+
     if isinstance(result, EvalError):
         if result.exc_str is not None:
             context.printer.print(
@@ -138,8 +141,8 @@ def post_score(
         print(permuter.diff(result.source))
         input("Press any key to continue...")
 
-    profiler = result.profiler
-    score_value = result.score
+    profiler = None #result.profiler
+    score_value = 10000 #result.score
 
     if profiler is not None:
         for stattype in profiler.time_stats:
@@ -272,21 +275,22 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
     name_counts: Dict[str, int] = {}
     for i, d in enumerate(options.directories):
         heartbeat()
-        compile_cmd = os.path.join(d, "compile.sh")
-        target_o = os.path.join(d, "target.o")
+        #compile_cmd = os.path.join(d, "compile.sh")
+        target_dump = os.path.join(d, "matching_target.dump")
         base_c = os.path.join(d, "base.c")
-        for fname in [compile_cmd, target_o, base_c]:
+        for fname in [target_dump, base_c]:
             if not os.path.isfile(fname):
                 print(f"Missing file {fname}", file=sys.stderr)
                 sys.exit(1)
-        if not os.stat(compile_cmd).st_mode & 0o100:
-            print(f"{compile_cmd} must be marked executable.", file=sys.stderr)
-            sys.exit(1)
+        # if not os.stat(compile_cmd).st_mode & 0o100:
+        #     print(f"{compile_cmd} must be marked executable.", file=sys.stderr)
+        #     sys.exit(1)
 
         fn_name: Optional[str] = None
         try:
-            with open(os.path.join(d, "function.txt"), encoding="utf-8") as f:
-                fn_name = f.read().strip()
+            fn_name = "func_8006DABC"  ## Set Function name here
+            # with open(os.path.join(d, "function.txt"), encoding="utf-8") as f:
+            #     fn_name = f.read().strip()
         except FileNotFoundError:
             pass
 
@@ -295,8 +299,8 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         else:
             print(base_c)
 
-        compiler = Compiler(compile_cmd, show_errors=options.show_errors)
-        scorer = Scorer(target_o, stack_differences=options.stack_differences)
+        compiler = Compiler(None, show_errors=options.show_errors)
+        scorer = Scorer(target_dump, stack_differences=options.stack_differences)
         c_source = preprocess(base_c)
 
         try:

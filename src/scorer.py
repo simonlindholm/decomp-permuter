@@ -4,7 +4,7 @@ import hashlib
 import re
 from typing import Tuple, List, Optional
 from collections import Counter
-
+from subprocess import PIPE, check_call, run
 
 from .objdump import objdump, get_arch
 
@@ -28,15 +28,24 @@ class Scorer:
     PENALTY_INSERTION = 100
     PENALTY_DELETION = 100
 
-    def __init__(self, target_o: str, *, stack_differences: bool):
-        self.target_o = target_o
-        self.arch = get_arch(target_o)
-        self.stack_differences = stack_differences
-        _, self.target_seq = self._objdump(target_o)
-        self.differ: difflib.SequenceMatcher[DiffAsmLine] = difflib.SequenceMatcher(
-            autojunk=False
+    def __init__(self, target_dump: str, *, stack_differences: bool):
+
+        print("target dump: ", target_dump)
+
+        check_call(
+            ["node", "new_tools/prepare_dump_for_diff.js", target_dump, "/tmp/permuter-target.dump"],
+            stdout=2,
+            stderr=2,
         )
-        self.differ.set_seq2(self.target_seq)
+
+        # self.target_o = target_o
+        # self.arch = get_arch(target_o)
+        # self.stack_differences = stack_differences
+        # _, self.target_seq = self._objdump(target_o)
+        # self.differ: difflib.SequenceMatcher[DiffAsmLine] = difflib.SequenceMatcher(
+        #     autojunk=False
+        # )
+        # self.differ.set_seq2(self.target_seq)
 
     def _objdump(self, o_file: str) -> Tuple[str, List[DiffAsmLine]]:
         ret = []
@@ -46,6 +55,28 @@ class Scorer:
         return "\n".join(lines), ret
 
     def score(self, cand_o: Optional[str]) -> Tuple[int, str]:
+
+        #print("candiate dump", cand_o)
+
+        check_call(
+            ["node", "new_tools/prepare_dump_for_diff.js", cand_o, cand_o + ".mod"],
+            stdout=2,
+            stderr=2,
+        )
+
+        p = run(
+            ["bash", "new_tools/diff_count_lines.sh", "/tmp/permuter-target.dump", cand_o + ".mod"],
+            stdin=PIPE, 
+            stdout=PIPE, 
+            stderr=PIPE
+        )
+
+        num_diff_lines = int(p.stdout)
+
+        # print("num diff lines:", num_diff_lines)
+
+        return num_diff_lines
+
         if not cand_o:
             return Scorer.PENALTY_INF, ""
 
