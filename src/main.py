@@ -273,7 +273,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         force_seed = 0 if len(seed_parts) == 1 else seed_parts[0]
 
     name_counts: Dict[str, int] = {}
-    for i, d in enumerate(options.directories):
+    for i, d in enumerate(options.directories[0:1]):
         heartbeat()
         #compile_cmd = os.path.join(d, "compile.sh")
         ### Example target dump command:  
