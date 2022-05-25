@@ -19,13 +19,19 @@ lines.slice(7, lines.length-2-ignoreBottomLines).forEach(line => {
     const second_byte = bytes.split(' ')[1]
 
     const first_byte_bin_string = hex2bin(first_byte)
+    const second_byte_bin_string = hex2bin(second_byte)
 
     const opcode = parseInt(first_byte_bin_string.substring(0, 6), 2)
-    
+    const RA = parseInt(second_byte_bin_string.substring(3, 8), 2)
+    // console.log(bytes, opcode)
+
     if (opcode == 18) { //bl
         final_bytes.push(`${48}`)
     } else if (opcode == 14 || opcode == 15) {   /// addi, li, addis, lis
         final_bytes.push(`${first_byte} ${second_byte}`)
+    } else if (opcode == 48) {
+        if (RA == 2 || RA == 0) final_bytes.push(`${first_byte}`)
+        else final_bytes.push(`${first_byte} ${second_byte}`)
     } else {
         final_bytes.push(bytes)
     }

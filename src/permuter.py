@@ -202,7 +202,8 @@ class Permuter:
 
         result = self._cur_cand.score(self.scorer, dump_file)
 
-        if (result < self.base_score):
+        if (result < 10):
+            print(self._cur_cand.get_source())
             print("Score: ", result, " --- current seed:", self._cur_seed)
 
 
@@ -226,6 +227,10 @@ class Permuter:
         # if not self._need_to_send_source(result):
         #     result.source = None
         #     result.hash = None
+
+        if result == 0:
+            print("HOORAY! A Match!")
+            quit()
 
         return result
 

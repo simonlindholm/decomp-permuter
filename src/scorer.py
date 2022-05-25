@@ -32,7 +32,7 @@ class Scorer:
 
         print("target dump: ", target_dump)
 
-        self.ignore_epilogue_lines = 3
+        self.ignore_epilogue_lines = 0
 
         check_call(
             ["node", "tools_for_mwcc/prepare_dump_for_diff.js", target_dump, "/tmp/permuter-target.dump", str(self.ignore_epilogue_lines)],
@@ -58,13 +58,15 @@ class Scorer:
 
     def score(self, cand_o: Optional[str]) -> Tuple[int, str]:
 
-        #print("candiate dump", cand_o)
+        # print("candiate dump", cand_o)
 
         check_call(
             ["node", "tools_for_mwcc/prepare_dump_for_diff.js", cand_o, cand_o + ".mod", str(self.ignore_epilogue_lines)],
             stdout=2,
             stderr=2,
         )
+
+
 
         p = run(
             ["bash", "tools_for_mwcc/diff_count_lines.sh", "/tmp/permuter-target.dump", cand_o + ".mod"],
@@ -76,6 +78,8 @@ class Scorer:
         num_diff_lines = int(p.stdout)
 
         # print("num diff lines:", num_diff_lines)
+        # print("/tmp/permuter-target.dump", cand_o + ".mod")
+        # quit()
 
         return num_diff_lines
 

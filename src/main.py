@@ -289,7 +289,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         #     sys.exit(1)
 
         fn_name: Optional[str] = None
-        fn_name = "func_8006DABC"  ## Set Function name here see TODOs in permuter.py
+        fn_name = "func_8012B6E8"  ## Set Function name here see TODOs in permuter.py
 
         if fn_name:
             print(f"{base_c} ({fn_name})")

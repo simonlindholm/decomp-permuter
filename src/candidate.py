@@ -94,6 +94,7 @@ class Candidate:
             self.score_value = scorer.score(o_file)
         finally:
             if o_file:
+                # pass
                 try_remove(o_file)
         return self.score_value
         # return CandidateResult(
