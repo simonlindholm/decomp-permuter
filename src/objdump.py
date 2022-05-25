@@ -79,11 +79,14 @@ MIPS_SETTINGS: ArchSettings = ArchSettings(
 def get_arch(o_file: str) -> ArchSettings:
     # https://refspecs.linuxfoundation.org/elf/gabi4+/ch4.eheader.html
     with open(o_file, "rb") as f:
-        f.seek(18)
-        arch_magic = f.read(2)
-    if arch_magic == b"\0\x08":
+        data = f.read(20)
+    if data[5] == 2:
+        arch = (data[18] << 8) + data[19]
+    else:
+        arch = (data[19] << 8) + data[18]
+    if arch == 8:
         return MIPS_SETTINGS
-    # TODO: support PPC ("\0\x14"), ARM ("0\x28")
+    # TODO: support PPC (0x14), ARM (0x28)
     raise Exception("Bad ELF")
 
 
