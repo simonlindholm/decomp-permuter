@@ -104,19 +104,13 @@ MIPS_SETTINGS: ArchSettings = ArchSettings(
 
 
 PPC_SETTINGS: ArchSettings = ArchSettings(
-    #name="ppc",
-    #re_int=re.compile(r"[0-9]+"),
-    re_includes_sp=re.compile(r"\b(sp|s8)\b"),
+    re_includes_sp=re.compile(r"\b(r1)\b"),
     re_comment=re.compile(r"(<.*>|//.*$)"),
     re_reg=re.compile(r"\$?\b([rf][0-9]+)\b"),
     re_sprel=re.compile(r"(?<=,)(-?[0-9]+|-?0x[0-9a-f]+)\(r1\)"),
-    #re_large_imm=re.compile(r"-?[1-9][0-9]{2,}|-?0x[0-9a-f]{3,}"),
-    #re_imm=re.compile(r"(\b|-)([0-9]+|0x[0-9a-fA-F]+)\b(?!\(r1)|[^@]*@(ha|h|lo)"),
-    objdump=["/opt/devkitpro/devkitPPC/bin/powerpc-eabi-objdump", "-d", "-EB", "-mpowerpc"],
-    #re_reloc=re.compile(r"R_PPC_"),
+    objdump=["powerpc-eabi-objdump", "-d", "-EB", "-mpowerpc", "-M", "broadway"],
     branch_instructions=PPC_BRANCH_INSTRUCTIONS,
     branch_likely_instructions=PPC_BRANCH_LIKELY_INSTRUCTIONS,
-    #instructions_with_address_immediates=PPC_BRANCH_INSTRUCTIONS.union({"bl"}),
 )
 
 
@@ -132,7 +126,7 @@ def get_arch(o_file: str) -> ArchSettings:
         return MIPS_SETTINGS
     if arch == 20:
         return PPC_SETTINGS
-    # TODO: support PPC (0x14), ARM (0x28)
+    # TODO: support ARM (0x28)
     raise Exception("Bad ELF")
 
 
@@ -208,11 +202,7 @@ def simplify_objdump(
         if ign_regs:
             row = re.sub(arch.re_reg, "<reg>", row)
 
-        while row.find("  ") != -1: row = row.replace(" ", "", 1)
-
-        row = row.replace(" ", "\t")
-
-        row_parts = row.split("\t")
+        row_parts = row.split(None, 1)
         if len(row_parts) == 1:
             row_parts.append("")
         mnemonic, instr_args = row_parts
