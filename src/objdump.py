@@ -207,6 +207,11 @@ def simplify_objdump(
             row = "<skipped>"
         if ign_regs:
             row = re.sub(arch.re_reg, "<reg>", row)
+
+        while row.find("  ") != -1: row = row.replace(" ", "", 1)
+
+        row = row.replace(" ", "\t")
+
         row_parts = row.split("\t")
         if len(row_parts) == 1:
             row_parts.append("")
