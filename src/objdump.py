@@ -63,6 +63,33 @@ MIPS_BRANCH_INSTRUCTIONS = {
     "bc1f",
 }.union(MIPS_BRANCH_LIKELY_INSTRUCTIONS)
 
+PPC_BRANCH_INSTRUCTIONS = {
+    "b",
+    "beq",
+    "beq+",
+    "beq-",
+    "bne",
+    "bne+",
+    "bne-",
+    "blt",
+    "blt+",
+    "blt-",
+    "ble",
+    "ble+",
+    "ble-",
+    "bdnz",
+    "bdnz+",
+    "bdnz-",
+    "bge",
+    "bge+",
+    "bge-",
+    "bgt",
+    "bgt+",
+    "bgt-",
+}
+
+PPC_BRANCH_LIKELY_INSTRUCTIONS = {}
+
 MIPS_SETTINGS: ArchSettings = ArchSettings(
     re_comment=re.compile(r"<.*?>"),
     re_reg=re.compile(
@@ -76,6 +103,23 @@ MIPS_SETTINGS: ArchSettings = ArchSettings(
 )
 
 
+PPC_SETTINGS: ArchSettings = ArchSettings(
+    #name="ppc",
+    #re_int=re.compile(r"[0-9]+"),
+    re_includes_sp=re.compile(r"\b(sp|s8)\b"),
+    re_comment=re.compile(r"(<.*>|//.*$)"),
+    re_reg=re.compile(r"\$?\b([rf][0-9]+)\b"),
+    re_sprel=re.compile(r"(?<=,)(-?[0-9]+|-?0x[0-9a-f]+)\(r1\)"),
+    #re_large_imm=re.compile(r"-?[1-9][0-9]{2,}|-?0x[0-9a-f]{3,}"),
+    #re_imm=re.compile(r"(\b|-)([0-9]+|0x[0-9a-fA-F]+)\b(?!\(r1)|[^@]*@(ha|h|lo)"),
+    objdump=["/opt/devkitpro/devkitPPC/bin/powerpc-eabi-objdump", "-d", "-EB", "-mpowerpc"],
+    #re_reloc=re.compile(r"R_PPC_"),
+    branch_instructions=PPC_BRANCH_INSTRUCTIONS,
+    branch_likely_instructions=PPC_BRANCH_LIKELY_INSTRUCTIONS,
+    #instructions_with_address_immediates=PPC_BRANCH_INSTRUCTIONS.union({"bl"}),
+)
+
+
 def get_arch(o_file: str) -> ArchSettings:
     # https://refspecs.linuxfoundation.org/elf/gabi4+/ch4.eheader.html
     with open(o_file, "rb") as f:
@@ -86,6 +130,8 @@ def get_arch(o_file: str) -> ArchSettings:
         arch = (data[19] << 8) + data[18]
     if arch == 8:
         return MIPS_SETTINGS
+    if arch == 20:
+        return PPC_SETTINGS
     # TODO: support PPC (0x14), ARM (0x28)
     raise Exception("Bad ELF")
 
