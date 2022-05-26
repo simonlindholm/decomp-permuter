@@ -103,9 +103,12 @@ def write_candidate(perm: Permuter, result: CandidateResult) -> None:
         except FileExistsError:
             pass
     source = result.source
+
+    fn_str_index = source.find(perm.fn_name)
+
     assert source is not None, "Permuter._need_to_send_source is wrong!"
     with open(os.path.join(output_dir, "source.c"), "x", encoding="utf-8") as f:
-        f.write(source)
+        f.write(source[fn_str_index:])
     with open(os.path.join(output_dir, "score.txt"), "x", encoding="utf-8") as f:
         f.write(f"{result.score}\n")
     with open(os.path.join(output_dir, "diff.txt"), "x", encoding="utf-8") as f:
@@ -172,7 +175,6 @@ def post_score(
             color = "\u001b[33m"
             msg = f"found different asm with same score ({score_value})"
         context.printer.print(msg, permuter, who, color=color)
-
         write_candidate(permuter, result)
     if not context.options.quiet:
         context.printer.progress(status_line)
