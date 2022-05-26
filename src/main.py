@@ -110,7 +110,12 @@ def write_candidate(perm: Permuter, result: CandidateResult, no_context_output: 
     with open(os.path.join(output_dir, "source.c"), "x", encoding="utf-8") as f:
         if no_context_output:
             fn_str_index = source.find(perm.fn_name)
+            for i in range(fn_str_index-30, fn_str_index-1):
+                if (source[i] == '\n' or source[i] == '\r'):
+                    fn_str_index = i
+                    break
             f.write(source[fn_str_index:])
+
         else:
             f.write(source)
     with open(os.path.join(output_dir, "score.txt"), "x", encoding="utf-8") as f:
