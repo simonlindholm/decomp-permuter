@@ -69,13 +69,10 @@ To allow others to use your computer for permuter runs, do the following:
 
 - install Docker (used for sandboxing and to ensure a consistent environment)
 - if on Linux, add yourself to the Docker group: `sudo usermod -aG docker $USER`
+  or set up [rootless Docker](https://docs.docker.com/engine/security/rootless/)
 - install required packages: `python3 -m pip install docker`
 - open a terminal, and run `./pah.py run-server` to start the server.
   There are a few required arguments (e.g. how many cores to use), see `--help` for more details.
-
-Please be aware that being in the Docker group implies (password-less) sudo rights.
-You can avoid that for your personal account by running the permuter under a separate user.
-Unfortunately, there is currently no way to run a sandboxed permuter server without sudo rights. 😢
 
 Anyone who is granted access to permuter@home can run a server.
 
