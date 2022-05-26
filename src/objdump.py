@@ -63,6 +63,33 @@ MIPS_BRANCH_INSTRUCTIONS = {
     "bc1f",
 }.union(MIPS_BRANCH_LIKELY_INSTRUCTIONS)
 
+PPC_BRANCH_INSTRUCTIONS = {
+    "b",
+    "beq",
+    "beq+",
+    "beq-",
+    "bne",
+    "bne+",
+    "bne-",
+    "blt",
+    "blt+",
+    "blt-",
+    "ble",
+    "ble+",
+    "ble-",
+    "bdnz",
+    "bdnz+",
+    "bdnz-",
+    "bge",
+    "bge+",
+    "bge-",
+    "bgt",
+    "bgt+",
+    "bgt-",
+}
+
+PPC_BRANCH_LIKELY_INSTRUCTIONS = {}
+
 MIPS_SETTINGS: ArchSettings = ArchSettings(
     re_comment=re.compile(r"<.*?>"),
     re_reg=re.compile(
@@ -76,6 +103,17 @@ MIPS_SETTINGS: ArchSettings = ArchSettings(
 )
 
 
+PPC_SETTINGS: ArchSettings = ArchSettings(
+    re_includes_sp=re.compile(r"\b(r1)\b"),
+    re_comment=re.compile(r"(<.*>|//.*$)"),
+    re_reg=re.compile(r"\$?\b([rf][0-9]+)\b"),
+    re_sprel=re.compile(r"(?<=,)(-?[0-9]+|-?0x[0-9a-f]+)\(r1\)"),
+    objdump=["powerpc-eabi-objdump", "-d", "-EB", "-mpowerpc", "-M", "broadway"],
+    branch_instructions=PPC_BRANCH_INSTRUCTIONS,
+    branch_likely_instructions=PPC_BRANCH_LIKELY_INSTRUCTIONS,
+)
+
+
 def get_arch(o_file: str) -> ArchSettings:
     # https://refspecs.linuxfoundation.org/elf/gabi4+/ch4.eheader.html
     with open(o_file, "rb") as f:
@@ -86,7 +124,9 @@ def get_arch(o_file: str) -> ArchSettings:
         arch = (data[19] << 8) + data[18]
     if arch == 8:
         return MIPS_SETTINGS
-    # TODO: support PPC (0x14), ARM (0x28)
+    if arch == 20:
+        return PPC_SETTINGS
+    # TODO: support ARM (0x28)
     raise Exception("Bad ELF")
 
 
@@ -161,7 +201,8 @@ def simplify_objdump(
             row = "<skipped>"
         if ign_regs:
             row = re.sub(arch.re_reg, "<reg>", row)
-        row_parts = row.split("\t")
+
+        row_parts = row.split(None, 1)
         if len(row_parts) == 1:
             row_parts.append("")
         mnemonic, instr_args = row_parts
