@@ -63,6 +63,7 @@ class Options:
     use_network: bool = False
     network_debug: bool = False
     network_priority: float = 1.0
+    no_context_output: bool = False
 
 
 def restricted_float(lo: float, hi: float) -> Callable[[str], float]:
@@ -91,7 +92,7 @@ class EvalContext:
     permuters: List[Permuter] = field(default_factory=list)
 
 
-def write_candidate(perm: Permuter, result: CandidateResult) -> None:
+def write_candidate(perm: Permuter, result: CandidateResult, no_context_output: bool) -> None:
     """Write the candidate's C source and score to the next output directory"""
     ctr = 0
     while True:
@@ -104,11 +105,14 @@ def write_candidate(perm: Permuter, result: CandidateResult) -> None:
             pass
     source = result.source
 
-    fn_str_index = source.find(perm.fn_name)
 
     assert source is not None, "Permuter._need_to_send_source is wrong!"
     with open(os.path.join(output_dir, "source.c"), "x", encoding="utf-8") as f:
-        f.write(source[fn_str_index:])
+        if no_context_output:
+            fn_str_index = source.find(perm.fn_name)
+            f.write(source[fn_str_index:])
+        else:
+            f.write(source)
     with open(os.path.join(output_dir, "score.txt"), "x", encoding="utf-8") as f:
         f.write(f"{result.score}\n")
     with open(os.path.join(output_dir, "diff.txt"), "x", encoding="utf-8") as f:
@@ -175,7 +179,7 @@ def post_score(
             color = "\u001b[33m"
             msg = f"found different asm with same score ({score_value})"
         context.printer.print(msg, permuter, who, color=color)
-        write_candidate(permuter, result)
+        write_candidate(permuter, result, context.options.no_context_output)
     if not context.options.quiet:
         context.printer.progress(status_line)
     return score_value == 0
@@ -623,6 +627,13 @@ def main() -> None:
             Each server runs with a priority threshold, which defaults to 0.1,
             below which they will not run permuter jobs at all.""",
     )
+    parser.add_argument(
+        "--no-context-output",
+        dest="no_context_output",
+        default=False,
+        action="store_true",
+        help="Removes all text above the target function in the output source files",
+    )
 
     args = parser.parse_args()
 
@@ -647,6 +658,7 @@ def main() -> None:
         use_network=args.use_network,
         network_debug=args.network_debug,
         network_priority=args.network_priority,
+        no_context_output=args.no_context_output
     )
 
     run(options)
