@@ -100,12 +100,8 @@ class Permuter:
             fns = _find_fns(source)
             if len(fns) == 0:
                 raise Exception(f"{self.source_file} does not contain any function!")
-            if len(fns) > 1:
-                raise Exception(
-                    f"{self.source_file} must contain only one function, "
-                    "or have a function.txt next to it with a function name."
-                )
-            self.fn_name = fns[0]
+            self.fn_name = fns[-1]
+            print("Selecting function: ", self.fn_name)
         else:
             self.fn_name = fn_name
         self.unique_name = self.fn_name
