@@ -26,6 +26,7 @@ re_int_full = re.compile(r"\b[0-9]+\b")
 
 @dataclass
 class ArchSettings:
+    name: str
     objdump: List[str]
     re_comment: Pattern[str]
     re_reg: Pattern[str]
@@ -91,6 +92,7 @@ PPC_BRANCH_INSTRUCTIONS = {
 PPC_BRANCH_LIKELY_INSTRUCTIONS = {}
 
 MIPS_SETTINGS: ArchSettings = ArchSettings(
+    name="mips",
     re_comment=re.compile(r"<.*?>"),
     re_reg=re.compile(
         r"\$?\b(a[0-3]|t[0-9]|s[0-8]|at|v[01]|f[12]?[0-9]|f3[01]|k[01]|fp|ra)\b"  # leave out $zero
@@ -104,6 +106,7 @@ MIPS_SETTINGS: ArchSettings = ArchSettings(
 
 
 PPC_SETTINGS: ArchSettings = ArchSettings(
+    name="ppc",
     re_includes_sp=re.compile(r"\b(r1)\b"),
     re_comment=re.compile(r"(<.*>|//.*$)"),
     re_reg=re.compile(r"\$?\b([rf][0-9]+)\b"),
@@ -159,6 +162,14 @@ def simplify_objdump(
         row = row.rstrip()
         if ">:" in row or not row:
             continue
+        if arch.name == "ppc":
+            # With sda21 relocs, the linker transforms `r0` into `r2`/`r13`, and
+            # we may encounter this in either pre-transformed or post-transformed
+            # versions depending on if the .o file comes from compiler output or
+            # from disassembly. Normalize, to make sure both forms are treated as
+            # equivalent.
+            row = row.replace("(r2)", "(0)")
+            row = row.replace("(r13)", "(0)")
         if "R_MIPS_" in row:
             prev = output_lines[-1]
             if prev == "<skipped>":
