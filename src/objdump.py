@@ -162,8 +162,12 @@ def simplify_objdump(
         row = row.rstrip()
         if ">:" in row or not row:
             continue
-        # Fix for ppc sda21 reloc
         if arch.name == "ppc":
+            # With sda21 relocs, the linker transforms `r0` into `r2`/`r13`, and
+            # we may encounter this in either pre-transformed or post-transformed
+            # versions depending on if the .o file comes from compiler output or
+            # from disassembly. Normalize, to make sure both forms are treated as
+            # equivalent.
             row = row.replace("(r2)", "(0)")
             row = row.replace("(r13)", "(0)")
         if "R_MIPS_" in row:
