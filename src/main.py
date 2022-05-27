@@ -92,7 +92,18 @@ class EvalContext:
     permuters: List[Permuter] = field(default_factory=list)
 
 
-def write_candidate(perm: Permuter, result: CandidateResult, no_context_output: bool) -> None:
+def trim_source(source, fn_name):
+    fn_index = source.find(fn_name)
+    if fn_index != -1:
+        new_index = source.rfind("\n", 0, fn_index)
+        if new_index != -1:
+            return source[new_index:]
+    return source
+
+
+def write_candidate(
+    perm: Permuter, result: CandidateResult, no_context_output: bool
+) -> None:
     """Write the candidate's C source and score to the next output directory"""
     ctr = 0
     while True:
@@ -105,17 +116,10 @@ def write_candidate(perm: Permuter, result: CandidateResult, no_context_output: 
             pass
     source = result.source
 
-
     assert source is not None, "Permuter._need_to_send_source is wrong!"
     with open(os.path.join(output_dir, "source.c"), "x", encoding="utf-8") as f:
         if no_context_output:
-            fn_str_index = source.find(perm.fn_name)
-            for i in range(fn_str_index-30, fn_str_index-1):
-                if (source[i] == '\n' or source[i] == '\r'):
-                    fn_str_index = i
-                    break
-            f.write(source[fn_str_index:])
-
+            f.write(trim_source(source, perm.fn_name))
         else:
             f.write(source)
     with open(os.path.join(output_dir, "score.txt"), "x", encoding="utf-8") as f:
@@ -635,7 +639,6 @@ def main() -> None:
     parser.add_argument(
         "--no-context-output",
         dest="no_context_output",
-        default=False,
         action="store_true",
         help="Removes all text above the target function in the output source files",
     )
@@ -663,7 +666,7 @@ def main() -> None:
         use_network=args.use_network,
         network_debug=args.network_debug,
         network_priority=args.network_priority,
-        no_context_output=args.no_context_output
+        no_context_output=args.no_context_output,
     )
 
     run(options)
