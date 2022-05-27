@@ -16,7 +16,7 @@ class DiffAsmLine:
 
     def __init__(self, line: str) -> None:
         self.line = line
-        self.mnemonic = line.split("\t")[0]
+        self.mnemonic = line.split(None, 1)[0]
 
 
 class Scorer:
