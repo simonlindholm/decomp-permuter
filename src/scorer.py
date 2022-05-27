@@ -4,9 +4,7 @@ import hashlib
 import re
 from typing import Tuple, List, Optional
 from collections import Counter
-
-
-from .objdump import objdump, get_arch
+from .objdump import ArchSettings, objdump, get_arch
 
 
 @dataclass(init=False, unsafe_hash=True)
@@ -54,6 +52,9 @@ class Scorer:
         score = 0
         deletions = []
         insertions = []
+
+        def imm_matches_everything(row: str, arch: ArchSettings) -> bool:
+            return arch.match_any_symbol_str in row or "...data" in row
 
         def lo_hi_match(old: str, new: str) -> bool:
             old_lo = old.find("%lo")
@@ -103,6 +104,10 @@ class Scorer:
                 newfields = newfields[:-1]
                 oldfields = oldfields[:-1]
             for nf, of in zip(newfields, oldfields):
+                if imm_matches_everything(of, self.arch):
+                    continue
+                if imm_matches_everything(nf, self.arch):
+                    continue
                 if nf != of:
                     score += self.PENALTY_REGALLOC
             # Penalize any extra fields
