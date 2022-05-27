@@ -159,6 +159,8 @@ def simplify_objdump(
         row = row.rstrip()
         if ">:" in row or not row:
             continue
+        if "(r2)" in row:
+            row = row.replace("(r2)", "(0)")
         if "R_MIPS_" in row:
             prev = output_lines[-1]
             if prev == "<skipped>":
