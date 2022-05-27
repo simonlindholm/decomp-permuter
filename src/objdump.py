@@ -165,6 +165,7 @@ def simplify_objdump(
         # Fix for ppc sda21 reloc
         if arch.name == "ppc":
             row = row.replace("(r2)", "(0)")
+            row = row.replace("(r13)", "(0)")
         if "R_MIPS_" in row:
             prev = output_lines[-1]
             if prev == "<skipped>":
