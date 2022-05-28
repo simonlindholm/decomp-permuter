@@ -54,7 +54,10 @@ class Scorer:
         insertions = []
 
         def imm_matches_everything(row: str, arch: ArchSettings) -> bool:
-            return arch.match_any_symbol_str in row or ".data" in row
+            if arch.name == "ppc":
+                return any(str in row for str in ["...data", "@"])
+            else:
+                return "(." in row
 
         def lo_hi_match(old: str, new: str) -> bool:
             old_lo = old.find("%lo")
@@ -104,8 +107,6 @@ class Scorer:
                 newfields = newfields[:-1]
                 oldfields = oldfields[:-1]
             for nf, of in zip(newfields, oldfields):
-                if imm_matches_everything(of, self.arch):
-                    continue
                 if imm_matches_everything(nf, self.arch):
                     continue
                 if nf != of:
