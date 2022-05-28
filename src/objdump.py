@@ -241,9 +241,8 @@ def simplify_objdump(
         if ">:" in row or not row:
             continue
 
-        if (
-            arch.re_reloc in row
-        ):  # Process Relocations, modify the previous line and do not add this line to output
+        if arch.re_reloc in row:
+            # Process Relocations, modify the previous line and do not add this line to output
             modified_prev = process_reloc(row, output_lines[-1])
             if modified_prev != -1:
                 output_lines[-1] = modified_prev
