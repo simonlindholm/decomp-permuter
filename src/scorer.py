@@ -59,6 +59,12 @@ class Scorer:
             else:
                 return "(." in row
 
+        def is_valid_symbol(str: str) -> bool:
+            return (
+                re.sub(re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*"), "", str.split("@")[0])
+                == ""
+            )
+
         def lo_hi_match(old: str, new: str) -> bool:
             old_lo = old.find("%lo")
             old_hi = old.find("%hi")
@@ -106,9 +112,16 @@ class Scorer:
             if ignore_last_field:
                 newfields = newfields[:-1]
                 oldfields = oldfields[:-1]
+            else:
+                ### If the last field has a register suffix, i.e. "0x38(r7)"  we split that part out to make it a seperate field
+                newfields = newfields[:-1] + newfields[-1].split("(")
+                oldfields = oldfields[:-1] + oldfields[-1].split("(")
             for nf, of in zip(newfields, oldfields):
+                # If the new field is a match to any symbol case
                 if imm_matches_everything(nf, self.arch):
-                    continue
+                    # And the old field is a valid symbol, then ignore this mismatch
+                    if is_valid_symbol(of):
+                        continue
                 if nf != of:
                     score += self.PENALTY_REGALLOC
             # Penalize any extra fields
