@@ -200,6 +200,8 @@ def process_reloc(reloc_row: str, prev: str):
             # equivalent.
             after = after.replace("(r2)", "(0)")
             after = after.replace("(r13)", "(0)")
+            before = before.replace("r2", "0")
+            before = before.replace("r13", "0")
 
         return before + repl + after
 
