@@ -92,7 +92,7 @@ class EvalContext:
     permuters: List[Permuter] = field(default_factory=list)
 
 
-def trim_source(source, fn_name):
+def trim_source(source: str, fn_name: str) -> str:
     fn_index = source.find(fn_name)
     if fn_index != -1:
         new_index = source.rfind("\n", 0, fn_index)
