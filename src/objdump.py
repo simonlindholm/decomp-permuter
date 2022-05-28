@@ -34,7 +34,6 @@ class ArchSettings:
     re_includes_sp: Pattern[str]
     re_reloc: str
     branch_instructions: Set[str]
-    match_any_symbol_str: str
     forbidden: Set[str] = field(default_factory=lambda: set(string.ascii_letters + "_"))
     branch_likely_instructions: Set[str] = field(default_factory=set)
 
@@ -101,11 +100,10 @@ MIPS_SETTINGS: ArchSettings = ArchSettings(
     ),
     re_sprel=re.compile(r"(?<=,)([0-9]+|0x[0-9a-f]+)\((sp|s8)\)"),
     re_includes_sp=re.compile(r"\b(sp|s8)\b"),
+    re_reloc="R_MIPS_",
     objdump=["mips-linux-gnu-objdump", "-drz", "-m", "mips:4300"],
     branch_likely_instructions=MIPS_BRANCH_LIKELY_INSTRUCTIONS,
     branch_instructions=MIPS_BRANCH_INSTRUCTIONS,
-    match_any_symbol_str="(.",
-    re_reloc="R_MIPS_",
 )
 
 
@@ -115,11 +113,10 @@ PPC_SETTINGS: ArchSettings = ArchSettings(
     re_comment=re.compile(r"(<.*>|//.*$)"),
     re_reg=re.compile(r"\$?\b([rf][0-9]+)\b"),
     re_sprel=re.compile(r"(?<=,)(-?[0-9]+|-?0x[0-9a-f]+)\(r1\)"),
+    re_reloc="R_PPC_",
     objdump=["powerpc-eabi-objdump", "-dr", "-EB", "-mpowerpc", "-M", "broadway"],
     branch_instructions=PPC_BRANCH_INSTRUCTIONS,
     branch_likely_instructions=PPC_BRANCH_LIKELY_INSTRUCTIONS,
-    match_any_symbol_str="@",
-    re_reloc="R_PPC_",
 )
 
 
