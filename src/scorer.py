@@ -54,7 +54,7 @@ class Scorer:
         insertions = []
 
         def imm_matches_everything(row: str, arch: ArchSettings) -> bool:
-            return arch.match_any_symbol_str in row or "...data" in row
+            return arch.match_any_symbol_str in row or ".data" in row
 
         def lo_hi_match(old: str, new: str) -> bool:
             old_lo = old.find("%lo")

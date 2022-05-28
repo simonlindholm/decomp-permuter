@@ -32,6 +32,7 @@ class ArchSettings:
     re_reg: Pattern[str]
     re_sprel: Pattern[str]
     re_includes_sp: Pattern[str]
+    re_reloc: str
     branch_instructions: Set[str]
     match_any_symbol_str: str
     forbidden: Set[str] = field(default_factory=lambda: set(string.ascii_letters + "_"))
@@ -104,6 +105,7 @@ MIPS_SETTINGS: ArchSettings = ArchSettings(
     branch_likely_instructions=MIPS_BRANCH_LIKELY_INSTRUCTIONS,
     branch_instructions=MIPS_BRANCH_INSTRUCTIONS,
     match_any_symbol_str="(.",
+    re_reloc="R_MIPS_",
 )
 
 
@@ -117,6 +119,7 @@ PPC_SETTINGS: ArchSettings = ArchSettings(
     branch_instructions=PPC_BRANCH_INSTRUCTIONS,
     branch_likely_instructions=PPC_BRANCH_LIKELY_INSTRUCTIONS,
     match_any_symbol_str="@",
+    re_reloc="R_PPC_",
 )
 
 
@@ -155,6 +158,79 @@ def parse_relocated_line(line: str) -> Tuple[str, str, str]:
     return before, imm, after
 
 
+def process_reloc(reloc_row: str, prev: str):
+    if prev == "<skipped>":
+        return -1
+
+    before, imm, after = parse_relocated_line(prev)
+    repl = reloc_row.split()[-1]
+    # As part of ignoring branch targets, we ignore relocations for j
+    # instructions. The target is already lost anyway.
+    if imm == "<target>":
+        assert ign_branch_targets
+        return -1
+
+    if "R_PPC_" in reloc_row:
+
+        assert any(
+            r in reloc_row for r in ["R_PPC_REL24", "R_PPC_ADDR16", "R_PPC_EMB_SDA21"]
+        ), f"unknown relocation type '{reloc_row}' for line '{prev}'"
+
+        if "R_PPC_REL24" in reloc_row:
+            # function calls
+            pass
+        elif "R_PPC_ADDR16_HI" in reloc_row:
+            # absolute hi of addr
+            repl = f"{repl}@h"
+        elif "R_PPC_ADDR16_HA" in reloc_row:
+            # adjusted hi of addr
+            repl = f"{repl}@ha"
+        elif "R_PPC_ADDR16_LO" in reloc_row:
+            # lo of addr
+            repl = f"{repl}@l"
+        elif "R_PPC_ADDR16" in reloc_row:
+            # 16-bit absolute addr
+            if "+0x7" in repl:
+                # remove the very large addends as they are an artifact of (label-_SDA(2)_BASE_)
+                # computations and are unimportant in a diff setting.
+                if int(repl.split("+")[1], 16) > 0x70000000:
+                    repl = repl.split("+")[0]
+        elif "R_PPC_EMB_SDA21" in reloc_row:
+            # With sda21 relocs, the linker transforms `r0` into `r2`/`r13`, and
+            # we may encounter this in either pre-transformed or post-transformed
+            # versions depending on if the .o file comes from compiler output or
+            # from disassembly. Normalize, to make sure both forms are treated as
+            # equivalent.
+            after = after.replace("(r2)", "(0)")
+            after = after.replace("(r13)", "(0)")
+
+        return before + repl + after
+
+    if "R_MIPS_" in reloc_row:
+        # Sometimes s8 is used as a non-framepointer, but we've already lost
+        # the immediate value by pretending it is one. This isn't too bad,
+        # since it's rare and applies consistently. But we do need to handle it
+        # here to avoid a crash, by pretending that lost imms are zero for
+        # relocations.
+        if imm != "0" and imm != "imm" and imm != "addr":
+            repl += "+" + imm if int(imm, 0) > 0 else imm
+        if any(
+            reloc in reloc_row
+            for reloc in ["R_MIPS_LO16", "R_MIPS_LITERAL", "R_MIPS_GPREL16"]
+        ):
+            repl = f"%lo({repl})"
+        elif "R_MIPS_HI16" in reloc_row:
+            # Ideally we'd pair up R_MIPS_LO16 and R_MIPS_HI16 to generate a
+            # correct addend for each, but objdump doesn't give us the order of
+            # the relocations, so we can't find the right LO16. :(
+            repl = f"%hi({repl})"
+        else:
+            assert "R_MIPS_26" in reloc_row, f"unknown relocation type '{reloc_row}'"
+        return before + repl + after
+
+    raise Exception(f"unknown relocation type: {reloc_row}")
+
+
 def simplify_objdump(
     input_lines: List[str], arch: ArchSettings, *, stack_differences: bool
 ) -> List[str]:
@@ -167,50 +243,15 @@ def simplify_objdump(
         row = row.rstrip()
         if ">:" in row or not row:
             continue
-        if "R_" in row:
-            prev = output_lines[-1]
-            if prev == "<skipped>":
-                continue
-            before, imm, after = parse_relocated_line(prev)
-            repl = row.split()[-1]
-            # As part of ignoring branch targets, we ignore relocations for j
-            # instructions. The target is already lost anyway.
-            if imm == "<target>":
-                assert ign_branch_targets
-                continue
-            if "R_PPC_" in row:
-                if "R_PPC_EMB_SDA21":
-                    # With sda21 relocs, the linker transforms `r0` into `r2`/`r13`, and
-                    # we may encounter this in either pre-transformed or post-transformed
-                    # versions depending on if the .o file comes from compiler output or
-                    # from disassembly. Normalize, to make sure both forms are treated as
-                    # equivalent.
-                    after = after.replace("(r2)", "(0)")
-                    after = after.replace("(r13)", "(0)")
-                output_lines[-1] = before + repl + after
-                continue
-            if "R_MIPS_" in row:
-                # Sometimes s8 is used as a non-framepointer, but we've already lost
-                # the immediate value by pretending it is one. This isn't too bad,
-                # since it's rare and applies consistently. But we do need to handle it
-                # here to avoid a crash, by pretending that lost imms are zero for
-                # relocations.
-                if imm != "0" and imm != "imm" and imm != "addr":
-                    repl += "+" + imm if int(imm, 0) > 0 else imm
-                if any(
-                    reloc in row
-                    for reloc in ["R_MIPS_LO16", "R_MIPS_LITERAL", "R_MIPS_GPREL16"]
-                ):
-                    repl = f"%lo({repl})"
-                elif "R_MIPS_HI16" in row:
-                    # Ideally we'd pair up R_MIPS_LO16 and R_MIPS_HI16 to generate a
-                    # correct addend for each, but objdump doesn't give us the order of
-                    # the relocations, so we can't find the right LO16. :(
-                    repl = f"%hi({repl})"
-                else:
-                    assert "R_MIPS_26" in row, f"unknown relocation type '{row}'"
-                output_lines[-1] = before + repl + after
-                continue
+
+        if (
+            arch.re_reloc in row
+        ):  # Process Relocations, modify the previous line and do not add this line to output
+            modified_prev = process_reloc(row, output_lines[-1])
+            if modified_prev != -1:
+                output_lines[-1] = modified_prev
+            continue
+
         row = re.sub(arch.re_comment, "", row)
         row = row.rstrip()
         row = "\t".join(row.split("\t")[2:])  # [20:]
