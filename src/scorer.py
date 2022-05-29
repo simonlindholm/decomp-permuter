@@ -60,6 +60,8 @@ class Scorer:
 
                 row = "".join(row.rsplit("@ha", 1))
                 row = "".join(row.rsplit("@l", 1))
+                row = "".join(row.rsplit("@sda21", 1))
+
                 return re.search(re.compile(r"\A@\d+\Z"), row) != None
             else:
                 return "(." in row
