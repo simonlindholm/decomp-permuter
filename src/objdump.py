@@ -5,7 +5,8 @@ import re
 import string
 import subprocess
 import sys
-from typing import List, Match, Pattern, Set, Tuple
+from typing import List, Match, Pattern, Set, Tuple, Optional
+
 
 # Ignore registers, for cleaner output. (We don't do this right now, but it can
 # be useful for debugging.)
@@ -32,7 +33,7 @@ class ArchSettings:
     re_reg: Pattern[str]
     re_sprel: Pattern[str]
     re_includes_sp: Pattern[str]
-    re_reloc: str
+    reloc_str: str
     branch_instructions: Set[str]
     forbidden: Set[str] = field(default_factory=lambda: set(string.ascii_letters + "_"))
     branch_likely_instructions: Set[str] = field(default_factory=set)
@@ -90,7 +91,7 @@ PPC_BRANCH_INSTRUCTIONS = {
     "bgt-",
 }
 
-PPC_BRANCH_LIKELY_INSTRUCTIONS = {}
+PPC_BRANCH_LIKELY_INSTRUCTIONS: Set[str] = set({})
 
 MIPS_SETTINGS: ArchSettings = ArchSettings(
     name="mips",
@@ -100,7 +101,7 @@ MIPS_SETTINGS: ArchSettings = ArchSettings(
     ),
     re_sprel=re.compile(r"(?<=,)([0-9]+|0x[0-9a-f]+)\((sp|s8)\)"),
     re_includes_sp=re.compile(r"\b(sp|s8)\b"),
-    re_reloc="R_MIPS_",
+    reloc_str="R_MIPS_",
     objdump=["mips-linux-gnu-objdump", "-drz", "-m", "mips:4300"],
     branch_likely_instructions=MIPS_BRANCH_LIKELY_INSTRUCTIONS,
     branch_instructions=MIPS_BRANCH_INSTRUCTIONS,
@@ -111,9 +112,9 @@ PPC_SETTINGS: ArchSettings = ArchSettings(
     name="ppc",
     re_includes_sp=re.compile(r"\b(r1)\b"),
     re_comment=re.compile(r"(<.*>|//.*$)"),
-    re_reg=re.compile(r"\$?\b([rf][0-9]+)\b"),
+    re_reg=re.compile(r"(\$?\b([rf][0-9]+)\b|\(.+\))"),
     re_sprel=re.compile(r"(?<=,)(-?[0-9]+|-?0x[0-9a-f]+)\(r1\)"),
-    re_reloc="R_PPC_",
+    reloc_str="R_PPC_",
     objdump=["powerpc-eabi-objdump", "-dr", "-EB", "-mpowerpc", "-M", "broadway"],
     branch_instructions=PPC_BRANCH_INSTRUCTIONS,
     branch_likely_instructions=PPC_BRANCH_LIKELY_INSTRUCTIONS,
@@ -155,9 +156,9 @@ def parse_relocated_line(line: str) -> Tuple[str, str, str]:
     return before, imm, after
 
 
-def process_reloc(reloc_row: str, prev: str):
+def process_reloc(reloc_row: str, prev: str) -> Optional[str]:
     if prev == "<skipped>":
-        return -1
+        return None
 
     before, imm, after = parse_relocated_line(prev)
     repl = reloc_row.split()[-1]
@@ -165,7 +166,7 @@ def process_reloc(reloc_row: str, prev: str):
     # instructions. The target is already lost anyway.
     if imm == "<target>":
         assert ign_branch_targets
-        return -1
+        return None
 
     if "R_PPC_" in reloc_row:
 
@@ -200,8 +201,8 @@ def process_reloc(reloc_row: str, prev: str):
             # equivalent.
             after = after.replace("(r2)", "(0)")
             after = after.replace("(r13)", "(0)")
-            before = before.replace("r2", "0")
-            before = before.replace("r13", "0")
+            before = before.replace(",r2,", ",0,")
+            before = before.replace(",r13,", ",0,")
 
         return before + repl + after
 
@@ -243,10 +244,10 @@ def simplify_objdump(
         if ">:" in row or not row:
             continue
 
-        if arch.re_reloc in row:
+        if arch.reloc_str in row:
             # Process Relocations, modify the previous line and do not add this line to output
             modified_prev = process_reloc(row, output_lines[-1])
-            if modified_prev != -1:
+            if modified_prev:
                 output_lines[-1] = modified_prev
             continue
 
