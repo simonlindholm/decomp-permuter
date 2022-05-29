@@ -179,13 +179,13 @@ def process_reloc(reloc_row: str, prev: str) -> Optional[str]:
             pass
         elif "R_PPC_ADDR16_HI" in reloc_row:
             # absolute hi of addr
-            repl = f"{repl}@h"
+            repl = f"{repl}@h"  ## not actually needed by permutor
         elif "R_PPC_ADDR16_HA" in reloc_row:
             # adjusted hi of addr
-            repl = f"{repl}@ha"
+            repl = f"{repl}@ha"  ## not actually needed by permutor
         elif "R_PPC_ADDR16_LO" in reloc_row:
             # lo of addr
-            repl = f"{repl}@l"
+            repl = f"{repl}@l"  ## not actually needed by permutor
         elif "R_PPC_ADDR16" in reloc_row:
             # 16-bit absolute addr
             if "+0x7" in repl:
@@ -194,15 +194,8 @@ def process_reloc(reloc_row: str, prev: str) -> Optional[str]:
                 if int(repl.split("+")[1], 16) > 0x70000000:
                     repl = repl.split("+")[0]
         elif "R_PPC_EMB_SDA21" in reloc_row:
-            # With sda21 relocs, the linker transforms `r0` into `r2`/`r13`, and
-            # we may encounter this in either pre-transformed or post-transformed
-            # versions depending on if the .o file comes from compiler output or
-            # from disassembly. Normalize, to make sure both forms are treated as
-            # equivalent.
-            after = after.replace("(r2)", "(0)")
-            after = after.replace("(r13)", "(0)")
-            before = before.replace(",r2,", ",0,")
-            before = before.replace(",r13,", ",0,")
+            # sda21 relocations; r2/r13 --> 0 swaps are performed in an earlier processing step
+            repl = f"{repl}@sda21"  ## not actually needed by permutor
 
         return before + repl + after
 
@@ -266,6 +259,20 @@ def simplify_objdump(
                 instr_args = parts[0] + ",0," + parts[1]
 
             row = mnemonic + "\t" + instr_args.replace("\t", "  ")
+
+            if (
+                index + 1 < len(input_lines)
+                and "R_PPC_EMB_SDA21" in input_lines[index + 1]
+            ):
+                # With sda21 relocs, the linker transforms `r0` into `r2`/`r13`, and
+                # we may encounter this in either pre-transformed or post-transformed
+                # versions depending on if the .o file comes from compiler output or
+                # from disassembly. Normalize, to make sure both forms are treated as
+                # equivalent.
+                row = row.replace("(r2)", "(0)")
+                row = row.replace("(r13)", "(0)")
+                row = row.replace(",r2,", ",0,")
+                row = row.replace(",r13,", ",0,")
 
         if arch.reloc_str in row:
             # Process Relocations, modify the previous line and do not add this line to output
