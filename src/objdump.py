@@ -244,6 +244,29 @@ def simplify_objdump(
         if ">:" in row or not row:
             continue
 
+        row = re.sub(arch.re_comment, "", row)
+        row = row.rstrip()
+        row = "\t".join(row.split("\t")[2:])  # [20:]
+        if not row:
+            continue
+
+        row_parts = row.split(None, 1)
+        if len(row_parts) == 1:
+            row_parts.append("")
+        mnemonic, instr_args = row_parts
+
+        if arch.name == "ppc":
+            if mnemonic == "li":
+                mnemonic = "addi"
+                parts = instr_args.split(",")
+                instr_args = parts[0] + ",0," + parts[1]
+            if mnemonic == "lis":
+                mnemonic = "addis"
+                parts = instr_args.split(",")
+                instr_args = parts[0] + ",0," + parts[1]
+
+            row = mnemonic + "\t" + instr_args.replace("\t", "  ")
+
         if arch.reloc_str in row:
             # Process Relocations, modify the previous line and do not add this line to output
             modified_prev = process_reloc(row, output_lines[-1])
@@ -251,21 +274,12 @@ def simplify_objdump(
                 output_lines[-1] = modified_prev
             continue
 
-        row = re.sub(arch.re_comment, "", row)
-        row = row.rstrip()
-        row = "\t".join(row.split("\t")[2:])  # [20:]
-        if not row:
-            continue
         if skip_next:
             skip_next = False
             row = "<skipped>"
         if ign_regs:
             row = re.sub(arch.re_reg, "<reg>", row)
 
-        row_parts = row.split(None, 1)
-        if len(row_parts) == 1:
-            row_parts.append("")
-        mnemonic, instr_args = row_parts
         if not stack_differences:
             if mnemonic == "addiu" and arch.re_includes_sp.search(instr_args):
                 row = re.sub(re_int_full, "imm", row)
