@@ -85,6 +85,7 @@ class Permuter:
         show_errors: bool,
         best_only: bool,
         better_only: bool,
+        minimum_score: Optional[int],
     ) -> None:
         self.dir = dir
         self.compiler = compiler
@@ -118,6 +119,7 @@ class Permuter:
         self._show_errors = show_errors
         self._best_only = best_only
         self._better_only = better_only
+        self._minimum_score = minimum_score
 
         (
             self.base_score,
@@ -219,6 +221,7 @@ class Permuter:
                 result.score < self.base_score
                 or (result.score == self.base_score and not self._better_only)
             )
+            and (self._minimum_score is None or (result.score < self._minimum_score))
             and result.hash not in self.hashes
         )
 
