@@ -22,8 +22,19 @@ from .candidate import CandidateResult
 from .compiler import Compiler
 from .error import CandidateConstructionFailure
 from .helpers import plural, static_assert_unreachable
-from .net.client import start_client
-from .net.core import ServerError, connect, enable_debug_mode, MAX_PRIO, MIN_PRIO
+
+import platform
+
+system = platform.system().lower()
+
+if not "nt" in system and not "msys" in system:
+    from .net.client import start_client
+    from .net.core import ServerError, connect, enable_debug_mode, MAX_PRIO, MIN_PRIO
+else:
+    print("Running from windows platform, disabling network features")
+    MAX_PRIO = 0.0
+    MIN_PRIO = 0.0
+
 from .permuter import (
     EvalError,
     EvalResult,
