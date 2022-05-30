@@ -73,7 +73,8 @@ class Scorer:
 
         def is_valid_symbol(str: str) -> bool:
             return (
-                re.search(re.compile(r"\A[A-Za-z_$][A-Za-z0-9_$]*(\Z|@)"), str) != None
+                re.search(re.compile(r"\A.?[A-Za-z_$][A-Za-z0-9_$]*(\Z|@)"), str)
+                != None
             )
 
         def lo_hi_match(old: str, new: str) -> bool:
