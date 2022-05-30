@@ -9,3 +9,4 @@ __pycache__/
 /nonmatchings
 .vscode/
 pah.conf
+compile.sh

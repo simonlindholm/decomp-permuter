@@ -4,6 +4,8 @@ import argparse
 from collections import defaultdict
 import json
 import os
+import stat
+import traceback
 import platform
 import re
 import shlex
@@ -11,6 +13,7 @@ import shutil
 import subprocess
 import sys
 import toml
+import zipfile
 from typing import Callable, Dict, List, Match, Mapping, Optional, Pattern, Set, Tuple
 import urllib.request
 import urllib.parse
@@ -649,7 +652,63 @@ def write_to_file(cont: str, filename: str) -> None:
         f.write(cont)
 
 
+def prepend_file(filename: str, new_str: str) -> None:
+    with open(filename, "r") as original_f:
+        with open(filename + "_", "w") as new_f:
+            new_f.write(new_str)
+            new_f.write(original_f.read())
+    os.rename(filename + "_", filename)
+
+
+def download_decompme(parsed_url: urllib.parse.ParseResult) -> None:
+
+    try:
+        # unique decomp.me identifier for scratches
+        slug = parsed_url.path[1:].split("/")[1]
+
+        response_str = urllib.request.urlopen(f"https://decomp.me/api/scratch/{slug}")
+        response_json = json.load(response_str)
+        func_name = response_json["name"]
+        dirname = create_directory(func_name)
+        urllib.request.urlretrieve(
+            f"https://decomp.me/api/scratch/{slug}/export", f"{dirname}/export.zip"
+        )
+        with zipfile.ZipFile(f"{dirname}/export.zip", "r") as zip_ref:
+            zip_ref.extractall(dirname)
+
+        os.rename(f"{dirname}/code.c", f"{dirname}/base.c")
+        os.rename(f"{dirname}/ctx.c", f"{dirname}/ctx.h")
+        if not os.path.exists("compile.sh"):
+            print(
+                f"Warning!! 'compile.sh' not found in current directory, so it will not be copied to the prepared folder, {dirname}, and this is required by the permuter"
+            )
+        else:
+            shutil.copyfile("compile.sh", f"{dirname}/compile.sh")
+            os.chmod(
+                f"{dirname}/compile.sh",
+                os.stat(f"{dirname}/compile.sh").st_mode | stat.S_IEXEC,
+            )
+
+        prepend_file(f"{dirname}/base.c", '#include "ctx.h"\n')
+        print(
+            f"Success!! Prepared new folder, {dirname}, that is ready for the permuter script! Run with 'python3 permuter.py {dirname} [additional_flags]'"
+        )
+
+    except:
+        print(traceback.format_exc())
+        print("Failed to download from decomp.me")
+        print("Usage:  python3 import.py https://decomp.me/scratch/AbC12")
+
+
 def main() -> None:
+
+    if len(sys.argv) > 1:
+        parsed_url = urllib.parse.urlparse(sys.argv[1])
+        ### if the 1st arg is a URL
+        if parsed_url.scheme:
+            download_decompme(parsed_url)
+            return
+
     parser = argparse.ArgumentParser(
         description="""Import a function for use with the permuter.
         Will create a new directory nonmatchings/<funcname>-<id>/."""

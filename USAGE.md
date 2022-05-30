@@ -23,3 +23,9 @@ does all this for you. See README.md for more details.
   - `<dir>/compile.sh <dir>/base.c -o <dir>/base.o`
   - `./diff.sh <dir>/target.o <dir>/base.o`
 * `./permuter.py <dir>`
+
+
+## Using import.py with decomp.me
+import.py has an additional feature where it can prepare a directory for the permuter by downloading what it needs from a decomp.me scratch. 
+To use this feature all you need to do is put a script called "compile.sh" in the current working directory (root of this repository) that compiles a .c file.  (See mips_compile_example.sh or mwcc_compile_example.sh)
+Then run: `python3 import.py https://decomp.me/scratch/AbC12`
