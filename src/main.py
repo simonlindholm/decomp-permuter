@@ -55,7 +55,7 @@ class Options:
     abort_exceptions: bool = False
     better_only: bool = False
     best_only: bool = False
-    minimum_score: int = 1
+    score_threshold: int = 1
     quiet: bool = False
     stop_on_zero: bool = False
     keep_prob: float = DEFAULT_RAND_KEEP_PROB
@@ -331,7 +331,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
                 show_errors=options.show_errors,
                 best_only=options.best_only,
                 better_only=options.better_only,
-                minimum_score=options.minimum_score,
+                score_threshold=options.score_threshold,
             )
         except CandidateConstructionFailure as e:
             print(e.message, file=sys.stderr)
@@ -646,7 +646,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--only-if-below",
-        dest="minimum_score",
+        dest="score_threshold",
         type=int,
         help="The minimum diff score for reporting",
     )
@@ -663,7 +663,7 @@ def main() -> None:
         show_timings=args.show_timings,
         print_diffs=args.print_diffs,
         abort_exceptions=args.abort_exceptions,
-        minimum_score=args.minimum_score,
+        score_threshold=args.score_threshold,
         better_only=args.better_only,
         best_only=args.best_only,
         quiet=args.quiet,
