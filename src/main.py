@@ -645,7 +645,7 @@ def main() -> None:
         help="Removes all text above the target function in the output source files",
     )
     parser.add_argument(
-        "--min-score",
+        "--only-if-below",
         dest="minimum_score",
         type=int,
         help="The minimum diff score for reporting",
