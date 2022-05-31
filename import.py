@@ -726,7 +726,9 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(
         description="""Import a function for use with the permuter.
-        Will create a new directory nonmatchings/<funcname>-<id>/."""
+        Will create a new directory nonmatchings/<funcname>-<id>/.""",
+        epilog="""There is an alternative usage of this script where you provide a URL to a decompme scratch as the only argument. The script will download and prepare a new directory for the permutor using the data downloaded from that scratch.
+        Alternate usage:  import.py https://decomp.me/scratch/aBc12""",
     )
     parser.add_argument(
         "c_file",
