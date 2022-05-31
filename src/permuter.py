@@ -119,7 +119,7 @@ class Permuter:
         self._show_errors = show_errors
         self._best_only = best_only
         self._better_only = better_only
-        self.score_threshold = score_threshold
+        self._score_threshold = score_threshold
 
         (
             self.base_score,
@@ -221,7 +221,9 @@ class Permuter:
                 result.score < self.base_score
                 or (result.score == self.base_score and not self._better_only)
             )
-            and (self.score_threshold is None or (result.score < self.score_threshold))
+            and (
+                self._score_threshold is None or (result.score < self._score_threshold)
+            )
             and result.hash not in self.hashes
         )
 

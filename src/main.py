@@ -55,7 +55,7 @@ class Options:
     abort_exceptions: bool = False
     better_only: bool = False
     best_only: bool = False
-    score_threshold: int = 1
+    score_threshold: Optional[int] = None
     quiet: bool = False
     stop_on_zero: bool = False
     keep_prob: float = DEFAULT_RAND_KEEP_PROB
@@ -648,7 +648,7 @@ def main() -> None:
         "--only-if-below",
         dest="score_threshold",
         type=int,
-        help="The minimum diff score for reporting",
+        help="Only report scores better(lower) than this value",
     )
 
     args = parser.parse_args()
