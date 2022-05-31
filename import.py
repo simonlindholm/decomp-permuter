@@ -25,6 +25,9 @@ from src.error import CandidateConstructionFailure
 
 is_macos = platform.system() == "Darwin"
 
+DECOMPME_API_BASE: str = os.environ.get("DECOMPME_API_BASE", "https://decomp.me")
+DECOMPME_BASE: str = os.environ.get("DECOMPME_BASE", "https://decomp.me")
+
 
 def homebrew_gcc_cpp() -> str:
     lookup_paths = ["/usr/local/bin", "/opt/homebrew/bin"]
@@ -653,35 +656,33 @@ def write_to_file(cont: str, filename: str) -> None:
         f.write(cont)
 
 
-def download_decompme(parsed_url: urllib.parse.ParseResult) -> None:
+def download_decompme(url_str: str) -> None:
 
     try:
         # unique decomp.me identifier for scratches
+        parsed_url = urllib.parse.urlparse(url_str)
         slug = parsed_url.path[1:].split("/")[1]
     except Exception:
         print(traceback.format_exc())
         print(
             "Failed to parse decomp.me url, it should look like:  https://decomp.me/scratch/aBc12"
         )
+        sys.exit(1)
 
     try:
 
-        response_str = urllib.request.urlopen(f"https://decomp.me/api/scratch/{slug}")
+        response_str = urllib.request.urlopen(f"{DECOMPME_API_BASE}/api/scratch/{slug}")
         response_json = json.load(response_str)
         func_name = response_json["name"]
     except Exception:
         print(traceback.format_exc())
         print("Failed to query function information from decomp.me")
+        sys.exit(1)
 
     dirname = create_directory(func_name)
-
-    try:
-        content = urllib.request.urlopen(f"https://decomp.me/api/scratch/{slug}/export")
-        zip = zipfile.ZipFile(BytesIO(content.read()))
-        zip.extractall(dirname)
-    except Exception:
-        print(traceback.format_exc())
-        print("Failed to download function data from decomp.me")
+    content = urllib.request.urlopen(f"{DECOMPME_API_BASE}/api/scratch/{slug}/export")
+    zip = zipfile.ZipFile(BytesIO(content.read()))
+    zip.extractall(dirname)
 
     try:
         os.rename(f"{dirname}/code.c", f"{dirname}/base.c")
@@ -712,17 +713,14 @@ def download_decompme(parsed_url: urllib.parse.ParseResult) -> None:
         print(
             "Exception occured when making final preparations to files in the new directory for the permutor"
         )
+        sys.exit(1)
 
 
 def main() -> None:
 
-    api_base = os.environ.get("DECOMPME_API_BASE", "https://decomp.me")
-
-    if len(sys.argv) > 1:
-        if sys.argv[1].startswith(api_base):
-            parsed_url = urllib.parse.urlparse(sys.argv[1])
-            download_decompme(parsed_url)
-            return
+    if len(sys.argv) > 1 and sys.argv[1].startswith(DECOMPME_BASE):
+        download_decompme(sys.argv[1])
+        return
 
     parser = argparse.ArgumentParser(
         description="""Import a function for use with the permuter.
@@ -823,7 +821,9 @@ def main() -> None:
     source = import_c_file(compiler, root_dir, args.c_file, preserve_macros)
 
     if args.decompme:
-        compiler_name = get_decompme_compiler_name(compiler, settings, api_base)
+        compiler_name = get_decompme_compiler_name(
+            compiler, settings, DECOMPME_API_BASE
+        )
         source, context = prune_and_separate_context(source, args.prune, func_name)
         print("Uploading...")
         try:
@@ -837,7 +837,9 @@ def main() -> None:
                     "compiler_flags": get_compiler_flags(compiler),
                 }
             ).encode("ascii")
-            with urllib.request.urlopen(f"{api_base}/api/scratch", post_data) as f:
+            with urllib.request.urlopen(
+                f"{DECOMPME_API_BASE}/api/scratch", post_data
+            ) as f:
                 resp = f.read()
                 json_data: Dict[str, str] = json.loads(resp)
                 if "slug" in json_data:
