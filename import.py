@@ -658,17 +658,32 @@ def download_decompme(parsed_url: urllib.parse.ParseResult) -> None:
     try:
         # unique decomp.me identifier for scratches
         slug = parsed_url.path[1:].split("/")[1]
+    except Exception:
+        print(traceback.format_exc())
+        print(
+            "Failed to parse decomp.me url, it should look like:  https://decomp.me/scratch/aBc12"
+        )
+
+    try:
 
         response_str = urllib.request.urlopen(f"https://decomp.me/api/scratch/{slug}")
         response_json = json.load(response_str)
         func_name = response_json["name"]
-        dirname = create_directory(func_name)
+    except Exception:
+        print(traceback.format_exc())
+        print("Failed to query function information from decomp.me")
 
+    dirname = create_directory(func_name)
+
+    try:
         content = urllib.request.urlopen(f"https://decomp.me/api/scratch/{slug}/export")
-
         zip = zipfile.ZipFile(BytesIO(content.read()))
         zip.extractall(dirname)
+    except Exception:
+        print(traceback.format_exc())
+        print("Failed to download function data from decomp.me")
 
+    try:
         os.rename(f"{dirname}/code.c", f"{dirname}/base.c")
         os.rename(f"{dirname}/ctx.c", f"{dirname}/ctx.h")
         if not os.path.exists("compile.sh"):
@@ -694,8 +709,9 @@ def download_decompme(parsed_url: urllib.parse.ParseResult) -> None:
 
     except Exception:
         print(traceback.format_exc())
-        print("Failed to download from decomp.me")
-        print("Usage:  python3 import.py https://decomp.me/scratch/AbC12")
+        print(
+            "Exception occured when making final preparations to files in the new directory for the permutor"
+        )
 
 
 def main() -> None:
