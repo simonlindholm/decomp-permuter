@@ -27,13 +27,12 @@ import platform
 
 system = platform.system().lower()
 
-if not "nt" in system and not "msys" in system:
+isWindowsPlatform: bool = "nt" in system or "msys" in system
+
+if not isWindowsPlatform:
     from .net.client import start_client
     from .net.core import ServerError, connect, enable_debug_mode, MAX_PRIO, MIN_PRIO
-else:
-    print("Running from windows platform, disabling network features")
-    MAX_PRIO = 0.0
-    MIN_PRIO = 0.0
+
 
 from .permuter import (
     EvalError,
@@ -659,6 +658,12 @@ def main() -> None:
     threads = args.threads
     if not threads and not args.use_network:
         threads = 1
+
+    if args.use_network and isWindowsPlatform:
+        print(
+            "Error: Networking features are not supported on windows platform... exiting"
+        )
+        sys.exit(1)
 
     options = Options(
         directories=args.directories,
