@@ -14,6 +14,7 @@ import subprocess
 import sys
 import toml
 import zipfile
+from io import BytesIO
 from typing import Callable, Dict, List, Match, Mapping, Optional, Pattern, Set, Tuple
 import urllib.request
 import urllib.parse
@@ -652,14 +653,6 @@ def write_to_file(cont: str, filename: str) -> None:
         f.write(cont)
 
 
-def prepend_file(filename: str, new_str: str) -> None:
-    with open(filename, "r") as original_f:
-        with open(filename + "_", "w") as new_f:
-            new_f.write(new_str)
-            new_f.write(original_f.read())
-    os.rename(filename + "_", filename)
-
-
 def download_decompme(parsed_url: urllib.parse.ParseResult) -> None:
 
     try:
@@ -670,11 +663,11 @@ def download_decompme(parsed_url: urllib.parse.ParseResult) -> None:
         response_json = json.load(response_str)
         func_name = response_json["name"]
         dirname = create_directory(func_name)
-        urllib.request.urlretrieve(
-            f"https://decomp.me/api/scratch/{slug}/export", f"{dirname}/export.zip"
-        )
-        with zipfile.ZipFile(f"{dirname}/export.zip", "r") as zip_ref:
-            zip_ref.extractall(dirname)
+
+        content = urllib.request.urlopen(f"https://decomp.me/api/scratch/{slug}/export")
+
+        zip = zipfile.ZipFile(BytesIO(content.read()))
+        zip.extractall(dirname)
 
         os.rename(f"{dirname}/code.c", f"{dirname}/base.c")
         os.rename(f"{dirname}/ctx.c", f"{dirname}/ctx.h")
@@ -689,12 +682,17 @@ def download_decompme(parsed_url: urllib.parse.ParseResult) -> None:
                 os.stat(f"{dirname}/compile.sh").st_mode | stat.S_IEXEC,
             )
 
-        prepend_file(f"{dirname}/base.c", '#include "ctx.h"\n')
+        with open(f"{dirname}/base.c", "r") as f:
+            filedata = f.read()
+        with open(f"{dirname}/base.c", "w") as f:
+            f.write('#include "ctx.h"\n')
+            f.write(filedata)
+
         print(
             f"Success!! Prepared new folder, {dirname}, that is ready for the permuter script! Run with 'python3 permuter.py {dirname} [additional_flags]'"
         )
 
-    except:
+    except Exception:
         print(traceback.format_exc())
         print("Failed to download from decomp.me")
         print("Usage:  python3 import.py https://decomp.me/scratch/AbC12")
@@ -702,10 +700,11 @@ def download_decompme(parsed_url: urllib.parse.ParseResult) -> None:
 
 def main() -> None:
 
+    api_base = os.environ.get("DECOMPME_API_BASE", "https://decomp.me")
+
     if len(sys.argv) > 1:
-        parsed_url = urllib.parse.urlparse(sys.argv[1])
-        ### if the 1st arg is a URL
-        if parsed_url.scheme:
+        if sys.argv[1].startswith(api_base):
+            parsed_url = urllib.parse.urlparse(sys.argv[1])
             download_decompme(parsed_url)
             return
 
@@ -806,7 +805,6 @@ def main() -> None:
     source = import_c_file(compiler, root_dir, args.c_file, preserve_macros)
 
     if args.decompme:
-        api_base = os.environ.get("DECOMPME_API_BASE", "https://decomp.me")
         compiler_name = get_decompme_compiler_name(compiler, settings, api_base)
         source, context = prune_and_separate_context(source, args.prune, func_name)
         print("Uploading...")

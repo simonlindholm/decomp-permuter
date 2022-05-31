@@ -37,6 +37,14 @@ build_system = "ninja"
 ```
 Then `import.py` should work as expected if `build.ninja` is at the root of the project.
 
+
+## Using import.py with decomp.me
+import.py has an additional feature where it can prepare a directory for the permuter by downloading what it needs from a decomp.me scratch. 
+To use this feature all you need to do is put a script called "compile.sh" in the current working directory (root of this repository) that compiles a .c file.  (See mips_compile_example.sh or mwcc_compile_example.sh)
+Then run: `python3 import.py https://decomp.me/scratch/AbC12`
+
+## Permutation macros
+
 The .c file may be modified with any of the following macros which affect manual permutation:
 
 - `PERM_GENERAL(a, b, ...)` expands to any of `a`, `b`, ...
