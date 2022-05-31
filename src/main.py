@@ -648,7 +648,7 @@ def main() -> None:
         "--only-if-below",
         dest="score_threshold",
         type=int,
-        help="Only report scores better(lower) than this value",
+        help="Only report scores better (lower) than this value",
     )
 
     args = parser.parse_args()
