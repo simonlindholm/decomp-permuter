@@ -94,6 +94,7 @@ def _create_permuter(data: PermuterData) -> Permuter:
             show_errors=False,
             better_only=False,
             best_only=False,
+            score_threshold=None,
         )
     except:
         os.unlink(path)

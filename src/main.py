@@ -55,6 +55,7 @@ class Options:
     abort_exceptions: bool = False
     better_only: bool = False
     best_only: bool = False
+    score_threshold: Optional[int] = None
     quiet: bool = False
     stop_on_zero: bool = False
     keep_prob: float = DEFAULT_RAND_KEEP_PROB
@@ -330,6 +331,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
                 show_errors=options.show_errors,
                 best_only=options.best_only,
                 better_only=options.better_only,
+                score_threshold=options.score_threshold,
             )
         except CandidateConstructionFailure as e:
             print(e.message, file=sys.stderr)
@@ -642,6 +644,12 @@ def main() -> None:
         action="store_true",
         help="Removes all text above the target function in the output source files",
     )
+    parser.add_argument(
+        "--only-if-below",
+        dest="score_threshold",
+        type=int,
+        help="Only report scores better (lower) than this value",
+    )
 
     args = parser.parse_args()
 
@@ -655,6 +663,7 @@ def main() -> None:
         show_timings=args.show_timings,
         print_diffs=args.print_diffs,
         abort_exceptions=args.abort_exceptions,
+        score_threshold=args.score_threshold,
         better_only=args.better_only,
         best_only=args.best_only,
         quiet=args.quiet,
