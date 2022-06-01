@@ -5,6 +5,7 @@ import re
 from typing import Tuple, List, Optional
 from collections import Counter
 from .objdump import ArchSettings, objdump, get_arch
+from colorama import Fore
 
 
 @dataclass(init=False, unsafe_hash=True)
@@ -28,10 +29,11 @@ class Scorer:
     PENALTY_INSERTION = 100
     PENALTY_DELETION = 100
 
-    def __init__(self, target_o: str, *, stack_differences: bool):
+    def __init__(self, target_o: str, *, stack_differences: bool, debug_mode: bool):
         self.target_o = target_o
         self.arch = get_arch(target_o)
         self.stack_differences = stack_differences
+        self.debug_mode = debug_mode
         _, self.target_seq = self._objdump(target_o)
         self.differ: difflib.SequenceMatcher[str] = difflib.SequenceMatcher(
             autojunk=False
@@ -124,19 +126,36 @@ class Scorer:
         def diff_delete(line: str) -> None:
             deletions.append(line)
 
-        self.differ.set_seq1(list(map(lambda x: x.mnemonic, cand_seq)))
-        for (tag, i1, i2, j1, j2) in self.differ.get_opcodes():
+        self.differ.set_seq1(cand_seq)
+        result_diff = self.differ.get_opcodes()
+
+        for (tag, i1, i2, j1, j2) in result_diff:
             if tag == "equal":
                 for k in range(i2 - i1):
-                    diff_sameline(self.target_seq[j1 + k], cand_seq[i1 + k])
+                    old = self.target_seq[j1 + k]
+                    new = cand_seq[i1 + k]
+                    diff_sameline(old, new)
             if tag == "replace" or tag == "delete":
                 for k in range(i1, i2):
-                    print("INSERTION (RHS only):", cand_seq[k].line)
                     diff_insert(cand_seq[k].line)
             if tag == "replace" or tag == "insert":
                 for k in range(j1, j2):
-                    print("DELETEION (LHS only):", cand_seq[k].line)
                     diff_delete(self.target_seq[k].line)
+
+        if self.debug_mode:  ## Print simple asm diff
+            for (tag, i1, i2, j1, j2) in result_diff:
+                if tag == "equal":
+                    for k in range(i2 - i1):
+                        old = self.target_seq[j1 + k].line
+                        new = cand_seq[i1 + k].line
+                        color = Fore.WHITE if old == new else Fore.BLUE
+                        print(color, old[:40].ljust(40), "\t", new)
+                if tag == "replace" or tag == "delete":
+                    for k in range(i1, i2):
+                        print(Fore.GREEN, "".ljust(40), "\t", cand_seq[k].line)
+                if tag == "replace" or tag == "insert":
+                    for k in range(j1, j2):
+                        print(Fore.RED, cand_seq[k].line)
 
         insertions_co = Counter(insertions)
         deletions_co = Counter(deletions)

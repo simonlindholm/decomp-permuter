@@ -65,6 +65,7 @@ class Options:
     network_debug: bool = False
     network_priority: float = 1.0
     no_context_output: bool = False
+    debug_mode: bool = False
 
 
 def restricted_float(lo: float, hi: float) -> Callable[[str], float]:
@@ -312,7 +313,11 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             print(base_c)
 
         compiler = Compiler(compile_cmd, show_errors=options.show_errors)
-        scorer = Scorer(target_o, stack_differences=options.stack_differences)
+        scorer = Scorer(
+            target_o,
+            stack_differences=options.stack_differences,
+            debug_mode=options.debug_mode,
+        )
         c_source = preprocess(base_c)
 
         try:
@@ -349,6 +354,10 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         if name_counts[permuter.fn_name] > 1:
             permuter.unique_name += f" ({permuter.dir})"
         print(f"[{permuter.unique_name}] base score = {permuter.best_score}")
+
+    if options.debug_mode:
+        print("End of Debug Mode... Exiting")
+        sys.exit(0)
 
     found_zero = False
     if options.threads == 1 and not options.use_network:
@@ -650,6 +659,12 @@ def main() -> None:
         type=int,
         help="Only report scores better (lower) than this value",
     )
+    parser.add_argument(
+        "--debug-mode",
+        dest="debug_mode",
+        action="store_true",
+        help="Debug mode, only compiles and scores the base for debugging issues",
+    )
 
     args = parser.parse_args()
 
@@ -676,6 +691,7 @@ def main() -> None:
         network_debug=args.network_debug,
         network_priority=args.network_priority,
         no_context_output=args.no_context_output,
+        debug_mode=args.debug_mode,
     )
 
     run(options)
