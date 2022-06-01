@@ -131,9 +131,11 @@ class Scorer:
                     diff_sameline(self.target_seq[j1 + k], cand_seq[i1 + k])
             if tag == "replace" or tag == "delete":
                 for k in range(i1, i2):
+                    print("INSERTION (RHS only):", cand_seq[k].line)
                     diff_insert(cand_seq[k].line)
             if tag == "replace" or tag == "insert":
                 for k in range(j1, j2):
+                    print("DELETEION (LHS only):", cand_seq[k].line)
                     diff_delete(self.target_seq[k].line)
 
         insertions_co = Counter(insertions)
