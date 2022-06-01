@@ -21,7 +21,7 @@ from typing import (
 from .candidate import CandidateResult
 from .compiler import Compiler
 from .error import CandidateConstructionFailure
-from .helpers import plural, static_assert_unreachable
+from .helpers import plural, static_assert_unreachable, trim_source
 from .net.client import start_client
 from .net.core import ServerError, connect, enable_debug_mode, MAX_PRIO, MIN_PRIO
 from .permuter import (
@@ -92,15 +92,6 @@ class EvalContext:
     errors: int = 0
     overall_profiler: Profiler = field(default_factory=Profiler)
     permuters: List[Permuter] = field(default_factory=list)
-
-
-def trim_source(source: str, fn_name: str) -> str:
-    fn_index = source.find(fn_name)
-    if fn_index != -1:
-        new_index = source.rfind("\n", 0, fn_index)
-        if new_index != -1:
-            return source[new_index:]
-    return source
 
 
 def write_candidate(
@@ -312,7 +303,9 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         else:
             print(base_c)
 
-        compiler = Compiler(compile_cmd, show_errors=options.show_errors)
+        compiler = Compiler(
+            compile_cmd, show_errors=options.show_errors, debug_mode=options.debug_mode
+        )
         scorer = Scorer(
             target_o,
             stack_differences=options.stack_differences,
@@ -337,6 +330,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
                 best_only=options.best_only,
                 better_only=options.better_only,
                 score_threshold=options.score_threshold,
+                debug_mode=options.debug_mode,
             )
         except CandidateConstructionFailure as e:
             print(e.message, file=sys.stderr)

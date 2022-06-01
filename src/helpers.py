@@ -20,3 +20,12 @@ def try_remove(path: str) -> None:
         os.remove(path)
     except FileNotFoundError:
         pass
+
+
+def trim_source(source: str, fn_name: str) -> str:
+    fn_index = source.find(fn_name)
+    if fn_index != -1:
+        new_index = source.rfind("\n", 0, fn_index)
+        if new_index != -1:
+            return source[new_index:]
+    return source
