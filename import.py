@@ -659,37 +659,38 @@ def write_to_file(cont: str, filename: str) -> None:
 def download_decompme(url_str: str) -> None:
 
     try:
-        # unique decomp.me identifier for scratches
         parsed_url = urllib.parse.urlparse(url_str)
         slug = parsed_url.path[1:].split("/")[1]
     except Exception:
         print(traceback.format_exc())
         print(
-            "Failed to parse decomp.me url, it should look like:  https://decomp.me/scratch/aBc12"
+            f"Failed to parse decomp.me url, it should look like:  {DECOMPME_BASE}/scratch/<id>"
         )
         sys.exit(1)
 
     try:
-
         response_str = urllib.request.urlopen(f"{DECOMPME_API_BASE}/api/scratch/{slug}")
         response_json = json.load(response_str)
         func_name = response_json["name"]
+        dirname = create_directory(func_name)
+        content = urllib.request.urlopen(
+            f"{DECOMPME_API_BASE}/api/scratch/{slug}/export"
+        )
+        zip = zipfile.ZipFile(BytesIO(content.read()))
+        zip.extractall(dirname)
     except Exception:
         print(traceback.format_exc())
-        print("Failed to query function information from decomp.me")
+        print("Failed to download function information from decomp.me")
         sys.exit(1)
-
-    dirname = create_directory(func_name)
-    content = urllib.request.urlopen(f"{DECOMPME_API_BASE}/api/scratch/{slug}/export")
-    zip = zipfile.ZipFile(BytesIO(content.read()))
-    zip.extractall(dirname)
 
     try:
         os.rename(f"{dirname}/code.c", f"{dirname}/base.c")
         os.rename(f"{dirname}/ctx.c", f"{dirname}/ctx.h")
         if not os.path.exists("compile.sh"):
             print(
-                f"Warning!! 'compile.sh' not found in current directory, so it will not be copied to the prepared folder, {dirname}, and this is required by the permuter"
+                f"""Warning!! 'compile.sh' not found in current directory, 
+                so it will not be copied to the prepared folder, {dirname}, 
+                and this is required by the permuter"""
             )
         else:
             shutil.copyfile("compile.sh", f"{dirname}/compile.sh")
@@ -711,7 +712,7 @@ def download_decompme(url_str: str) -> None:
     except Exception:
         print(traceback.format_exc())
         print(
-            "Exception occured when making final preparations to files in the new directory for the permutor"
+            "Exception occured when making final preparations to files in the new directory for the permuter"
         )
         sys.exit(1)
 
@@ -725,8 +726,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="""Import a function for use with the permuter.
         Will create a new directory nonmatchings/<funcname>-<id>/.""",
-        epilog="""There is an alternative usage of this script where you provide a URL to a decompme scratch as the only argument. The script will download and prepare a new directory for the permutor using the data downloaded from that scratch.
-        Alternate usage:  import.py https://decomp.me/scratch/aBc12""",
+        epilog="""There is an alternative usage of this script where you 
+        provide a URL to a decompme scratch as the only argument. 
+        The script will download and prepare a new directory for the 
+        permutor using the data downloaded from that scratch.
+        Alternate usage:  import.py https://decomp.me/scratch/<id>""",
     )
     parser.add_argument(
         "c_file",
@@ -844,7 +848,7 @@ def main() -> None:
                 json_data: Dict[str, str] = json.loads(resp)
                 if "slug" in json_data:
                     slug = json_data["slug"]
-                    print(f"https://decomp.me/scratch/{slug}")
+                    print(f"{DECOMPME_BASE}/scratch/{slug}")
                 else:
                     error = json_data.get("error", resp)
                     print(f"Server error: {error}")
