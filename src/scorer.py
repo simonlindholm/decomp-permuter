@@ -54,7 +54,11 @@ class Scorer:
 
         objdump_output, cand_seq = self._objdump(cand_o)
 
-        score = 0
+        num_stack_penalties = 0
+        num_regalloc_penalties = 0
+        num_reordering_penalties = 0
+        num_insertion_penalties = 0
+        num_deletion_penalties = 0
         deletions = []
         insertions = []
 
@@ -75,7 +79,9 @@ class Scorer:
             return False
 
         def diff_sameline(old_line: DiffAsmLine, new_line: DiffAsmLine) -> None:
-            nonlocal score
+            nonlocal num_stack_penalties
+            nonlocal num_regalloc_penalties
+
             old = old_line.line
             new = new_line.line
 
@@ -89,7 +95,7 @@ class Scorer:
                 if oldsp and newsp:
                     oldrel = int(oldsp.group(1) or "0", 0)
                     newrel = int(newsp.group(1) or "0", 0)
-                    score += abs(oldrel - newrel) * self.PENALTY_STACKDIFF
+                    num_stack_penalties += abs(oldrel - newrel)
                     ignore_last_field = True
 
             # Probably regalloc difference, or signed vs unsigned
@@ -113,10 +119,10 @@ class Scorer:
                     # and the old field had a relocation, then ignore this mismatch
                     if field_matches_any_symbol(nf, self.arch) and old_line.has_symbol:
                         continue
-                    score += self.PENALTY_REGALLOC
+                    num_regalloc_penalties += 1
 
             # Penalize any extra fields
-            score += abs(len(newfields) - len(oldfields)) * self.PENALTY_REGALLOC
+            num_regalloc_penalties += abs(len(newfields) - len(oldfields))
 
         def diff_insert(line: str) -> None:
             # Reordering or totally different codegen.
@@ -126,15 +132,15 @@ class Scorer:
         def diff_delete(line: str) -> None:
             deletions.append(line)
 
-        self.differ.set_seq1(cand_seq)
+        self.differ.set_seq1(list(map(lambda x: x.mnemonic, cand_seq)))
         result_diff = self.differ.get_opcodes()
 
         for (tag, i1, i2, j1, j2) in result_diff:
             if tag == "equal":
                 for k in range(i2 - i1):
-                    old = self.target_seq[j1 + k]
-                    new = cand_seq[i1 + k]
-                    diff_sameline(old, new)
+                    old_line = self.target_seq[j1 + k]
+                    new_line = cand_seq[i1 + k]
+                    diff_sameline(old_line, new_line)
             if tag == "replace" or tag == "delete":
                 for k in range(i1, i2):
                     diff_insert(cand_seq[k].line)
@@ -163,10 +169,45 @@ class Scorer:
             ins = insertions_co[item]
             dels = deletions_co[item]
             common = min(ins, dels)
-            score += (
-                (ins - common) * self.PENALTY_INSERTION
-                + (dels - common) * self.PENALTY_DELETION
-                + self.PENALTY_REORDERING * common
+            num_insertion_penalties += ins - common
+            num_deletion_penalties += dels - common
+            num_reordering_penalties += common
+
+        if self.debug_mode:
+            print()
+            print("--------------- Penalty List ---------------")
+            print(
+                "Stack Differences: ".ljust(30),
+                num_stack_penalties,
+                f" ({self.PENALTY_STACKDIFF})",
+            )
+            print(
+                "Register Differences: ".ljust(30),
+                num_regalloc_penalties,
+                f" ({self.PENALTY_REGALLOC})",
+            )
+            print(
+                "Reorderings: ".ljust(30),
+                num_reordering_penalties,
+                f" ({self.PENALTY_REORDERING})",
+            )
+            print(
+                "Insertions: ".ljust(30),
+                num_insertion_penalties,
+                f" ({self.PENALTY_INSERTION})",
+            )
+            print(
+                "Deletions: ".ljust(30),
+                num_deletion_penalties,
+                f" ({self.PENALTY_DELETION})",
             )
 
-        return (score, hashlib.sha256(objdump_output.encode()).hexdigest())
+        final_score = (
+            num_stack_penalties * self.PENALTY_STACKDIFF
+            + num_regalloc_penalties * self.PENALTY_REGALLOC
+            + num_reordering_penalties * self.PENALTY_REORDERING
+            + num_insertion_penalties * self.PENALTY_INSERTION
+            + num_deletion_penalties * self.PENALTY_DELETION
+        )
+
+        return (final_score, hashlib.sha256(objdump_output.encode()).hexdigest())
