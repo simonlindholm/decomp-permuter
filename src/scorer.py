@@ -155,7 +155,7 @@ class Scorer:
                         print(Fore.GREEN, "".ljust(40), "\t", cand_seq[k].line)
                 if tag == "replace" or tag == "insert":
                     for k in range(j1, j2):
-                        print(Fore.RED, cand_seq[k].line)
+                        print(Fore.RED, self.target_seq[k].line)
 
         insertions_co = Counter(insertions)
         deletions_co = Counter(deletions)
