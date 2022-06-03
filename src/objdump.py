@@ -362,5 +362,5 @@ if __name__ == "__main__":
         sys.exit(1)
 
     lines = objdump(sys.argv[1], MIPS_SETTINGS)
-    for row in lines:
-        print(row.row)
+    for line in lines:
+        print(line.row)
