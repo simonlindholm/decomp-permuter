@@ -118,7 +118,7 @@ PPC_SETTINGS: ArchSettings = ArchSettings(
     name="ppc",
     re_includes_sp=re.compile(r"\b(r1)\b"),
     re_comment=re.compile(r"(<.*>|//.*$)"),
-    re_reg=re.compile(r"\$?\b([rf][0-9]+)\b"),
+    re_reg=re.compile(r"(\$?\b([rf][0-9]+)\b|\(.+\))"),
     re_sprel=re.compile(r"(?<=,)(-?[0-9]+|-?0x[0-9a-f]+)\(r1\)"),
     reloc_str="R_PPC_",
     objdump=["powerpc-eabi-objdump", "-dr", "-EB", "-mpowerpc", "-M", "broadway"],
@@ -270,6 +270,10 @@ def simplify_objdump(
             continue
 
         row = re.sub(arch.re_comment, "", row)
+        row = row.rstrip()
+        row = "\t".join(row.split("\t")[2:])  # [20:]
+        if not row:
+            continue
 
         if "\t" in row:
             row_parts = row.split("\t", 1)
