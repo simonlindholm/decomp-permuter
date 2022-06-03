@@ -4,7 +4,7 @@ import hashlib
 import re
 from typing import Tuple, List, Optional
 from collections import Counter
-from .objdump import ArchSettings, Line, objdump, get_arch
+from .objdump import ArchSettings, objdump, get_arch
 
 
 @dataclass(init=False, unsafe_hash=True)
@@ -33,7 +33,7 @@ class Scorer:
         self.arch = get_arch(target_o)
         self.stack_differences = stack_differences
         _, self.target_seq = self._objdump(target_o)
-        self.differ: difflib.SequenceMatcher[DiffAsmLine] = difflib.SequenceMatcher(
+        self.differ: difflib.SequenceMatcher[str] = difflib.SequenceMatcher(
             autojunk=False
         )
         self.differ.set_seq2(list(map(lambda x: x.mnemonic, self.target_seq)))
@@ -43,7 +43,7 @@ class Scorer:
         lines = objdump(o_file, self.arch, stack_differences=self.stack_differences)
         rows = list(map(lambda x: x.row, lines))
         for line in lines:
-            ret.append(DiffAsmLine(line.row, line.has_symbol))
+            ret.append(DiffAsmLine(line=line.row, has_symbol=line.has_symbol))
         return "\n".join(rows), ret
 
     def score(self, cand_o: Optional[str]) -> Tuple[int, str]:
