@@ -26,6 +26,12 @@ re_int_full = re.compile(r"\b[0-9]+\b")
 
 
 @dataclass
+class Line:
+    row: str
+    has_symbol: bool
+
+
+@dataclass
 class ArchSettings:
     name: str
     objdump: List[str]
@@ -112,7 +118,7 @@ PPC_SETTINGS: ArchSettings = ArchSettings(
     name="ppc",
     re_includes_sp=re.compile(r"\b(r1)\b"),
     re_comment=re.compile(r"(<.*>|//.*$)"),
-    re_reg=re.compile(r"(\$?\b([rf][0-9]+)\b|\(.+\))"),
+    re_reg=re.compile(r"\$?\b([rf][0-9]+)\b"),
     re_sprel=re.compile(r"(?<=,)(-?[0-9]+|-?0x[0-9a-f]+)\(r1\)"),
     reloc_str="R_PPC_",
     objdump=["powerpc-eabi-objdump", "-dr", "-EB", "-mpowerpc", "-M", "broadway"],
@@ -154,6 +160,32 @@ def parse_relocated_line(line: str) -> Tuple[str, str, str]:
     if imm == "0x0":
         imm = "0"
     return before, imm, after
+
+
+def pre_process(mnemonic: str, args: str, next_row: Optional[str]) -> Tuple[str, str]:
+
+    if next_row and "R_PPC_EMB_SDA21" in next_row:
+        # With sda21 relocs, the linker transforms `r0` into `r2`/`r13`, and
+        # we may encounter this in either pre-transformed or post-transformed
+        # versions depending on if the .o file comes from compiler output or
+        # from disassembly. Normalize, to make sure both forms are treated as
+        # equivalent.
+        args = args.replace("(r2)", "(0)")
+        args = args.replace("(r13)", "(0)")
+        args = args.replace(",r2,", ",0,")
+        args = args.replace(",r13,", ",0,")
+
+        # We want to convert li and lis with an sda21 reloc,
+        # because the r0 to r2/r13 transformation results in
+        # turning an li/lis into an addi/addis with r2/r13 arg
+        # our preprocessing normalizes all versions to addi with a 0 arg
+
+        if mnemonic in {"li", "lis"}:
+            mnemonic = mnemonic.replace("li", "addi")
+            args_parts = args.split(",")
+            args = args_parts[0] + ",0," + args_parts[1]
+
+    return mnemonic, args
 
 
 def process_reloc(reloc_row: str, prev: str) -> Optional[str]:
@@ -226,8 +258,8 @@ def process_reloc(reloc_row: str, prev: str) -> Optional[str]:
 
 def simplify_objdump(
     input_lines: List[str], arch: ArchSettings, *, stack_differences: bool
-) -> List[str]:
-    output_lines: List[str] = []
+) -> List[Line]:
+    output_lines: List[Line] = []
     nops = 0
     skip_next = False
     for index, row in enumerate(input_lines):
@@ -238,47 +270,27 @@ def simplify_objdump(
             continue
 
         row = re.sub(arch.re_comment, "", row)
-        row = row.rstrip()
-        row = "\t".join(row.split("\t")[2:])  # [20:]
-        if not row:
-            continue
 
-        row_parts = row.split(None, 1)
-        if len(row_parts) == 1:
-            row_parts.append("")
-        mnemonic, instr_args = row_parts
+        if "\t" in row:
+            row_parts = row.split("\t", 1)
+        else:
+            # powerpc-eabi-objdump doesn't use tabs
+            row_parts = [part.lstrip() for part in row.split(" ", 1)]
 
-        if arch.name == "ppc":
-            if mnemonic == "li":
-                mnemonic = "addi"
-                parts = instr_args.split(",")
-                instr_args = parts[0] + ",0," + parts[1]
-            if mnemonic == "lis":
-                mnemonic = "addis"
-                parts = instr_args.split(",")
-                instr_args = parts[0] + ",0," + parts[1]
+        mnemonic = row_parts[0].strip()
+        args = row_parts[1].strip() if len(row_parts) >= 2 else ""
 
-            row = mnemonic + "\t" + instr_args.replace("\t", "  ")
-
-            if (
-                index + 1 < len(input_lines)
-                and "R_PPC_EMB_SDA21" in input_lines[index + 1]
-            ):
-                # With sda21 relocs, the linker transforms `r0` into `r2`/`r13`, and
-                # we may encounter this in either pre-transformed or post-transformed
-                # versions depending on if the .o file comes from compiler output or
-                # from disassembly. Normalize, to make sure both forms are treated as
-                # equivalent.
-                row = row.replace("(r2)", "(0)")
-                row = row.replace("(r13)", "(0)")
-                row = row.replace(",r2,", ",0,")
-                row = row.replace(",r13,", ",0,")
+        next_line = input_lines[index + 1] if index + 1 < len(input_lines) else None
+        mnemonic, args = pre_process(mnemonic, args, next_line)
+        row = mnemonic + "\t" + args.replace("\t", "  ")
 
         if arch.reloc_str in row:
             # Process Relocations, modify the previous line and do not add this line to output
-            modified_prev = process_reloc(row, output_lines[-1])
+            modified_prev = process_reloc(row, output_lines[-1].row)
             if modified_prev:
-                output_lines[-1] = modified_prev
+                output_lines[-1].row = modified_prev
+                output_lines[-1].has_symbol = True
+
             continue
 
         if skip_next:
@@ -288,14 +300,14 @@ def simplify_objdump(
             row = re.sub(arch.re_reg, "<reg>", row)
 
         if not stack_differences:
-            if mnemonic == "addiu" and arch.re_includes_sp.search(instr_args):
+            if mnemonic == "addiu" and arch.re_includes_sp.search(args):
                 row = re.sub(re_int_full, "imm", row)
         if mnemonic in arch.branch_instructions:
             if ign_branch_targets:
-                instr_parts = instr_args.split(",")
+                instr_parts = args.split(",")
                 instr_parts[-1] = "<target>"
-                instr_args = ",".join(instr_parts)
-                row = f"{mnemonic}\t{instr_args}"
+                args = ",".join(instr_parts)
+                row = f"{mnemonic}\t{args}"
             # The last part is in hex, so skip the dec->hex conversion
         else:
 
@@ -321,15 +333,16 @@ def simplify_objdump(
             nops += 1
         else:
             for _ in range(nops):
-                output_lines.append("nop")
+                output_lines.append(Line(row="nop", has_symbol=False))
             nops = 0
-            output_lines.append(row)
+            output_lines.append(Line(row=row, has_symbol=False))
+
     return output_lines
 
 
 def objdump(
     o_filename: str, arch: ArchSettings, *, stack_differences: bool = False
-) -> List[str]:
+) -> List[Line]:
     output = subprocess.check_output(arch.objdump + [o_filename])
     lines = output.decode("utf-8").splitlines()
     return simplify_objdump(lines, arch, stack_differences=stack_differences)
@@ -346,4 +359,4 @@ if __name__ == "__main__":
 
     lines = objdump(sys.argv[1], MIPS_SETTINGS)
     for row in lines:
-        print(row)
+        print(row.row)

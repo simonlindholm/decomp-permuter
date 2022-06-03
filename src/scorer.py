@@ -4,17 +4,19 @@ import hashlib
 import re
 from typing import Tuple, List, Optional
 from collections import Counter
-from .objdump import ArchSettings, objdump, get_arch
+from .objdump import ArchSettings, Line, objdump, get_arch
 
 
 @dataclass(init=False, unsafe_hash=True)
 class DiffAsmLine:
     line: str = field(compare=False)
     mnemonic: str
+    has_symbol: bool
 
-    def __init__(self, line: str) -> None:
+    def __init__(self, line: str, has_symbol: bool) -> None:
         self.line = line
         self.mnemonic = line.split(None, 1)[0]
+        self.has_symbol = has_symbol
 
 
 class Scorer:
@@ -40,8 +42,9 @@ class Scorer:
         ret = []
         lines = objdump(o_file, self.arch, stack_differences=self.stack_differences)
         for line in lines:
-            ret.append(DiffAsmLine(line))
-        return "\n".join(lines), ret
+            rows = map(lambda x: x.row, lines)
+            ret.append(DiffAsmLine(line.row, line.has_symbol))
+        return "\n".join(rows), ret
 
     def score(self, cand_o: Optional[str]) -> Tuple[int, str]:
         if not cand_o:
@@ -53,58 +56,28 @@ class Scorer:
         deletions = []
         insertions = []
 
-        def imm_matches_everything(field: str, arch: ArchSettings) -> bool:
+        def field_matches_any_symbol(field: str, arch: ArchSettings) -> bool:
             if arch.name == "ppc":
                 if "...data" in field:
                     return True
 
-                field = "".join(field.rsplit("@ha", 1))
-                field = "".join(field.rsplit("@l", 1))
-                field = "".join(field.rsplit("@sda21", 1))
+                parts = field.rsplit("@", 1)
+                if len(parts) == 2 and parts[1] in {"l", "h", "ha", "sda21"}:
+                    field = parts[0]
 
-                return re.search(re.compile(r"\A@\d+\Z"), field) != None
-            else:
-                return (
-                    re.search(
-                        re.compile(r"\A%(hi|lo)\(\.[a-z]+(\+0x([a-f]|\d)+)?\)"), field
-                    )
-                    != None
-                )
+                return re.fullmatch((r"^@\d+$"), field) is not None
 
-        def is_valid_symbol(str: str) -> bool:
-            return (
-                re.search(re.compile(r"\A.?[A-Za-z_$][A-Za-z0-9_$]*(\Z|@)"), str)
-                != None
-            )
+            if arch.name == "mips":
+                return "." in field
 
-        def lo_hi_match(old: str, new: str) -> bool:
-            old_lo = old.find("%lo")
-            old_hi = old.find("%hi")
-            new_lo = new.find("%lo")
-            new_hi = new.find("%hi")
+            return False
 
-            if old_lo != -1 and new_lo != -1:
-                old_idx = old_lo
-                new_idx = new_lo
-            elif old_hi != -1 and new_hi != -1:
-                old_idx = old_hi
-                new_idx = new_hi
-            else:
-                return False
-
-            if old[:old_idx] != new[:new_idx]:
-                return False
-
-            old_inner = old[old_idx + 4 : -1]
-            new_inner = new[new_idx + 4 : -1]
-            return old_inner.startswith(".") or new_inner.startswith(".")
-
-        def diff_sameline(old: str, new: str) -> None:
+        def diff_sameline(old_line: DiffAsmLine, new_line: DiffAsmLine) -> None:
             nonlocal score
-            if old == new:
-                return
+            old = old_line.line
+            new = new_line.line
 
-            if lo_hi_match(old, new):
+            if old == new:
                 return
 
             ignore_last_field = False
@@ -125,17 +98,21 @@ class Scorer:
                 newfields = newfields[:-1]
                 oldfields = oldfields[:-1]
             else:
-                ### If the last field has a register suffix, i.e. "0x38(r7)"  we split that part out to make it a seperate field
-                newfields = newfields[:-1] + newfields[-1].split("(")
-                oldfields = oldfields[:-1] + oldfields[-1].split("(")
+                # If the last field has a parenthesis suffix, e.g. "0x38(r7)"
+                # we split that part out to make it a separate field
+                # however, we don't split if it has a proceeding %hi/%lo  e.g."%lo(.data)" or "%hi(.rodata + 0x10)"
+                re_paren = re.compile(r"(?<!%hi)(?<!%lo)\(")
+                oldfields = oldfields[:-1] + re_paren.split(oldfields[-1])
+                newfields = newfields[:-1] + re_paren.split(newfields[-1])
+
             for nf, of in zip(newfields, oldfields):
-                # If the new field is a match to any symbol case
-                if imm_matches_everything(nf, self.arch):
-                    # And the old field is a valid symbol, then ignore this mismatch
-                    if is_valid_symbol(of):
-                        continue
                 if nf != of:
+                    # If the new field is a match to any symbol case
+                    # and the old field had a relocation, then ignore this mismatch
+                    if field_matches_any_symbol(nf, self.arch) and old_line.has_symbol:
+                        continue
                     score += self.PENALTY_REGALLOC
+
             # Penalize any extra fields
             score += abs(len(newfields) - len(oldfields)) * self.PENALTY_REGALLOC
 
@@ -151,9 +128,7 @@ class Scorer:
         for (tag, i1, i2, j1, j2) in self.differ.get_opcodes():
             if tag == "equal":
                 for k in range(i2 - i1):
-                    old = self.target_seq[j1 + k].line
-                    new = cand_seq[i1 + k].line
-                    diff_sameline(old, new)
+                    diff_sameline(self.target_seq[j1 + k], cand_seq[i1 + k])
             if tag == "replace" or tag == "delete":
                 for k in range(i1, i2):
                     diff_insert(cand_seq[k].line)
