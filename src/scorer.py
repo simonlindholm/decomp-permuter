@@ -36,13 +36,13 @@ class Scorer:
         self.differ: difflib.SequenceMatcher[DiffAsmLine] = difflib.SequenceMatcher(
             autojunk=False
         )
-        self.differ.set_seq2(self.target_seq)
+        self.differ.set_seq2(list(map(lambda x: x.mnemonic, self.target_seq)))
 
     def _objdump(self, o_file: str) -> Tuple[str, List[DiffAsmLine]]:
         ret = []
         lines = objdump(o_file, self.arch, stack_differences=self.stack_differences)
+        rows = list(map(lambda x: x.row, lines))
         for line in lines:
-            rows = map(lambda x: x.row, lines)
             ret.append(DiffAsmLine(line.row, line.has_symbol))
         return "\n".join(rows), ret
 
@@ -124,7 +124,7 @@ class Scorer:
         def diff_delete(line: str) -> None:
             deletions.append(line)
 
-        self.differ.set_seq1(cand_seq)
+        self.differ.set_seq1(list(map(lambda x: x.mnemonic, cand_seq)))
         for (tag, i1, i2, j1, j2) in self.differ.get_opcodes():
             if tag == "equal":
                 for k in range(i2 - i1):
