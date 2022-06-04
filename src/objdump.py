@@ -98,7 +98,7 @@ PPC_BRANCH_INSTRUCTIONS = {
     "bgt-",
 }
 
-PPC_BRANCH_LIKELY_INSTRUCTIONS: Set[str] = set()
+PPC_BRANCH_LIKELY_INSTRUCTIONS: Set[str] = set({})
 
 MIPS_SETTINGS: ArchSettings = ArchSettings(
     name="mips",
