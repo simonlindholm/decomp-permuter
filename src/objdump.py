@@ -28,6 +28,7 @@ re_int_full = re.compile(r"\b[0-9]+\b")
 @dataclass
 class Line:
     row: str
+    mnemonic: str
     has_symbol: bool
 
 
@@ -118,7 +119,7 @@ PPC_SETTINGS: ArchSettings = ArchSettings(
     name="ppc",
     re_includes_sp=re.compile(r"\b(r1)\b"),
     re_comment=re.compile(r"(<.*>|//.*$)"),
-    re_reg=re.compile(r"(\$?\b([rf][0-9]+)\b|\(.+\))"),
+    re_reg=re.compile(r"\$?\b([rf][0-9]+)\b"),
     re_sprel=re.compile(r"(?<=,)(-?[0-9]+|-?0x[0-9a-f]+)\(r1\)"),
     reloc_str="R_PPC_",
     objdump=["powerpc-eabi-objdump", "-dr", "-EB", "-mpowerpc", "-M", "broadway"],
@@ -211,13 +212,13 @@ def process_reloc(reloc_row: str, prev: str) -> Optional[str]:
             pass
         elif "R_PPC_ADDR16_HI" in reloc_row:
             # absolute hi of addr
-            repl = f"{repl}@h"  ## not actually needed by permutor
+            repl = f"{repl}@h"
         elif "R_PPC_ADDR16_HA" in reloc_row:
             # adjusted hi of addr
-            repl = f"{repl}@ha"  ## not actually needed by permutor
+            repl = f"{repl}@ha"
         elif "R_PPC_ADDR16_LO" in reloc_row:
             # lo of addr
-            repl = f"{repl}@l"  ## not actually needed by permutor
+            repl = f"{repl}@l"
         elif "R_PPC_ADDR16" in reloc_row:
             # 16-bit absolute addr
             if "+0x7" in repl:
@@ -227,7 +228,7 @@ def process_reloc(reloc_row: str, prev: str) -> Optional[str]:
                     repl = repl.split("+")[0]
         elif "R_PPC_EMB_SDA21" in reloc_row:
             # sda21 relocations; r2/r13 --> 0 swaps are performed in an earlier processing step
-            repl = f"{repl}@sda21"  ## not actually needed by permutor
+            repl = f"{repl}@sda21"
 
         return before + repl + after
 
@@ -337,9 +338,9 @@ def simplify_objdump(
             nops += 1
         else:
             for _ in range(nops):
-                output_lines.append(Line(row="nop", has_symbol=False))
+                output_lines.append(Line(row="nop", has_symbol=False, mnemonic="nop"))
             nops = 0
-            output_lines.append(Line(row=row, has_symbol=False))
+            output_lines.append(Line(row=row, has_symbol=False, mnemonic=mnemonic))
 
     return output_lines
 

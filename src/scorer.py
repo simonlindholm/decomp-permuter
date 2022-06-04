@@ -4,19 +4,7 @@ import hashlib
 import re
 from typing import Tuple, List, Optional
 from collections import Counter
-from .objdump import ArchSettings, objdump, get_arch
-
-
-@dataclass(init=False, unsafe_hash=True)
-class DiffAsmLine:
-    line: str = field(compare=False)
-    mnemonic: str
-    has_symbol: bool
-
-    def __init__(self, line: str, has_symbol: bool) -> None:
-        self.line = line
-        self.mnemonic = line.split(None, 1)[0]
-        self.has_symbol = has_symbol
+from .objdump import ArchSettings, Line, objdump, get_arch
 
 
 class Scorer:
@@ -36,15 +24,11 @@ class Scorer:
         self.differ: difflib.SequenceMatcher[str] = difflib.SequenceMatcher(
             autojunk=False
         )
-        self.differ.set_seq2(list(map(lambda x: x.mnemonic, self.target_seq)))
+        self.differ.set_seq2([line.mnemonic for line in self.target_seq])
 
-    def _objdump(self, o_file: str) -> Tuple[str, List[DiffAsmLine]]:
-        ret = []
+    def _objdump(self, o_file: str) -> Tuple[str, List[Line]]:
         lines = objdump(o_file, self.arch, stack_differences=self.stack_differences)
-        rows = list(map(lambda x: x.row, lines))
-        for line in lines:
-            ret.append(DiffAsmLine(line=line.row, has_symbol=line.has_symbol))
-        return "\n".join(rows), ret
+        return "\n".join([line.row for line in lines]), lines
 
     def score(self, cand_o: Optional[str]) -> Tuple[int, str]:
         if not cand_o:
@@ -58,7 +42,7 @@ class Scorer:
 
         def field_matches_any_symbol(field: str, arch: ArchSettings) -> bool:
             if arch.name == "ppc":
-                if "...data" in field:
+                if "..." in field:
                     return True
 
                 parts = field.rsplit("@", 1)
@@ -72,10 +56,11 @@ class Scorer:
 
             return False
 
-        def diff_sameline(old_line: DiffAsmLine, new_line: DiffAsmLine) -> None:
+        def diff_sameline(old_line: Line, new_line: Line) -> None:
             nonlocal score
-            old = old_line.line
-            new = new_line.line
+
+            old = old_line.row
+            new = new_line.row
 
             if old == new:
                 return
@@ -124,17 +109,17 @@ class Scorer:
         def diff_delete(line: str) -> None:
             deletions.append(line)
 
-        self.differ.set_seq1(list(map(lambda x: x.mnemonic, cand_seq)))
+        self.differ.set_seq1([line.mnemonic for line in cand_seq])
         for (tag, i1, i2, j1, j2) in self.differ.get_opcodes():
             if tag == "equal":
                 for k in range(i2 - i1):
                     diff_sameline(self.target_seq[j1 + k], cand_seq[i1 + k])
             if tag == "replace" or tag == "delete":
                 for k in range(i1, i2):
-                    diff_insert(cand_seq[k].line)
+                    diff_insert(cand_seq[k].row)
             if tag == "replace" or tag == "insert":
                 for k in range(j1, j2):
-                    diff_delete(self.target_seq[k].line)
+                    diff_delete(self.target_seq[k].row)
 
         insertions_co = Counter(insertions)
         deletions_co = Counter(deletions)
