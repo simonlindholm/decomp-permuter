@@ -4,6 +4,7 @@ import hashlib
 import re
 from typing import Tuple, List, Optional
 from collections import Counter
+
 from .objdump import ArchSettings, Line, objdump, get_arch
 
 
@@ -49,7 +50,7 @@ class Scorer:
                 if len(parts) == 2 and parts[1] in {"l", "h", "ha", "sda21"}:
                     field = parts[0]
 
-                return re.fullmatch((r"^@\d+$"), field) is not None
+                return re.fullmatch(r"^@\d+$", field) is not None
 
             if arch.name == "mips":
                 return "." in field
