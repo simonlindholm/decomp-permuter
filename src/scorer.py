@@ -5,18 +5,7 @@ import re
 from typing import Tuple, List, Optional
 from collections import Counter
 
-
-from .objdump import objdump, get_arch
-
-
-@dataclass(init=False, unsafe_hash=True)
-class DiffAsmLine:
-    line: str = field(compare=False)
-    mnemonic: str
-
-    def __init__(self, line: str) -> None:
-        self.line = line
-        self.mnemonic = line.split(None, 1)[0]
+from .objdump import ArchSettings, Line, objdump, get_arch
 
 
 class Scorer:
@@ -33,17 +22,14 @@ class Scorer:
         self.arch = get_arch(target_o)
         self.stack_differences = stack_differences
         _, self.target_seq = self._objdump(target_o)
-        self.differ: difflib.SequenceMatcher[DiffAsmLine] = difflib.SequenceMatcher(
+        self.differ: difflib.SequenceMatcher[str] = difflib.SequenceMatcher(
             autojunk=False
         )
-        self.differ.set_seq2(self.target_seq)
+        self.differ.set_seq2([line.mnemonic for line in self.target_seq])
 
-    def _objdump(self, o_file: str) -> Tuple[str, List[DiffAsmLine]]:
-        ret = []
+    def _objdump(self, o_file: str) -> Tuple[str, List[Line]]:
         lines = objdump(o_file, self.arch, stack_differences=self.stack_differences)
-        for line in lines:
-            ret.append(DiffAsmLine(line))
-        return "\n".join(lines), ret
+        return "\n".join([line.row for line in lines]), lines
 
     def score(self, cand_o: Optional[str]) -> Tuple[int, str]:
         if not cand_o:
@@ -55,34 +41,29 @@ class Scorer:
         deletions = []
         insertions = []
 
-        def lo_hi_match(old: str, new: str) -> bool:
-            old_lo = old.find("%lo")
-            old_hi = old.find("%hi")
-            new_lo = new.find("%lo")
-            new_hi = new.find("%hi")
+        def field_matches_any_symbol(field: str, arch: ArchSettings) -> bool:
+            if arch.name == "ppc":
+                if "..." in field:
+                    return True
 
-            if old_lo != -1 and new_lo != -1:
-                old_idx = old_lo
-                new_idx = new_lo
-            elif old_hi != -1 and new_hi != -1:
-                old_idx = old_hi
-                new_idx = new_hi
-            else:
-                return False
+                parts = field.rsplit("@", 1)
+                if len(parts) == 2 and parts[1] in {"l", "h", "ha", "sda21"}:
+                    field = parts[0]
 
-            if old[:old_idx] != new[:new_idx]:
-                return False
+                return re.fullmatch(r"^@\d+$", field) is not None
 
-            old_inner = old[old_idx + 4 : -1]
-            new_inner = new[new_idx + 4 : -1]
-            return old_inner.startswith(".") or new_inner.startswith(".")
+            if arch.name == "mips":
+                return "." in field
 
-        def diff_sameline(old: str, new: str) -> None:
+            return False
+
+        def diff_sameline(old_line: Line, new_line: Line) -> None:
             nonlocal score
-            if old == new:
-                return
 
-            if lo_hi_match(old, new):
+            old = old_line.row
+            new = new_line.row
+
+            if old == new:
                 return
 
             ignore_last_field = False
@@ -102,9 +83,22 @@ class Scorer:
             if ignore_last_field:
                 newfields = newfields[:-1]
                 oldfields = oldfields[:-1]
+            else:
+                # If the last field has a parenthesis suffix, e.g. "0x38(r7)"
+                # we split that part out to make it a separate field
+                # however, we don't split if it has a proceeding %hi/%lo  e.g."%lo(.data)" or "%hi(.rodata + 0x10)"
+                re_paren = re.compile(r"(?<!%hi)(?<!%lo)\(")
+                oldfields = oldfields[:-1] + re_paren.split(oldfields[-1])
+                newfields = newfields[:-1] + re_paren.split(newfields[-1])
+
             for nf, of in zip(newfields, oldfields):
                 if nf != of:
+                    # If the new field is a match to any symbol case
+                    # and the old field had a relocation, then ignore this mismatch
+                    if field_matches_any_symbol(nf, self.arch) and old_line.has_symbol:
+                        continue
                     score += self.PENALTY_REGALLOC
+
             # Penalize any extra fields
             score += abs(len(newfields) - len(oldfields)) * self.PENALTY_REGALLOC
 
@@ -116,19 +110,17 @@ class Scorer:
         def diff_delete(line: str) -> None:
             deletions.append(line)
 
-        self.differ.set_seq1(cand_seq)
+        self.differ.set_seq1([line.mnemonic for line in cand_seq])
         for (tag, i1, i2, j1, j2) in self.differ.get_opcodes():
             if tag == "equal":
                 for k in range(i2 - i1):
-                    old = self.target_seq[j1 + k].line
-                    new = cand_seq[i1 + k].line
-                    diff_sameline(old, new)
+                    diff_sameline(self.target_seq[j1 + k], cand_seq[i1 + k])
             if tag == "replace" or tag == "delete":
                 for k in range(i1, i2):
-                    diff_insert(cand_seq[k].line)
+                    diff_insert(cand_seq[k].row)
             if tag == "replace" or tag == "insert":
                 for k in range(j1, j2):
-                    diff_delete(self.target_seq[k].line)
+                    diff_delete(self.target_seq[k].row)
 
         insertions_co = Counter(insertions)
         deletions_co = Counter(deletions)
