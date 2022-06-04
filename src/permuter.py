@@ -22,6 +22,7 @@ from .perm.eval import perm_evaluate_one, perm_gen_all_seeds
 from .perm.parse import perm_parse
 from .profiler import Profiler
 from .scorer import Scorer
+from .helpers import trim_source
 
 
 @dataclass
@@ -86,6 +87,7 @@ class Permuter:
         best_only: bool,
         better_only: bool,
         score_threshold: Optional[int],
+        debug_mode: bool,
     ) -> None:
         self.dir = dir
         self.compiler = compiler
@@ -120,7 +122,7 @@ class Permuter:
         self._best_only = best_only
         self._better_only = better_only
         self._score_threshold = score_threshold
-
+        self._debug_mode = debug_mode
         (
             self.base_score,
             self.base_hash,
@@ -136,6 +138,10 @@ class Permuter:
         base_cand = Candidate.from_source(
             base_source, eval_state, self.fn_name, rng_seed=0
         )
+
+        if self._debug_mode:
+            print(trim_source(base_cand.get_source(), self.fn_name))
+
         o_file = base_cand.compile(self.compiler, show_errors=True)
         if not o_file:
             raise CandidateConstructionFailure(f"Unable to compile {self.source_file}")

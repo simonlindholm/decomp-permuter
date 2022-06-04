@@ -68,7 +68,9 @@ def _create_permuter(data: PermuterData) -> Permuter:
     try:
         with os.fdopen(fd, "wb") as f:
             f.write(data.target_o_bin)
-        scorer = Scorer(target_o=path, stack_differences=data.stack_differences)
+        scorer = Scorer(
+            target_o=path, stack_differences=data.stack_differences, debug_mode=False
+        )
     finally:
         os.unlink(path)
 
@@ -77,7 +79,7 @@ def _create_permuter(data: PermuterData) -> Permuter:
         os.chmod(fd, 0o755)
         with os.fdopen(fd, "w") as f2:
             f2.write(data.compile_script)
-        compiler = Compiler(compile_cmd=path, show_errors=False)
+        compiler = Compiler(compile_cmd=path, show_errors=False, debug_mode=False)
 
         return Permuter(
             dir="unused",
@@ -95,6 +97,7 @@ def _create_permuter(data: PermuterData) -> Permuter:
             better_only=False,
             best_only=False,
             score_threshold=None,
+            debug_mode=False,
         )
     except:
         os.unlink(path)

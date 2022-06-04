@@ -21,7 +21,7 @@ from typing import (
 from .candidate import CandidateResult
 from .compiler import Compiler
 from .error import CandidateConstructionFailure
-from .helpers import plural, static_assert_unreachable
+from .helpers import plural, static_assert_unreachable, trim_source
 from .net.client import start_client
 from .net.core import ServerError, connect, enable_debug_mode, MAX_PRIO, MIN_PRIO
 from .permuter import (
@@ -65,6 +65,7 @@ class Options:
     network_debug: bool = False
     network_priority: float = 1.0
     no_context_output: bool = False
+    debug_mode: bool = False
 
 
 def restricted_float(lo: float, hi: float) -> Callable[[str], float]:
@@ -91,15 +92,6 @@ class EvalContext:
     errors: int = 0
     overall_profiler: Profiler = field(default_factory=Profiler)
     permuters: List[Permuter] = field(default_factory=list)
-
-
-def trim_source(source: str, fn_name: str) -> str:
-    fn_index = source.find(fn_name)
-    if fn_index != -1:
-        new_index = source.rfind("\n", 0, fn_index)
-        if new_index != -1:
-            return source[new_index:]
-    return source
 
 
 def write_candidate(
@@ -311,8 +303,14 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         else:
             print(base_c)
 
-        compiler = Compiler(compile_cmd, show_errors=options.show_errors)
-        scorer = Scorer(target_o, stack_differences=options.stack_differences)
+        compiler = Compiler(
+            compile_cmd, show_errors=options.show_errors, debug_mode=options.debug_mode
+        )
+        scorer = Scorer(
+            target_o,
+            stack_differences=options.stack_differences,
+            debug_mode=options.debug_mode,
+        )
         c_source = preprocess(base_c)
 
         try:
@@ -332,6 +330,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
                 best_only=options.best_only,
                 better_only=options.better_only,
                 score_threshold=options.score_threshold,
+                debug_mode=options.debug_mode,
             )
         except CandidateConstructionFailure as e:
             print(e.message, file=sys.stderr)
@@ -349,6 +348,10 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         if name_counts[permuter.fn_name] > 1:
             permuter.unique_name += f" ({permuter.dir})"
         print(f"[{permuter.unique_name}] base score = {permuter.best_score}")
+
+    if options.debug_mode:
+        print("End of Debug Mode... Exiting")
+        sys.exit(0)
 
     found_zero = False
     if options.threads == 1 and not options.use_network:
@@ -650,6 +653,12 @@ def main() -> None:
         type=int,
         help="Only report scores better (lower) than this value",
     )
+    parser.add_argument(
+        "--debug-mode",
+        dest="debug_mode",
+        action="store_true",
+        help="Debug mode, only compiles and scores the base for debugging issues",
+    )
 
     args = parser.parse_args()
 
@@ -676,6 +685,7 @@ def main() -> None:
         network_debug=args.network_debug,
         network_priority=args.network_priority,
         no_context_output=args.no_context_output,
+        debug_mode=args.debug_mode,
     )
 
     run(options)

@@ -98,7 +98,7 @@ PPC_BRANCH_INSTRUCTIONS = {
     "bgt-",
 }
 
-PPC_BRANCH_LIKELY_INSTRUCTIONS: Set[str] = set()
+PPC_BRANCH_LIKELY_INSTRUCTIONS: Set[str] = set({})
 
 MIPS_SETTINGS: ArchSettings = ArchSettings(
     name="mips",
@@ -119,7 +119,7 @@ PPC_SETTINGS: ArchSettings = ArchSettings(
     name="ppc",
     re_includes_sp=re.compile(r"\b(r1)\b"),
     re_comment=re.compile(r"(<.*>|//.*$)"),
-    re_reg=re.compile(r"\$?\b([rf][0-9]+)\b"),
+    re_reg=re.compile(r"(\$?\b([rf][0-9]+)\b|\(.+\))"),
     re_sprel=re.compile(r"(?<=,)(-?[0-9]+|-?0x[0-9a-f]+)\(r1\)"),
     reloc_str="R_PPC_",
     objdump=["powerpc-eabi-objdump", "-dr", "-EB", "-mpowerpc", "-M", "broadway"],
