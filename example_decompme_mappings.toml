@@ -1,0 +1,7 @@
+# Decompme Mappings
+
+[decompme_compiler_identifier]
+PATH = "~/Personal/melee/tools/mwcc_compiler/1.2.5"  ## path to the directory where the compiler command should be ran from
+EXE_NAME = "mwcceppc.exe"  ## Compiler exe name
+USE_WINE = true ## Set this to true if you need to use wine for this compiler (using a windows compiler on linux)
+

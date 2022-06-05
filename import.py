@@ -671,6 +671,7 @@ def download_decompme(url_str: str) -> None:
     try:
         response_str = urllib.request.urlopen(f"{DECOMPME_API_BASE}/api/scratch/{slug}")
         response_json = json.load(response_str)
+
         func_name = response_json["name"]
         dirname = create_directory(func_name)
         content = urllib.request.urlopen(
@@ -686,24 +687,58 @@ def download_decompme(url_str: str) -> None:
     try:
         os.rename(f"{dirname}/code.c", f"{dirname}/base.c")
         os.rename(f"{dirname}/ctx.c", f"{dirname}/ctx.h")
-        if not os.path.exists("compile.sh"):
-            print(
-                f"""Warning!! 'compile.sh' not found in current directory, 
-                so it will not be copied to the prepared folder, {dirname}, 
-                and this is required by the permuter"""
-            )
-        else:
-            shutil.copyfile("compile.sh", f"{dirname}/compile.sh")
-            os.chmod(
-                f"{dirname}/compile.sh",
-                os.stat(f"{dirname}/compile.sh").st_mode | stat.S_IEXEC,
-            )
 
         with open(f"{dirname}/base.c", "r") as f:
             filedata = f.read()
+
         with open(f"{dirname}/base.c", "w") as f:
             f.write('#include "ctx.h"\n')
             f.write(filedata)
+
+    except Exception:
+        print(traceback.format_exc())
+        print("Exception occured while setting up base.c and ctx.h for the permuter")
+        sys.exit(1)
+
+    try:
+
+        compiler_id = response_json["compiler"]
+
+        if not os.path.exists("decompme_mappings.toml"):
+            print("decompme_mappings.toml not found")
+            print("See example_decompme_mappings.toml")
+            print("cp example_decompme_mappings.toml decompme_mappings.toml")
+            print("Then set specific properties for your compiler")
+            sys.exit(1)
+
+        with open("decompme_mappings.toml") as f:
+            all_settings = toml.load(f)
+
+        if compiler_id not in all_settings:
+            print(
+                f"Compiler {compiler_id} not found in decompme_compiler_mappings.toml"
+            )
+            print(
+                f"Add a new entry to this toml file, for this compiler: {compiler_id}"
+            )
+            print("See example_decompme_mappings.toml")
+            sys.exit(1)
+
+        compiler_settings = all_settings[response_json["compiler"]]
+        with open(f"{dirname}/compile.sh", "w") as f:
+            f.write("#!/usr/bin/env bash\n")
+            f.write(f"cd {compiler_settings['PATH']}\n")
+
+            compile_line = "wine " if compiler_settings["USE_WINE"] else ""
+            compile_line += compiler_settings["EXE_NAME"] + " "
+            compile_line += response_json["compiler_flags"]
+            compile_line += " -c -o $3 $1"
+            f.write(compile_line)
+
+        os.chmod(
+            f"{dirname}/compile.sh",
+            os.stat(f"{dirname}/compile.sh").st_mode | stat.S_IEXEC,
+        )
 
         print(
             f"Success!! Prepared new folder, {dirname}, that is ready for the permuter script! Run with 'python3 permuter.py {dirname} [additional_flags]'"
@@ -712,7 +747,7 @@ def download_decompme(url_str: str) -> None:
     except Exception:
         print(traceback.format_exc())
         print(
-            "Exception occured when making final preparations to files in the new directory for the permuter"
+            "Exception occured while creating a compile.sh for the permuter from decompme_mappings.toml and scratch settings"
         )
         sys.exit(1)
 
@@ -729,7 +764,7 @@ def main() -> None:
         epilog="""There is an alternative usage of this script where you 
         provide a URL to a decompme scratch as the only argument. 
         The script will download and prepare a new directory for the 
-        permutor using the data downloaded from that scratch.
+        permuter using the data downloaded from that scratch.
         Alternate usage:  import.py https://decomp.me/scratch/<id>""",
     )
     parser.add_argument(
