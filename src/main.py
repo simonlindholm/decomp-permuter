@@ -654,7 +654,7 @@ def main() -> None:
         help="Only report scores better (lower) than this value",
     )
     parser.add_argument(
-        "--debug-mode",
+        "--debug",
         dest="debug_mode",
         action="store_true",
         help="Debug mode, only compiles and scores the base for debugging issues",
