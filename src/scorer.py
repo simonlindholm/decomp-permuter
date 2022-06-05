@@ -133,7 +133,8 @@ class Scorer:
                 for k in range(j1, j2):
                     diff_delete(self.target_seq[k].row)
 
-        if self.debug_mode:  ## Print simple asm diff
+        if self.debug_mode:
+            # Print simple asm diff
             for (tag, i1, i2, j1, j2) in result_diff:
                 if tag == "equal":
                     for k in range(i2 - i1):
