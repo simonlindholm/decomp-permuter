@@ -1,4 +1,3 @@
-from dataclasses import dataclass, field
 import difflib
 import hashlib
 import re
@@ -6,7 +5,6 @@ from typing import Tuple, List, Optional
 from collections import Counter
 
 from .objdump import ArchSettings, Line, objdump, get_arch
-from colorama import Fore
 
 
 class Scorer:
@@ -140,14 +138,16 @@ class Scorer:
                     for k in range(i2 - i1):
                         old = self.target_seq[j1 + k].row
                         new = cand_seq[i1 + k].row
-                        color = Fore.WHITE if old == new else Fore.BLUE
+                        color = "\u001b[0m" if old == new else "\u001b[94m"
                         print(color, old[:40].ljust(40), "\t", new)
                 if tag == "replace" or tag == "delete":
                     for k in range(i1, i2):
-                        print(Fore.GREEN, "".ljust(40), "\t", cand_seq[k].row)
+                        print("\u001b[32;1m", "".ljust(40), "\t", cand_seq[k].row)
                 if tag == "replace" or tag == "insert":
                     for k in range(j1, j2):
-                        print(Fore.RED, self.target_seq[k].row)
+                        print("\u001b[91;1m", self.target_seq[k].row)
+
+            print("\u001b[0m")
 
         insertions_co = Counter(insertions)
         deletions_co = Counter(deletions)

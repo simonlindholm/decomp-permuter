@@ -636,7 +636,7 @@ def compile_base(compile_script: str, source: str, c_file: str, out_file: str) -
         return
     escaped_c_file = json.dumps(c_file)
     source = "#line 1 " + escaped_c_file + "\n" + source
-    compiler = Compiler(compile_script, show_errors=True)
+    compiler = Compiler(compile_script, show_errors=True, debug_mode=False)
     o_file = compiler.compile(source)
     if o_file:
         shutil.move(o_file, out_file)

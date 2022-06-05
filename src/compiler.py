@@ -1,7 +1,6 @@
 from typing import Optional
 import tempfile
 import subprocess
-import os
 import shutil
 
 from .helpers import try_remove
@@ -26,7 +25,7 @@ class Compiler:
             f.write(source)
 
         if self.debug_mode:
-            debug_filepath = os.getcwd() + "/debug_source_" + c_name[-10:]
+            debug_filepath = "./debug_source.c"
             print(
                 "DEBUG MODE: Saving a full copy of base candidate source to ",
                 debug_filepath,
@@ -59,7 +58,7 @@ class Compiler:
             raise
 
         if self.debug_mode:
-            debug_filepath = os.getcwd() + "/debug_source_" + o_name[-10:]
+            debug_filepath = "./debug_compiled_object.o"
             print(
                 "DEBUG MODE: Saving the base candidate o file to ", debug_filepath, "\n"
             )
