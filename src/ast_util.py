@@ -106,7 +106,7 @@ def extract_fn(ast: ca.FileAST, fn_name: str) -> Tuple[ca.FuncDef, int]:
         if isinstance(node, ca.FuncDef):
             if node.decl.name == fn_name:
                 ret.append((node, i))
-            else:
+            elif "inline" not in node.decl.funcspec:
                 node = node.decl
                 ast.ext[i] = node
         if isinstance(node, ca.Decl) and isinstance(node.type, ca.FuncDecl):
@@ -239,7 +239,14 @@ def insert_decl(
 ) -> None:
     type = copy.deepcopy(type)
     decl = ca.Decl(
-        name=var, quals=[], align=[], storage=[], funcspec=[], type=type, init=None, bitsize=None
+        name=var,
+        quals=[],
+        align=[],
+        storage=[],
+        funcspec=[],
+        type=type,
+        init=None,
+        bitsize=None,
     )
     set_decl_name(decl)
     assert fn.body.block_items, "Non-empty function"
