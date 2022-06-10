@@ -1,5 +1,8 @@
 import bisect
 import copy
+import os
+import sys
+import toml
 from dataclasses import dataclass, field
 from random import Random
 import typing
@@ -82,6 +85,37 @@ PROB_RET_VOID = 0.2
 MAX_INDEX = 10 ** 9
 
 T = TypeVar("T")
+
+required_weights: List[str] = [
+    "perm_temp_for_expr",
+    "perm_expand_expr",
+    "perm_reorder_stmts",
+    "perm_add_mask",
+    "perm_xor_zero",
+    "perm_cast_simple",
+    "perm_refer_to_var",
+    "perm_float_literal",
+    "perm_randomize_internal_type",
+    "perm_randomize_external_type",
+    "perm_randomize_function_type",
+    "perm_split_assignment",
+    "perm_sameline",
+    "perm_ins_block",
+    "perm_struct_ref",
+    "perm_empty_stmt",
+    "perm_condition",
+    "perm_mult_zero",
+    "perm_dummy_comma_expr",
+    "perm_add_self_assignment",
+    "perm_commutative",
+    "perm_add_sub",
+    "perm_inequalities",
+    "perm_compound_assignment",
+    "perm_remove_ast",
+    "perm_duplicate_assignment",
+    "perm_chain_assignment",
+    "perm_pad_var_decl",
+]
 
 
 class RandomizationFailure(Exception):
@@ -2009,6 +2043,23 @@ def perm_pad_var_decl(
 class Randomizer:
     def __init__(self, rng_seed: int) -> None:
         self.random = Random(rng_seed)
+        if os.path.exists("randomization_weights.toml"):
+            with open("randomization_weights.toml") as f:
+                self.weights = toml.load(f)
+        else:
+            print("File not found 'randomization_weights.toml'... Exiting.")
+            sys.exit(1)
+
+        # Ensure all necessary weights are loaded
+        for weight in required_weights:
+            if not weight in self.weights:
+                print("Error: Missing weight in Toml file for: ", weight)
+                print("Please add this entry to randomization_weights.toml")
+                sys.exit(1)
+            if not isinstance(self.weights[weight], int):
+                print("Error in randomization_weights.toml")
+                print("The entry ", weight, " must be of type int")
+                sys.exit(1)
 
     def randomize(self, ast: ca.FileAST, fn_index: int) -> None:
         fn = ast.ext[fn_index]
@@ -2016,34 +2067,43 @@ class Randomizer:
         indices = ast_util.compute_node_indices(fn)
         region = get_randomization_region(fn, indices, self.random)
         methods = [
-            (perm_temp_for_expr, 100),
-            (perm_expand_expr, 20),
-            (perm_reorder_stmts, 20),
-            (perm_add_mask, 15),
-            (perm_xor_zero, 10),
-            (perm_cast_simple, 10),
-            (perm_refer_to_var, 10),
-            (perm_float_literal, 10),
-            (perm_randomize_internal_type, 10),
-            (perm_randomize_external_type, 5),
-            (perm_randomize_function_type, 5),
-            (perm_split_assignment, 10),
-            (perm_sameline, 10),
-            (perm_ins_block, 10),
-            (perm_struct_ref, 10),
-            (perm_empty_stmt, 10),
-            (perm_condition, 10),
-            (perm_mult_zero, 5),
-            (perm_dummy_comma_expr, 5),
-            (perm_add_self_assignment, 5),
-            (perm_commutative, 5),
-            (perm_add_sub, 5),
-            (perm_inequalities, 5),
-            (perm_compound_assignment, 5),
-            (perm_remove_ast, 5),
-            (perm_duplicate_assignment, 5),
-            (perm_chain_assignment, 5),
-            (perm_pad_var_decl, 1),
+            (perm_temp_for_expr, self.weights["perm_temp_for_expr"]),
+            (perm_expand_expr, self.weights["perm_expand_expr"]),
+            (perm_reorder_stmts, self.weights["perm_reorder_stmts"]),
+            (perm_add_mask, self.weights["perm_add_mask"]),
+            (perm_xor_zero, self.weights["perm_xor_zero"]),
+            (perm_cast_simple, self.weights["perm_cast_simple"]),
+            (perm_refer_to_var, self.weights["perm_refer_to_var"]),
+            (perm_float_literal, self.weights["perm_float_literal"]),
+            (
+                perm_randomize_internal_type,
+                self.weights["perm_randomize_internal_type"],
+            ),
+            (
+                perm_randomize_external_type,
+                self.weights["perm_randomize_external_type"],
+            ),
+            (
+                perm_randomize_function_type,
+                self.weights["perm_randomize_function_type"],
+            ),
+            (perm_split_assignment, self.weights["perm_split_assignment"]),
+            (perm_sameline, self.weights["perm_sameline"]),
+            (perm_ins_block, self.weights["perm_ins_block"]),
+            (perm_struct_ref, self.weights["perm_struct_ref"]),
+            (perm_empty_stmt, self.weights["perm_empty_stmt"]),
+            (perm_condition, self.weights["perm_condition"]),
+            (perm_mult_zero, self.weights["perm_mult_zero"]),
+            (perm_dummy_comma_expr, self.weights["perm_dummy_comma_expr"]),
+            (perm_add_self_assignment, self.weights["perm_add_self_assignment"]),
+            (perm_commutative, self.weights["perm_commutative"]),
+            (perm_add_sub, self.weights["perm_add_sub"]),
+            (perm_inequalities, self.weights["perm_inequalities"]),
+            (perm_compound_assignment, self.weights["perm_compound_assignment"]),
+            (perm_remove_ast, self.weights["perm_remove_ast"]),
+            (perm_duplicate_assignment, self.weights["perm_duplicate_assignment"]),
+            (perm_chain_assignment, self.weights["perm_chain_assignment"]),
+            (perm_pad_var_decl, self.weights["perm_pad_var_decl"]),
         ]
         while True:
             method = random_weighted(self.random, methods)
