@@ -32,7 +32,9 @@ isWindowsPlatform: bool = "nt" in system or "msys" in system
 if not isWindowsPlatform:
     from .net.client import start_client
     from .net.core import ServerError, connect, enable_debug_mode, MAX_PRIO, MIN_PRIO
-
+else:
+    MAX_PRIO = 0.0
+    MIN_PRIO = 0.0
 
 from .permuter import (
     EvalError,
