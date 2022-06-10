@@ -1944,15 +1944,7 @@ def perm_chain_assignment(
 
     def rec(block: Block) -> None:
         statements = ast_util.get_block_stmts(block, False)
-        numStatements = len(statements)
-
-        if numStatements < 2:
-            return
-
-        # don't include the last statement in list
-        for i in range(numStatements - 1):
-            stmt = statements[i]
-            next_stmt = statements[i + 1]
+        for i, (stmt, next_stmt) in enumerate(zip(statements, statements[1:])):
             if (
                 region.contains_node(stmt)
                 and region.contains_node(next_stmt)
@@ -1966,10 +1958,8 @@ def perm_chain_assignment(
             ):
                 cands.append((i, block))
 
+        for stmt in statements:
             ast_util.for_nested_blocks(stmt, rec)
-
-        # call on last statement in block, because it was skipped above
-        ast_util.for_nested_blocks(statements[-1], rec)
 
     rec(fn.body)
 
