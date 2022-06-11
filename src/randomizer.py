@@ -1936,6 +1936,52 @@ def perm_duplicate_assignment(
     ast_util.insert_statement(tob, toi, dup)
 
 
+def perm_chain_assignment(
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
+) -> None:
+    """Combine two consecutive assignments into one chain assignment."""
+    cands: List[Tuple[int, ca.Compound]] = []
+
+    def rec(block: Block) -> None:
+        statements = ast_util.get_block_stmts(block, False)
+        for i, (stmt, next_stmt) in enumerate(zip(statements, statements[1:])):
+            if (
+                region.contains_node(stmt)
+                and region.contains_node(next_stmt)
+                and isinstance(stmt, ca.Assignment)
+                and isinstance(next_stmt, ca.Assignment)
+                and (
+                    ast_util.equal_ast(stmt.lvalue, next_stmt.rvalue)
+                    or ast_util.equal_ast(stmt.rvalue, next_stmt.rvalue)
+                )
+                and not ast_util.is_effectful(next_stmt.rvalue)
+            ):
+                cands.append((i, block))
+
+        for stmt in statements:
+            ast_util.for_nested_blocks(stmt, rec)
+
+    rec(fn.body)
+
+    ensure(cands)
+    chosen_assignment_idx, block = random.choice(cands)
+
+    statements = ast_util.get_block_stmts(block, True)
+    stmt = statements[chosen_assignment_idx]
+    next_stmt = statements[chosen_assignment_idx + 1]
+
+    # Insert the new lvalue into left or right side of old lvalue
+    if random_bool(random, 0.5):
+        new_lvalue = next_stmt.lvalue
+        new_rvalue = stmt
+    else:
+        new_lvalue = stmt.lvalue
+        new_rvalue = ca.Assignment("=", next_stmt.lvalue, stmt.rvalue)
+
+    statements[chosen_assignment_idx] = ca.Assignment("=", new_lvalue, new_rvalue)
+    del statements[chosen_assignment_idx + 1]
+
+
 def perm_pad_var_decl(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> None:
@@ -1996,6 +2042,7 @@ class Randomizer:
             (perm_compound_assignment, 5),
             (perm_remove_ast, 5),
             (perm_duplicate_assignment, 5),
+            (perm_chain_assignment, 5),
             (perm_pad_var_decl, 1),
         ]
         while True:
