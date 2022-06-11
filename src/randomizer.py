@@ -1940,7 +1940,7 @@ def perm_chain_assignment(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> None:
     """Combine two consecutive assignments into one chain assignment."""
-    cands: List[Tuple(int, ca.Compound)] = []
+    cands: List[Tuple[int, ca.Compound]] = []
 
     def rec(block: Block) -> None:
         statements = ast_util.get_block_stmts(block, False)
@@ -1966,11 +1966,11 @@ def perm_chain_assignment(
     ensure(cands)
     chosen_assignment_idx, block = random.choice(cands)
 
-    statements = ast_util.get_block_stmts(block, False)
+    statements = ast_util.get_block_stmts(block, True)
     stmt = statements[chosen_assignment_idx]
     next_stmt = statements[chosen_assignment_idx + 1]
 
-    ## Insert the new lvalue into left or right side of old lvalue
+    # Insert the new lvalue into left or right side of old lvalue
     if random_bool(random, 0.5):
         new_lvalue = next_stmt.lvalue
         new_rvalue = stmt
