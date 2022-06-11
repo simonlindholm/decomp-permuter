@@ -8,9 +8,7 @@ The modes can also be combined, by using the `PERM_RANDOMIZE` macro.
 
 [<img src="https://asciinema.org/a/232846.svg" height="300">](https://asciinema.org/a/232846)
 
-The main target for the tool is MIPS code compiled by old compilers (IDO, possibly GCC).
-Getting it to work on other architectures shouldn't be too hard, however.
-https://github.com/laqieer/decomp-permuter-arm has an ARM port.
+This tool supports MIPS (compiled by IDO, possibly GCC), PowerPC, and ARM32 assembly.
 
 ## Usage
 
