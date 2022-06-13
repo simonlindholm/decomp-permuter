@@ -59,6 +59,10 @@ class Scorer:
             if arch.name == "mips":
                 return "." in field
 
+            # Example: ".word  gSymbol+0x4"
+            if arch.name == "arm32":
+                return ".word" in field
+
             return False
 
         def diff_sameline(old_line: Line, new_line: Line) -> None:
