@@ -702,7 +702,7 @@ def download_decompme(url_str: str) -> None:
 
     try:
 
-        compiler_id = response_json["compiler"]
+        compiler_id = response_json["compiler"].replace(".", "_")
 
         if not os.path.exists("decompme_mappings.toml"):
             print("decompme_mappings.toml not found")
@@ -724,7 +724,7 @@ def download_decompme(url_str: str) -> None:
             print("See example_decompme_mappings.toml")
             sys.exit(1)
 
-        compiler_settings = all_settings[response_json["compiler"]]
+        compiler_settings = all_settings[compiler_id]
         with open(f"{dirname}/compile.sh", "w") as f:
             f.write("#!/usr/bin/env bash\n")
             f.write(f"cd {compiler_settings['PATH']}\n")
