@@ -645,7 +645,7 @@ def compile_base(compile_script: str, source: str, c_file: str, out_file: str) -
 
 
 def write_to_file(cont: str, filename: str) -> None:
-    with open(filename, "w", encoding="utf-8") as f:
+    with open(filename, "a", encoding="utf-8") as f:
         f.write(cont)
 
 
@@ -717,6 +717,7 @@ def main() -> None:
                 settings = toml.load(f)
             break
 
+    compiler_type = settings["COMPILER_TYPE"] if "COMPILER_TYPE" in settings else "base"
     build_system = settings.get("build_system", "make")
     compiler = settings.get("compiler_command")
     assembler = settings.get("assembler_command")
@@ -783,11 +784,12 @@ def main() -> None:
     target_s_file = f"{dirname}/target.s"
     target_o_file = f"{dirname}/target.o"
     compile_script = f"{dirname}/compile.sh"
-    func_name_file = f"{dirname}/function.txt"
+    meta_data_file = f"{dirname}/metadata.toml"
 
     try:
         write_to_file(source, base_c_file)
-        write_to_file(func_name, func_name_file)
+        write_to_file("func_name = " + func_name + "\n", meta_data_file)
+        write_to_file("compiler_type = " + compiler_type + "\n", meta_data_file)
         write_compile_command(compiler, root_dir, compile_script)
         write_asm(asm_cont, target_s_file)
         compile_asm(assembler, root_dir, target_s_file, target_o_file)
