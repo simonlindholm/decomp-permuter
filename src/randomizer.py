@@ -86,37 +86,6 @@ MAX_INDEX = 10 ** 9
 
 T = TypeVar("T")
 
-method_list: List[str] = [
-    "perm_temp_for_expr",
-    "perm_expand_expr",
-    "perm_reorder_stmts",
-    "perm_add_mask",
-    "perm_xor_zero",
-    "perm_cast_simple",
-    "perm_refer_to_var",
-    "perm_float_literal",
-    "perm_randomize_internal_type",
-    "perm_randomize_external_type",
-    "perm_randomize_function_type",
-    "perm_split_assignment",
-    "perm_sameline",
-    "perm_ins_block",
-    "perm_struct_ref",
-    "perm_empty_stmt",
-    "perm_condition",
-    "perm_mult_zero",
-    "perm_dummy_comma_expr",
-    "perm_add_self_assignment",
-    "perm_commutative",
-    "perm_add_sub",
-    "perm_inequalities",
-    "perm_compound_assignment",
-    "perm_remove_ast",
-    "perm_duplicate_assignment",
-    "perm_chain_assignment",
-    "perm_pad_var_decl",
-]
-
 
 class RandomizationFailure(Exception):
     pass
@@ -2043,6 +2012,38 @@ def perm_pad_var_decl(
     ast_util.insert_decl(fn, var, type, random)
 
 
+randomization_passes = [
+    perm_temp_for_expr,
+    perm_expand_expr,
+    perm_reorder_stmts,
+    perm_add_mask,
+    perm_xor_zero,
+    perm_cast_simple,
+    perm_refer_to_var,
+    perm_float_literal,
+    perm_randomize_internal_type,
+    perm_randomize_external_type,
+    perm_randomize_function_type,
+    perm_split_assignment,
+    perm_sameline,
+    perm_ins_block,
+    perm_struct_ref,
+    perm_empty_stmt,
+    perm_condition,
+    perm_mult_zero,
+    perm_dummy_comma_expr,
+    perm_add_self_assignment,
+    perm_commutative,
+    perm_add_sub,
+    perm_inequalities,
+    perm_compound_assignment,
+    perm_remove_ast,
+    perm_duplicate_assignment,
+    perm_chain_assignment,
+    perm_pad_var_decl,
+]
+
+
 class Randomizer:
     def __init__(self, rng_seed: int, dir: str) -> None:
         self.random = Random(rng_seed)
@@ -2064,17 +2065,22 @@ class Randomizer:
         else:
             compiler_type = "base"
 
-        default_weights = all_preset_weights[compiler_type]
+        base_weights = all_preset_weights["base"]
+        compiler_weights = all_preset_weights[compiler_type]
 
-        function_map = globals()
+        def create_method_weight_pair(method) -> Tuple[Callable, int]:
+            func_name = method.__name__
 
-        def createMethodWeightPair(func_name: str) -> Tuple[Callable, int]:
-            weight = default_weights[func_name]
             if func_name in custom_weights:
                 weight = custom_weights[func_name]
-            return (function_map[func_name], weight)
+            elif func_name in compiler_weights:
+                weight = compiler_weights[func_name]
+            else:
+                weight = base_weights[func_name]
 
-        self.methods = list(map(createMethodWeightPair, method_list))
+            return (method, weight)
+
+        self.methods = list(map(create_method_weight_pair, randomization_passes))
 
     def randomize(self, ast: ca.FileAST, fn_index: int) -> None:
         fn = ast.ext[fn_index]

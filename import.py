@@ -659,13 +659,16 @@ def write_custom_weight_comments(compiler_type: str, filename: str) -> None:
     if os.path.exists("default_weights.toml"):
         with open("default_weights.toml") as f:
             all_weights = toml.load(f)
+            base_weights = all_weights["base"]
             compiler_weights = all_weights[compiler_type]
 
         with open(filename, "a", encoding="utf-8") as f:
             f.write("# uncomment lines below to customize the weights\n")
             f.write("# run --help=randomization to see doc\n")
             f.write("[custom_weights]\n")
-            for randomization_type, weight in compiler_weights.items():
+            for randomization_type, weight in base_weights.items():
+                if randomization_type in compiler_weights:
+                    weight = compiler_weights[randomization_type]
                 f.write("# " + randomization_type + " = " + str(weight) + "\n")
 
 
@@ -742,11 +745,13 @@ def main() -> None:
                 settings = toml.load(f)
             break
 
-    compiler_type = cast(str, settings.get("compiler_type", "base"))
+    compiler_type = settings.get("compiler_type", "base")
     build_system = settings.get("build_system", "make")
     compiler = settings.get("compiler_command")
     assembler = settings.get("assembler_command")
     make_flags = args.make_flags
+
+    assert isinstance(compiler_type, str)
 
     func_name, asm_cont = parse_asm(args.asm_file)
     print(f"Function name: {func_name}")
