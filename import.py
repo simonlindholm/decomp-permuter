@@ -661,6 +661,11 @@ def write_custom_weight_comments(compiler_type: str, filename: str) -> None:
             all_weights = toml.load(f)
             compiler_weights = all_weights[compiler_type]
 
+        with open(filename, "a", encoding="utf-8") as f:
+            f.write("[custom_weights]\n")
+            for randomization_type, weight in compiler_weights.items():
+                f.write("# " + randomization_type + " = " + str(weight) + "\n")
+
 
 def write_to_file(cont: str, filename: str) -> None:
     with open(filename, "a", encoding="utf-8") as f:
@@ -802,13 +807,13 @@ def main() -> None:
     target_s_file = f"{dirname}/target.s"
     target_o_file = f"{dirname}/target.o"
     compile_script = f"{dirname}/compile.sh"
-    settings_data_file = f"{dirname}/settings.toml"
+    settings_file = f"{dirname}/settings.toml"
 
     try:
         write_to_file(source, base_c_file)
-        write_to_file("func_name = " + func_name + "\n", settings_data_file)
-        write_to_file("compiler_type = " + compiler_type + "\n", settings_data_file)
-        write_custom_weight_comments(compiler_type, settings_data_file)
+        write_to_file(f'func_name = "{func_name}"\n', settings_file)
+        write_to_file(f'compiler_type = "{compiler_type}"\n\n', settings_file)
+        write_custom_weight_comments(compiler_type, settings_file)
         write_compile_command(compiler, root_dir, compile_script)
         write_asm(asm_cont, target_s_file)
         compile_asm(assembler, root_dir, target_s_file, target_o_file)
