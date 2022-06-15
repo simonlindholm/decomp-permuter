@@ -11,7 +11,18 @@ import shutil
 import subprocess
 import sys
 import toml
-from typing import Callable, Dict, List, Match, Mapping, Optional, Pattern, Set, Tuple
+from typing import (
+    Callable,
+    Dict,
+    List,
+    Match,
+    Mapping,
+    Optional,
+    Pattern,
+    Set,
+    Tuple,
+    cast,
+)
 import urllib.request
 import urllib.parse
 
@@ -644,6 +655,13 @@ def compile_base(compile_script: str, source: str, c_file: str, out_file: str) -
         print("Warning: failed to compile .c file.")
 
 
+def write_custom_weight_comments(compiler_type: str, filename: str) -> None:
+    if os.path.exists("randomization_weights.toml"):
+        with open("randomization_weights.toml") as f:
+            all_weights = toml.load(f)
+            compiler_weights = all_weights[compiler_type]
+
+
 def write_to_file(cont: str, filename: str) -> None:
     with open(filename, "a", encoding="utf-8") as f:
         f.write(cont)
@@ -717,7 +735,7 @@ def main() -> None:
                 settings = toml.load(f)
             break
 
-    compiler_type = settings["COMPILER_TYPE"] if "COMPILER_TYPE" in settings else "base"
+    compiler_type = cast(str, settings.get("compiler_type", "base"))
     build_system = settings.get("build_system", "make")
     compiler = settings.get("compiler_command")
     assembler = settings.get("assembler_command")
@@ -784,12 +802,13 @@ def main() -> None:
     target_s_file = f"{dirname}/target.s"
     target_o_file = f"{dirname}/target.o"
     compile_script = f"{dirname}/compile.sh"
-    meta_data_file = f"{dirname}/metadata.toml"
+    settings_data_file = f"{dirname}/settings.toml"
 
     try:
         write_to_file(source, base_c_file)
-        write_to_file("func_name = " + func_name + "\n", meta_data_file)
-        write_to_file("compiler_type = " + compiler_type + "\n", meta_data_file)
+        write_to_file("func_name = " + func_name + "\n", settings_data_file)
+        write_to_file("compiler_type = " + compiler_type + "\n", settings_data_file)
+        write_custom_weight_comments(compiler_type, settings_data_file)
         write_compile_command(compiler, root_dir, compile_script)
         write_asm(asm_cont, target_s_file)
         compile_asm(assembler, root_dir, target_s_file, target_o_file)
