@@ -8,6 +8,7 @@ import queue
 import sys
 import threading
 import time
+import toml
 from typing import (
     Callable,
     Dict,
@@ -293,10 +294,19 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
 
         fn_name: Optional[str] = None
         try:
-            with open(os.path.join(d, "function.txt"), encoding="utf-8") as f:
-                fn_name = f.read().strip()
+            with open(os.path.join(d, "settings.toml"), encoding="utf-8") as f:
+                settings = toml.load(f)
+                if "func_name" in settings:
+                    fn_name = settings["func_name"]
         except FileNotFoundError:
             pass
+
+        if not fn_name:
+            try:
+                with open(os.path.join(d, "function.txt"), encoding="utf-8") as f:
+                    fn_name = f.read().strip()
+            except FileNotFoundError:
+                pass
 
         if fn_name:
             print(f"{base_c} ({fn_name})")

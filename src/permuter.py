@@ -104,7 +104,7 @@ class Permuter:
             if len(fns) == 0:
                 raise Exception(f"{self.source_file} does not contain any function!")
             self.fn_name = fns[-1]
-            print("Selecting function: ", self.fn_name)
+            print("Defaulting to function: ", self.fn_name)
         else:
             self.fn_name = fn_name
         self.unique_name = self.fn_name

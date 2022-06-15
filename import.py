@@ -662,6 +662,8 @@ def write_custom_weight_comments(compiler_type: str, filename: str) -> None:
             compiler_weights = all_weights[compiler_type]
 
         with open(filename, "a", encoding="utf-8") as f:
+            f.write("# uncomment lines below to customize the weights\n")
+            f.write("# run --help=randomization to see doc\n")
             f.write("[custom_weights]\n")
             for randomization_type, weight in compiler_weights.items():
                 f.write("# " + randomization_type + " = " + str(weight) + "\n")
