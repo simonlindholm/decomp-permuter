@@ -1,5 +1,8 @@
 import bisect
 import copy
+import os
+import sys
+import toml
 from dataclasses import dataclass, field
 from random import Random
 import typing
@@ -82,6 +85,37 @@ PROB_RET_VOID = 0.2
 MAX_INDEX = 10 ** 9
 
 T = TypeVar("T")
+
+method_list: List[str] = [
+    "perm_temp_for_expr",
+    "perm_expand_expr",
+    "perm_reorder_stmts",
+    "perm_add_mask",
+    "perm_xor_zero",
+    "perm_cast_simple",
+    "perm_refer_to_var",
+    "perm_float_literal",
+    "perm_randomize_internal_type",
+    "perm_randomize_external_type",
+    "perm_randomize_function_type",
+    "perm_split_assignment",
+    "perm_sameline",
+    "perm_ins_block",
+    "perm_struct_ref",
+    "perm_empty_stmt",
+    "perm_condition",
+    "perm_mult_zero",
+    "perm_dummy_comma_expr",
+    "perm_add_self_assignment",
+    "perm_commutative",
+    "perm_add_sub",
+    "perm_inequalities",
+    "perm_compound_assignment",
+    "perm_remove_ast",
+    "perm_duplicate_assignment",
+    "perm_chain_assignment",
+    "perm_pad_var_decl",
+]
 
 
 class RandomizationFailure(Exception):
@@ -2010,46 +2044,45 @@ def perm_pad_var_decl(
 
 
 class Randomizer:
-    def __init__(self, rng_seed: int) -> None:
+    def __init__(self, rng_seed: int, dir: str) -> None:
         self.random = Random(rng_seed)
+
+        if not os.path.exists("default_weights.toml"):
+            print("Can't find default_weights.toml in root dir of project!")
+            sys.exit(1)
+
+        with open("default_weights.toml") as f:
+            all_preset_weights = toml.load(f)
+
+        custom_weights: Dict[str, int] = {}
+
+        if os.path.exists(os.path.join(dir, "settings.toml")):
+            with open(os.path.join(dir, "settings.toml")) as f:
+                settings = toml.load(f)
+                compiler_type = settings.get("compiler_type", "base")
+                custom_weights = settings["custom_weights"]
+        else:
+            compiler_type = "base"
+
+        default_weights = all_preset_weights[compiler_type]
+
+        function_map = globals()
+
+        def createMethodWeightPair(func_name: str) -> Tuple[Callable, int]:
+            weight = default_weights[func_name]
+            if func_name in custom_weights:
+                weight = custom_weights[func_name]
+            return (function_map[func_name], weight)
+
+        self.methods = list(map(createMethodWeightPair, method_list))
 
     def randomize(self, ast: ca.FileAST, fn_index: int) -> None:
         fn = ast.ext[fn_index]
         assert isinstance(fn, ca.FuncDef)
         indices = ast_util.compute_node_indices(fn)
         region = get_randomization_region(fn, indices, self.random)
-        methods = [
-            (perm_temp_for_expr, 100),
-            (perm_expand_expr, 20),
-            (perm_reorder_stmts, 20),
-            (perm_add_mask, 15),
-            (perm_xor_zero, 10),
-            (perm_cast_simple, 10),
-            (perm_refer_to_var, 10),
-            (perm_float_literal, 10),
-            (perm_randomize_internal_type, 10),
-            (perm_randomize_external_type, 5),
-            (perm_randomize_function_type, 5),
-            (perm_split_assignment, 10),
-            (perm_sameline, 10),
-            (perm_ins_block, 10),
-            (perm_struct_ref, 10),
-            (perm_empty_stmt, 10),
-            (perm_condition, 10),
-            (perm_mult_zero, 5),
-            (perm_dummy_comma_expr, 5),
-            (perm_add_self_assignment, 5),
-            (perm_commutative, 5),
-            (perm_add_sub, 5),
-            (perm_inequalities, 5),
-            (perm_compound_assignment, 5),
-            (perm_remove_ast, 5),
-            (perm_duplicate_assignment, 5),
-            (perm_chain_assignment, 5),
-            (perm_pad_var_decl, 1),
-        ]
         while True:
-            method = random_weighted(self.random, methods)
+            method = random_weighted(self.random, self.methods)
             try:
                 method(fn, ast, indices, region, self.random)
                 break

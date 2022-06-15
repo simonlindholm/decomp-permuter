@@ -136,7 +136,7 @@ class Permuter:
     def _create_and_score_base(self) -> Tuple[int, str, str]:
         base_source, eval_state = perm_evaluate_one(self._permutations)
         base_cand = Candidate.from_source(
-            base_source, eval_state, self.fn_name, rng_seed=0
+            base_source, eval_state, self.fn_name, rng_seed=0, dir=self.dir
         )
 
         if self._debug_mode:
@@ -176,7 +176,7 @@ class Permuter:
             rng_seed = self._force_rng_seed or random.randrange(1, 10 ** 20)
             self._cur_seed = (seed, rng_seed)
             self._cur_cand = Candidate.from_source(
-                cand_c, eval_state, self.fn_name, rng_seed=rng_seed
+                cand_c, eval_state, self.fn_name, rng_seed=rng_seed, dir=self.dir
             )
 
         # Randomize the candidate

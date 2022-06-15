@@ -656,8 +656,8 @@ def compile_base(compile_script: str, source: str, c_file: str, out_file: str) -
 
 
 def write_custom_weight_comments(compiler_type: str, filename: str) -> None:
-    if os.path.exists("randomization_weights.toml"):
-        with open("randomization_weights.toml") as f:
+    if os.path.exists("default_weights.toml"):
+        with open("default_weights.toml") as f:
             all_weights = toml.load(f)
             compiler_weights = all_weights[compiler_type]
 

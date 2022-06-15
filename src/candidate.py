@@ -54,7 +54,7 @@ class Candidate:
 
     @staticmethod
     def from_source(
-        source: str, eval_state: EvalState, fn_name: str, rng_seed: int
+        source: str, eval_state: EvalState, fn_name: str, rng_seed: int, dir: str
     ) -> "Candidate":
         # Use the same AST for all instances of the same original source, but
         # with the target function deeply copied. Since we never change the
@@ -70,7 +70,7 @@ class Candidate:
             ast=ast,
             fn_index=fn_index,
             rng_seed=rng_seed,
-            randomizer=Randomizer(rng_seed),
+            randomizer=Randomizer(rng_seed, dir),
         )
 
     def randomize_ast(self) -> None:
