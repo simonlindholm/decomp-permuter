@@ -9,6 +9,7 @@ from typing import (
     Any,
     List,
     Iterator,
+    Mapping,
     Optional,
     Tuple,
     Union,
@@ -77,6 +78,8 @@ class Permuter:
         scorer: Scorer,
         source_file: str,
         source: str,
+        settings: Optional[Mapping[str, Any]],
+        weights: Mapping[str, Any],
         *,
         force_seed: Optional[int],
         force_rng_seed: Optional[int],
@@ -94,6 +97,8 @@ class Permuter:
         self.scorer = scorer
         self.source_file = source_file
         self.source = source
+        self.setttings = settings
+        self.weights = weights
 
         if fn_name is None:
             # Semi-legacy codepath; all functions imported through import.py have a
@@ -136,7 +141,12 @@ class Permuter:
     def _create_and_score_base(self) -> Tuple[int, str, str]:
         base_source, eval_state = perm_evaluate_one(self._permutations)
         base_cand = Candidate.from_source(
-            base_source, eval_state, self.fn_name, rng_seed=0, dir=self.dir
+            base_source,
+            eval_state,
+            self.fn_name,
+            self.setttings,
+            self.weights,
+            rng_seed=0,
         )
 
         if self._debug_mode:
@@ -176,7 +186,12 @@ class Permuter:
             rng_seed = self._force_rng_seed or random.randrange(1, 10 ** 20)
             self._cur_seed = (seed, rng_seed)
             self._cur_cand = Candidate.from_source(
-                cand_c, eval_state, self.fn_name, rng_seed=rng_seed, dir=self.dir
+                cand_c,
+                eval_state,
+                self.fn_name,
+                self.setttings,
+                self.weights,
+                rng_seed=rng_seed,
             )
 
         # Randomize the candidate

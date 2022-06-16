@@ -29,6 +29,7 @@ import urllib.parse
 from src import ast_util
 from src.compiler import Compiler
 from src.error import CandidateConstructionFailure
+from src.helpers import load_weights_from_file
 
 is_macos = platform.system() == "Darwin"
 
@@ -655,25 +656,29 @@ def compile_base(compile_script: str, source: str, c_file: str, out_file: str) -
         print("Warning: failed to compile .c file.")
 
 
-def write_custom_weight_comments(compiler_type: str, filename: str) -> None:
-    if os.path.exists("default_weights.toml"):
-        with open("default_weights.toml") as f:
-            all_weights = toml.load(f)
-            base_weights = all_weights["base"]
-            compiler_weights = all_weights[compiler_type]
+def create_write_settings_toml(
+    func_name: str, compiler_type: str, filename: str
+) -> None:
 
-        with open(filename, "a", encoding="utf-8") as f:
-            f.write("# uncomment lines below to customize the weights\n")
-            f.write("# run --help=randomization to see doc\n")
-            f.write("[custom_weights]\n")
-            for randomization_type, weight in base_weights.items():
-                if randomization_type in compiler_weights:
-                    weight = compiler_weights[randomization_type]
-                f.write("# " + randomization_type + " = " + str(weight) + "\n")
+    all_weights = load_weights_from_file()
+    base_weights = all_weights["base"]
+    compiler_weights = all_weights[compiler_type]
+
+    with open(filename, "w", encoding="utf-8") as f:
+        f.write(f'func_name = "{func_name}"\n')
+        f.write(f'compiler_type = "{compiler_type}"\n\n')
+
+        f.write("# uncomment lines below to customize the weights\n")
+        f.write("# run --help=randomization to see doc\n")
+        f.write("[custom_weights]\n")
+        for randomization_type, weight in base_weights.items():
+            if randomization_type in compiler_weights:
+                weight = compiler_weights[randomization_type]
+            f.write("# " + randomization_type + " = " + str(weight) + "\n")
 
 
 def write_to_file(cont: str, filename: str) -> None:
-    with open(filename, "a", encoding="utf-8") as f:
+    with open(filename, "w", encoding="utf-8") as f:
         f.write(cont)
 
 
@@ -818,9 +823,7 @@ def main() -> None:
 
     try:
         write_to_file(source, base_c_file)
-        write_to_file(f'func_name = "{func_name}"\n', settings_file)
-        write_to_file(f'compiler_type = "{compiler_type}"\n\n', settings_file)
-        write_custom_weight_comments(compiler_type, settings_file)
+        create_write_settings_toml(func_name, compiler_type, settings_file)
         write_compile_command(compiler, root_dir, compile_script)
         write_asm(asm_cont, target_s_file)
         compile_asm(assembler, root_dir, target_s_file, target_o_file)

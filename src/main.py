@@ -8,13 +8,15 @@ import queue
 import sys
 import threading
 import time
-import toml
+
 from typing import (
+    Any,
     Callable,
     Dict,
     Iterable,
     Iterator,
     List,
+    Mapping,
     Optional,
     Tuple,
 )
@@ -22,7 +24,13 @@ from typing import (
 from .candidate import CandidateResult
 from .compiler import Compiler
 from .error import CandidateConstructionFailure
-from .helpers import plural, static_assert_unreachable, trim_source
+from .helpers import (
+    load_settings_from_file,
+    load_weights_from_file,
+    plural,
+    static_assert_unreachable,
+    trim_source,
+)
 from .net.client import start_client
 from .net.core import ServerError, connect, enable_debug_mode, MAX_PRIO, MIN_PRIO
 from .permuter import (
@@ -292,14 +300,12 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             print(f"{compile_cmd} must be marked executable.", file=sys.stderr)
             sys.exit(1)
 
+        weights: Mapping[str, Any] = load_weights_from_file()
+        settings: Optional[Mapping[str, Any]] = load_settings_from_file(d)
+
         fn_name: Optional[str] = None
-        try:
-            with open(os.path.join(d, "settings.toml"), encoding="utf-8") as f:
-                settings = toml.load(f)
-                if "func_name" in settings:
-                    fn_name = settings["func_name"]
-        except FileNotFoundError:
-            pass
+        if settings and "func_name" in settings:
+            fn_name = settings["func_name"]
 
         if not fn_name:
             try:
@@ -331,6 +337,8 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
                 scorer,
                 base_c,
                 c_source,
+                settings,
+                weights,
                 force_seed=force_seed,
                 force_rng_seed=force_rng_seed,
                 keep_prob=options.keep_prob,

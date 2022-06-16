@@ -1,5 +1,6 @@
 import os
-from typing import NoReturn
+import toml
+from typing import NoReturn, Mapping, Any, Optional
 
 
 def plural(n: int, noun: str) -> str:
@@ -29,3 +30,16 @@ def trim_source(source: str, fn_name: str) -> str:
         if new_index != -1:
             return source[new_index:]
     return source
+
+
+def load_weights_from_file() -> Mapping[str, Any]:
+    with open("default_weights.toml") as f:
+        return toml.load(f)
+
+
+def load_settings_from_file(dir: str) -> Optional[Mapping[str, Any]]:
+    if os.path.exists(os.path.join(dir, "settings.toml")):
+        with open(os.path.join(dir, "settings.toml")) as f:
+            return toml.load(f)
+    else:
+        return None

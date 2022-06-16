@@ -11,7 +11,7 @@ from tempfile import mkstemp
 import threading
 import time
 import traceback
-from typing import Counter, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Counter, Dict, List, Mapping, Optional, Set, Tuple, Union
 import zlib
 
 from nacl.secret import SecretBox
@@ -19,7 +19,12 @@ from nacl.secret import SecretBox
 from ..candidate import CandidateResult
 from ..compiler import Compiler
 from ..error import CandidateConstructionFailure
-from ..helpers import exception_to_string, static_assert_unreachable
+from ..helpers import (
+    exception_to_string,
+    load_settings_from_file,
+    load_weights_from_file,
+    static_assert_unreachable,
+)
 from ..permuter import EvalError, EvalResult, Permuter
 from ..profiler import Profiler
 from ..scorer import Scorer

@@ -22,7 +22,8 @@ You'll first need to install a couple of prerequisites: `python3 -m pip install 
 The permuter expects as input one or more directory containing:
   - a .c file with a single function,
   - a .o file to match,
-  - a .sh file that compiles the .c file.
+  - a .sh file that compiles the .c file,
+  - a .toml file specifying function_name, compiler type, and custom randomization weights.
 
 For projects with a properly configured makefile, you should be able to set these up by running
 ```
@@ -36,6 +37,8 @@ For projects using Ninja instead of Make, add a `permuter_settings.toml` in the 
 build_system = "ninja"
 ```
 Then `import.py` should work as expected if `build.ninja` is at the root of the project.
+
+All of the possible randomizations are assigned a weight value that affects the probability/frequency that the randomization is chosen. These weights are specific to the type of compiler because different randomizations are more or less helpful depening on the compiler. A list of the default weights and compiler specific weights are listed in default_weights.toml. Additionally, it is recommended to set the compiler type in the settings.toml file in the input directory, in practice this is done by setting the compiler type in permuter_settings.toml of the project you are matching, or set in the decompme_mappings.toml. You can override the set weight values for a specific function by setting the weights for each pass type individually in the settings.toml file in the input dir. When using import.py it will generate comment lines for customizing that functions wights as reference.
 
 The .c file may be modified with any of the following macros which affect manual permutation:
 

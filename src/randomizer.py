@@ -11,6 +11,7 @@ from typing import (
     Callable,
     Dict,
     List,
+    Mapping,
     Optional,
     Sequence,
     Set,
@@ -2012,7 +2013,7 @@ def perm_pad_var_decl(
     ast_util.insert_decl(fn, var, type, random)
 
 
-randomization_passes = [
+randomization_passes: List[Callable] = [
     perm_temp_for_expr,
     perm_expand_expr,
     perm_reorder_stmts,
@@ -2045,30 +2046,26 @@ randomization_passes = [
 
 
 class Randomizer:
-    def __init__(self, rng_seed: int, dir: str) -> None:
+    def __init__(
+        self,
+        settings: Optional[Mapping[str, Any]],
+        all_preset_weights: Mapping[str, Any],
+        rng_seed: int,
+    ) -> None:
         self.random = Random(rng_seed)
-
-        if not os.path.exists("default_weights.toml"):
-            print("Can't find default_weights.toml in root dir of project!")
-            sys.exit(1)
-
-        with open("default_weights.toml") as f:
-            all_preset_weights = toml.load(f)
 
         custom_weights: Dict[str, int] = {}
 
-        if os.path.exists(os.path.join(dir, "settings.toml")):
-            with open(os.path.join(dir, "settings.toml")) as f:
-                settings = toml.load(f)
-                compiler_type = settings.get("compiler_type", "base")
-                custom_weights = settings["custom_weights"]
+        if settings:
+            compiler_type = settings.get("compiler_type", "base")
+            custom_weights = settings["custom_weights"]
         else:
             compiler_type = "base"
 
         base_weights = all_preset_weights["base"]
         compiler_weights = all_preset_weights[compiler_type]
 
-        def create_method_weight_pair(method) -> Tuple[Callable, int]:
+        def create_method_weight_pair(method: Callable) -> Tuple[Callable, int]:
             func_name = method.__name__
 
             if func_name in custom_weights:
