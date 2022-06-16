@@ -59,9 +59,9 @@ class Scorer:
             if arch.name == "mips":
                 return "." in field
 
-            # Example: ".word  gSymbol+0x4"
+            # Example: ".text+0x34"
             if arch.name == "arm32":
-                return ".word" in field
+                return "." in field
 
             return False
 
