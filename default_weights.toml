@@ -1,4 +1,5 @@
-# These are the default weights for each randomization pass for each compiler type
+# These are the default weights for each randomization pass for each compiler type.
+# They can be overridden by settings.toml in the non-matching directory.
 
 [base]
 perm_temp_for_expr = 100

@@ -2013,7 +2013,9 @@ def perm_pad_var_decl(
     ast_util.insert_decl(fn, var, type, random)
 
 
-randomization_passes: List[Callable] = [
+RandomizationPass = Callable[[ca.FuncDef, ca.FileAST, Indices, Region, Random], None]
+
+RANDOMIZATION_PASSES: List[RandomizationPass] = [
     perm_temp_for_expr,
     perm_expand_expr,
     perm_reorder_stmts,
@@ -2048,36 +2050,18 @@ randomization_passes: List[Callable] = [
 class Randomizer:
     def __init__(
         self,
-        settings: Optional[Mapping[str, Any]],
-        all_preset_weights: Mapping[str, Any],
+        randomization_weights: Mapping[str, float],
         rng_seed: int,
     ) -> None:
         self.random = Random(rng_seed)
 
-        custom_weights: Dict[str, int] = {}
-
-        if settings:
-            compiler_type = settings.get("compiler_type", "base")
-            custom_weights = settings["custom_weights"]
-        else:
-            compiler_type = "base"
-
-        base_weights = all_preset_weights["base"]
-        compiler_weights = all_preset_weights[compiler_type]
-
-        def create_method_weight_pair(method: Callable) -> Tuple[Callable, int]:
+        def create_method_weight_pair(
+            method: RandomizationPass,
+        ) -> Tuple[RandomizationPass, float]:
             func_name = method.__name__
+            return (method, randomization_weights[func_name])
 
-            if func_name in custom_weights:
-                weight = custom_weights[func_name]
-            elif func_name in compiler_weights:
-                weight = compiler_weights[func_name]
-            else:
-                weight = base_weights[func_name]
-
-            return (method, weight)
-
-        self.methods = list(map(create_method_weight_pair, randomization_passes))
+        self.methods = list(map(create_method_weight_pair, RANDOMIZATION_PASSES))
 
     def randomize(self, ast: ca.FileAST, fn_index: int) -> None:
         fn = ast.ext[fn_index]

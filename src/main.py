@@ -300,11 +300,28 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             print(f"{compile_cmd} must be marked executable.", file=sys.stderr)
             sys.exit(1)
 
-        weights: Mapping[str, Any] = load_weights_from_file()
-        settings: Optional[Mapping[str, Any]] = load_settings_from_file(d)
+        settings: Mapping[str, Any] = load_settings_from_file(d)
+
+        if settings:
+            compiler_type = settings.get("compiler_type", "base")
+            assert isinstance(compiler_type, str)
+        else:
+            compiler_type = "base"
+
+        compiler_weights = load_weights_from_file(compiler_type)
+        weight_overrides = settings["weight_overrides"]
+        final_weights: Dict[str, float] = {}
+
+        # Merge compiler weights with user specified weights.
+        for rand_type, compiler_weight in compiler_weights.items():
+            if rand_type in weight_overrides:
+                final_weights[rand_type] = weight_overrides[rand_type]
+            else:
+                final_weights[rand_type] = compiler_weight
 
         fn_name: Optional[str] = None
         if settings and "func_name" in settings:
+            assert isinstance(settings["func_name"], str)
             fn_name = settings["func_name"]
 
         if not fn_name:
@@ -337,8 +354,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
                 scorer,
                 base_c,
                 c_source,
-                settings,
-                weights,
+                final_weights,
                 force_seed=force_seed,
                 force_rng_seed=force_rng_seed,
                 keep_prob=options.keep_prob,

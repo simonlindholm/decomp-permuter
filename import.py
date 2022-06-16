@@ -11,18 +11,7 @@ import shutil
 import subprocess
 import sys
 import toml
-from typing import (
-    Callable,
-    Dict,
-    List,
-    Match,
-    Mapping,
-    Optional,
-    Pattern,
-    Set,
-    Tuple,
-    cast,
-)
+from typing import Callable, Dict, List, Match, Mapping, Optional, Pattern, Tuple
 import urllib.request
 import urllib.parse
 
@@ -660,21 +649,17 @@ def create_write_settings_toml(
     func_name: str, compiler_type: str, filename: str
 ) -> None:
 
-    all_weights = load_weights_from_file()
-    base_weights = all_weights["base"]
-    compiler_weights = all_weights[compiler_type]
+    rand_weights: Mapping[str, float] = load_weights_from_file(compiler_type)
 
     with open(filename, "w", encoding="utf-8") as f:
         f.write(f'func_name = "{func_name}"\n')
         f.write(f'compiler_type = "{compiler_type}"\n\n')
 
         f.write("# uncomment lines below to customize the weights\n")
-        f.write("# run --help=randomization to see doc\n")
-        f.write("[custom_weights]\n")
-        for randomization_type, weight in base_weights.items():
-            if randomization_type in compiler_weights:
-                weight = compiler_weights[randomization_type]
-            f.write("# " + randomization_type + " = " + str(weight) + "\n")
+        f.write("# see README.md\n")
+        f.write("[weight_overrides]\n")
+        for randomization_type, weight in rand_weights.items():
+            f.write(f"# {randomization_type} = {weight}\n")
 
 
 def write_to_file(cont: str, filename: str) -> None:

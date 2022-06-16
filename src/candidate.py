@@ -57,8 +57,7 @@ class Candidate:
         source: str,
         eval_state: EvalState,
         fn_name: str,
-        settings: Optional[Mapping[str, Any]],
-        weights: Mapping[str, Any],
+        randomization_weights: Mapping[str, float],
         rng_seed: int,
     ) -> "Candidate":
         # Use the same AST for all instances of the same original source, but
@@ -75,7 +74,7 @@ class Candidate:
             ast=ast,
             fn_index=fn_index,
             rng_seed=rng_seed,
-            randomizer=Randomizer(settings, weights, rng_seed),
+            randomizer=Randomizer(randomization_weights, rng_seed),
         )
 
     def randomize_ast(self) -> None:
