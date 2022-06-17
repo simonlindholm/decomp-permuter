@@ -36,6 +36,10 @@ perm_float_literal = 10
 perm_sameline = 10
 
 [mwcc]
-
+perm_compound_assignment = 0
+perm_empty_stmt = 0
+perm_struct_ref = 0
+perm_sameline = 0
+perm_xor_zero = 0
 
 [gcc]
