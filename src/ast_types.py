@@ -275,7 +275,11 @@ def build_typemap(ast: c_ast.FileAST) -> TypeMap:
 
         def visit_Decl(self, decl: c_ast.Decl) -> None:
             if decl.name is not None:
-                ret.var_types[decl.name] = get_decl_type(decl)
+                decl_type: Type = get_decl_type(decl)
+                ret.var_types[decl.name] = decl_type
+                if isinstance(decl_type.type, FuncDecl):
+                    ret.fn_ret_types[decl.name] = decl_type.type.type
+
             if not isinstance(decl.type, FuncDecl) or decl in defined_function_decls:
                 # Do not visit declarations in parameter lists of functions
                 # other than our own.
