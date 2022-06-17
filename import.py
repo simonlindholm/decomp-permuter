@@ -18,7 +18,7 @@ import urllib.parse
 from src import ast_util
 from src.compiler import Compiler
 from src.error import CandidateConstructionFailure
-from src.helpers import load_weights_from_file
+from src.helpers import get_default_randomization_weights
 
 is_macos = platform.system() == "Darwin"
 
@@ -649,7 +649,7 @@ def create_write_settings_toml(
     func_name: str, compiler_type: str, filename: str
 ) -> None:
 
-    rand_weights: Mapping[str, float] = load_weights_from_file(compiler_type)
+    rand_weights = get_default_randomization_weights(compiler_type)
 
     with open(filename, "w", encoding="utf-8") as f:
         f.write(f'func_name = "{func_name}"\n')
@@ -658,8 +658,8 @@ def create_write_settings_toml(
         f.write("# uncomment lines below to customize the weights\n")
         f.write("# see README.md\n")
         f.write("[weight_overrides]\n")
-        for randomization_type, weight in rand_weights.items():
-            f.write(f"# {randomization_type} = {weight}\n")
+        for key, weight in rand_weights.items():
+            f.write(f"# {key} = {weight}\n")
 
 
 def write_to_file(cont: str, filename: str) -> None:

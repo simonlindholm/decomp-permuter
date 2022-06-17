@@ -21,8 +21,7 @@ from ..compiler import Compiler
 from ..error import CandidateConstructionFailure
 from ..helpers import (
     exception_to_string,
-    load_settings_from_file,
-    load_weights_from_file,
+    get_default_randomization_weights,
     static_assert_unreachable,
 )
 from ..permuter import EvalError, EvalResult, Permuter
@@ -317,7 +316,7 @@ def main() -> None:
     should_remove: Set[str] = set()
     permuters: Dict[str, Permuter] = {}
 
-    randomization_weights: Mapping[str, float] = load_weights_from_file("base")
+    randomization_weights = get_default_randomization_weights("base")
 
     timestamp = 0
 

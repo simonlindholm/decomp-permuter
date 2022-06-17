@@ -10,7 +10,6 @@ import threading
 import time
 
 from typing import (
-    Any,
     Callable,
     Dict,
     Iterable,
@@ -19,14 +18,15 @@ from typing import (
     Mapping,
     Optional,
     Tuple,
+    cast,
 )
 
 from .candidate import CandidateResult
 from .compiler import Compiler
 from .error import CandidateConstructionFailure
 from .helpers import (
-    load_settings_from_file,
-    load_weights_from_file,
+    get_settings,
+    get_default_randomization_weights,
     plural,
     static_assert_unreachable,
     trim_source,
@@ -300,27 +300,25 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             print(f"{compile_cmd} must be marked executable.", file=sys.stderr)
             sys.exit(1)
 
-        settings: Mapping[str, Any] = load_settings_from_file(d)
+        settings: Mapping[str, object] = get_settings(d)
 
-        if settings:
-            compiler_type = settings.get("compiler_type", "base")
-            assert isinstance(compiler_type, str)
-        else:
-            compiler_type = "base"
+        compiler_type = settings.get("compiler_type", "base")
+        assert isinstance(compiler_type, str)
 
-        compiler_weights = load_weights_from_file(compiler_type)
-        weight_overrides = settings["weight_overrides"]
+        compiler_weights = get_default_randomization_weights(compiler_type)
+        weight_overrides = cast(Mapping[str, float], settings["weight_overrides"])
         final_weights: Dict[str, float] = {}
 
         # Merge compiler weights with user specified weights.
         for rand_type, compiler_weight in compiler_weights.items():
             if rand_type in weight_overrides:
-                final_weights[rand_type] = weight_overrides[rand_type]
+                assert isinstance(weight_overrides[rand_type], (int, float))
+                final_weights[rand_type] = float(weight_overrides[rand_type])
             else:
                 final_weights[rand_type] = compiler_weight
 
         fn_name: Optional[str] = None
-        if settings and "func_name" in settings:
+        if "func_name" in settings:
             assert isinstance(settings["func_name"], str)
             fn_name = settings["func_name"]
 

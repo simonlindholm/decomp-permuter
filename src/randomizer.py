@@ -2054,14 +2054,10 @@ class Randomizer:
         rng_seed: int,
     ) -> None:
         self.random = Random(rng_seed)
-
-        def create_method_weight_pair(
-            method: RandomizationPass,
-        ) -> Tuple[RandomizationPass, float]:
-            func_name = method.__name__
-            return (method, randomization_weights[func_name])
-
-        self.methods = list(map(create_method_weight_pair, RANDOMIZATION_PASSES))
+        self.methods = [
+            (method, randomization_weights[method.__name__])
+            for method in RANDOMIZATION_PASSES
+        ]
 
     def randomize(self, ast: ca.FileAST, fn_index: int) -> None:
         fn = ast.ext[fn_index]

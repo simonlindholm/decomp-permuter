@@ -1,6 +1,6 @@
 import os
 import toml
-from typing import NoReturn, Mapping, Any, Optional, Dict
+from typing import NoReturn, Mapping, Optional, Dict
 
 
 def plural(n: int, noun: str) -> str:
@@ -32,20 +32,21 @@ def trim_source(source: str, fn_name: str) -> str:
     return source
 
 
-def load_weights_from_file(compiler_type: str) -> Mapping[str, float]:
+def get_default_randomization_weights(compiler_type: str) -> Mapping[str, float]:
     weights: Dict[str, float] = {}
     with open("default_weights.toml") as f:
         all_weights = toml.load(f)
         base_weights = all_weights["base"]
         compiler_weights = all_weights[compiler_type]
-        for randomization_type, weight in base_weights.items():
-            if randomization_type in compiler_weights:
-                weight = compiler_weights[randomization_type]
-            weights[randomization_type] = weight
+        for key, weight in base_weights.items():
+            if key in compiler_weights:
+                weight = compiler_weights[key]
+            assert isinstance(weight, (int, float))
+            weights[key] = float(weight)
         return weights
 
 
-def load_settings_from_file(dir: str) -> Mapping[str, object]:
+def get_settings(dir: str) -> Mapping[str, object]:
     try:
         with open(os.path.join(dir, "settings.toml")) as f:
             return toml.load(f)
