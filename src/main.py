@@ -9,17 +9,7 @@ import sys
 import threading
 import time
 
-from typing import (
-    Callable,
-    Dict,
-    Iterable,
-    Iterator,
-    List,
-    Mapping,
-    Optional,
-    Tuple,
-    cast,
-)
+from typing import Callable, Dict, Iterable, Iterator, List, Mapping, Optional, Tuple
 
 from .candidate import CandidateResult
 from .compiler import Compiler
@@ -306,7 +296,8 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         assert isinstance(compiler_type, str)
 
         compiler_weights = get_default_randomization_weights(compiler_type)
-        weight_overrides = cast(Mapping[str, float], settings["weight_overrides"])
+        weight_overrides = settings.get("weight_overrides", {})
+        assert isinstance(weight_overrides, Mapping)
         final_weights: Dict[str, float] = {}
 
         # Merge compiler weights with user specified weights.

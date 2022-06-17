@@ -35,14 +35,19 @@ def trim_source(source: str, fn_name: str) -> str:
 def get_default_randomization_weights(compiler_type: str) -> Mapping[str, float]:
     weights: Dict[str, float] = {}
     with open("default_weights.toml") as f:
-        all_weights = toml.load(f)
-        base_weights = all_weights["base"]
-        compiler_weights = all_weights[compiler_type]
+        all_weights: Mapping[str, object] = toml.load(f)
+
+        base_weights = all_weights.get("base", {})
+        assert isinstance(base_weights, Mapping)
+        compiler_weights = all_weights.get(compiler_type, {})
+        assert isinstance(compiler_weights, Mapping)
+
         for key, weight in base_weights.items():
             if key in compiler_weights:
                 weight = compiler_weights[key]
             assert isinstance(weight, (int, float))
             weights[key] = float(weight)
+
         return weights
 
 
