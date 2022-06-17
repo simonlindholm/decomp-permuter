@@ -2054,6 +2054,10 @@ class Randomizer:
         rng_seed: int,
     ) -> None:
         self.random = Random(rng_seed)
+
+        for method in RANDOMIZATION_PASSES:
+            assert method.__name__ in randomization_weights
+
         self.methods = [
             (method, randomization_weights[method.__name__])
             for method in RANDOMIZATION_PASSES
