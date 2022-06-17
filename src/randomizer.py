@@ -2056,7 +2056,9 @@ class Randomizer:
         self.random = Random(rng_seed)
 
         for method in RANDOMIZATION_PASSES:
-            assert method.__name__ in randomization_weights
+            if method.__name__ not in randomization_weights:
+                print(f"Error: missing {method.__name__} in randomization weights")
+                sys.exit(1)
 
         self.methods = [
             (method, randomization_weights[method.__name__])

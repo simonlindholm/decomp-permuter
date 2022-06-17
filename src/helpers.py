@@ -1,6 +1,7 @@
 import os
 import toml
-from typing import NoReturn, Mapping, Optional, Dict
+from typing import NoReturn, Mapping, Dict
+from .error import CandidateConstructionFailure
 
 
 def plural(n: int, noun: str) -> str:
@@ -39,12 +40,15 @@ def get_default_randomization_weights(compiler_type: str) -> Mapping[str, float]
 
         base_weights = all_weights.get("base", {})
         assert isinstance(base_weights, Mapping)
-        compiler_weights = all_weights.get(compiler_type, {})
+        if compiler_type not in all_weights:
+            raise CandidateConstructionFailure(
+                f"Unable to find compiler type {compiler_type} in default_weights.toml"
+            )
+        compiler_weights = all_weights[compiler_type]
         assert isinstance(compiler_weights, Mapping)
 
         for key, weight in base_weights.items():
-            if key in compiler_weights:
-                weight = compiler_weights[key]
+            weight = compiler_weights.get(key, weight)
             assert isinstance(weight, (int, float))
             weights[key] = float(weight)
 
