@@ -674,6 +674,10 @@ def download_decompme(url_str: str) -> None:
 
         func_name = response_json["name"]
         dirname = create_directory(func_name)
+
+        compile_script = f"{dirname}/compile.sh"
+        settings_file = f"{dirname}/settings.toml"
+
         content = urllib.request.urlopen(
             f"{DECOMPME_API_BASE}/api/scratch/{slug}/export"
         )
@@ -725,7 +729,7 @@ def download_decompme(url_str: str) -> None:
             sys.exit(1)
 
         compiler_settings = all_settings[compiler_id]
-        with open(f"{dirname}/compile.sh", "w") as f:
+        with open(compile_script, "w") as f:
             f.write("#!/usr/bin/env bash\n")
             f.write(f"cd {compiler_settings['PATH']}\n")
 
@@ -735,10 +739,11 @@ def download_decompme(url_str: str) -> None:
             compile_line += " -c -o $3 $1"
             f.write(compile_line)
 
-        os.chmod(
-            f"{dirname}/compile.sh",
-            os.stat(f"{dirname}/compile.sh").st_mode | stat.S_IEXEC,
-        )
+        os.chmod(compile_script, os.stat(compile_script).st_mode | stat.S_IEXEC)
+
+        compiler_type = compiler_settings.get("compiler_type", "base")
+
+        create_write_settings_toml(func_name, compiler_type, settings_file)
 
         print(
             f"Success!! Prepared new folder, {dirname}, that is ready for the permuter script! Run with 'python3 permuter.py {dirname} [additional_flags]'"
