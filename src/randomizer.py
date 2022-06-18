@@ -58,7 +58,9 @@ PROB_TEMP_PTR = 0.05
 
 # Instead of emitting an assignment statement, assign the temporary within the
 # first expression it's used in with this probability.
-PROB_TEMP_ASSIGN_AT_FIRST_USE = 0.1
+PROB_TEMP_ASSIGN_AT_FIRST_USE = 0.2
+
+PROB_REVERSE_CHAIN_CASE = 0.5
 
 # When creating a temporary for an expression, use the temporary for all equal
 # expressions with this probability.
@@ -385,6 +387,27 @@ def replace_subexprs(top_node: ca.Node, callback: Callable[[Expression], Any]) -
     visit_replace(top_node, expr_filter)
 
 
+def find_assignment_stmt_by_rvalue(
+    block: Block, expr: Expression
+) -> Optional[Statement]:
+
+    ret_stmt: Optional[Statement] = None
+
+    def rec(block: Block) -> None:
+        nonlocal ret_stmt
+        statements = ast_util.get_block_stmts(block, False)
+        for stmt in statements:
+            if isinstance(stmt, ca.Assignment):
+                if stmt.rvalue is expr:
+                    ret_stmt = stmt
+                    return None
+            ast_util.for_nested_blocks(stmt, rec)
+        return None
+
+    rec(block)
+    return ret_stmt
+
+
 def replace_node(top_node: ca.Node, old: ca.Node, new: ca.Node) -> None:
     visit_replace(top_node, lambda node, _: new if node is old else None)
 
@@ -661,7 +684,24 @@ def perm_temp_for_expr(
         expr = ca.UnaryOp("&", expr)
         type = decayed_expr_type(expr, typemap)
 
-    if should_make_ptr:
+    reverse_chain_case = False
+
+    # if ASSIGN_AT_FIRST_USE and expr is rvalue of an assignment
+    # then decide whether to flip the order of assignments in the chain assignment statement
+    if place is None:
+        if should_make_ptr:
+            assert isinstance(expr, ca.UnaryOp)
+            assert not isinstance(expr.expr, ca.Typename)
+            stmt = find_assignment_stmt_by_rvalue(fn.body, expr.expr)
+        else:
+            stmt = find_assignment_stmt_by_rvalue(fn.body, expr)
+
+        if stmt and random_bool(random, PROB_REVERSE_CHAIN_CASE):
+            assert isinstance(stmt, ca.Assignment)
+            expr = stmt.lvalue
+            reverse_chain_case = True
+
+    if should_make_ptr and not reverse_chain_case:
         assert isinstance(expr, ca.UnaryOp)
         assert not isinstance(expr.expr, ca.Typename)
         orig_expr = expr.expr
@@ -712,18 +752,19 @@ def perm_temp_for_expr(
     else:
         replace_subexprs(fn.body, find_duplicates)
 
-    assert orig_expr in replace_cands
     replace_cand_set: Set[Expression] = set()
     if random_bool(random, PROB_TEMP_REPLACE_ALL):
         replace_cand_set.update(replace_cands)
-    elif random_bool(random, PROB_TEMP_REPLACE_MOST):
-        index = replace_cands.index(orig_expr)
-        if random_bool(random, 0.5):
-            replace_cand_set.update(replace_cands[: index + 1])
+    elif not reverse_chain_case:
+        if random_bool(random, PROB_TEMP_REPLACE_MOST):
+            assert orig_expr in replace_cands
+            index = replace_cands.index(orig_expr)
+            if random_bool(random, 0.5):
+                replace_cand_set.update(replace_cands[: index + 1])
+            else:
+                replace_cand_set.update(replace_cands[index:])
         else:
-            replace_cand_set.update(replace_cands[index:])
-    else:
-        replace_cand_set.add(orig_expr)
+            replace_cand_set.add(orig_expr)
 
     if random_bool(random, 0.5):
         for cand in replace_cands:
@@ -742,6 +783,16 @@ def perm_temp_for_expr(
         return None
 
     replace_subexprs(fn.body, replacer)
+
+    if reverse_chain_case:
+        assert isinstance(stmt, ca.Assignment)
+        new_lvalue: Expression
+        if should_make_ptr:
+            new_lvalue = ca.UnaryOp("*", ca.ID(var))
+        else:
+            new_lvalue = ca.ID(var)
+        stmt.rvalue = ca.Assignment("=", stmt.lvalue, stmt.rvalue)
+        stmt.lvalue = new_lvalue
 
     # Step 6: insert the assignment and any new variable declaration
     if place is not None:
