@@ -22,7 +22,6 @@ StructUnion = Union[c_ast.Struct, c_ast.Union]
 @dataclass
 class TypeMap:
     typedefs: Dict[str, Type] = field(default_factory=dict)
-    fn_ret_types: Dict[str, Type] = field(default_factory=dict)
     var_types: Dict[str, Type] = field(default_factory=dict)
     struct_defs: Dict[str, StructUnion] = field(default_factory=dict)
 
@@ -173,17 +172,12 @@ def expr_type(node: c_ast.Node, typemap: TypeMap) -> Type:
             return basic_type("int")
     if isinstance(node, c_ast.FuncCall):
         expr = node.name
-        if isinstance(expr, c_ast.ID):
-            if expr.name not in typemap.fn_ret_types:
-                raise Exception(f"Called function {expr.name} is missing a prototype")
-            return typemap.fn_ret_types[expr.name]
-        else:
-            fptr_type = resolve_typedefs(rec(expr), typemap)
-            if isinstance(fptr_type, PtrDecl):
-                fptr_type = fptr_type.type
-            fptr_type = resolve_typedefs(fptr_type, typemap)
-            assert isinstance(fptr_type, FuncDecl), "call to non-function"
-            return fptr_type.type
+        fptr_type = resolve_typedefs(rec(expr), typemap)
+        if isinstance(fptr_type, PtrDecl):
+            fptr_type = fptr_type.type
+        fptr_type = resolve_typedefs(fptr_type, typemap)
+        assert isinstance(fptr_type, FuncDecl), "call to non-function"
+        return fptr_type.type
     if isinstance(node, c_ast.ExprList):
         return rec(node.exprs[-1])
     if isinstance(node, c_ast.ArrayRef):
@@ -253,13 +247,6 @@ def build_typemap(ast: c_ast.FileAST) -> TypeMap:
     for item in ast.ext:
         if isinstance(item, c_ast.Typedef):
             ret.typedefs[item.name] = item.type
-        if isinstance(item, c_ast.FuncDef):
-            assert item.decl.name is not None, "cannot define anonymous function"
-            assert isinstance(item.decl.type, FuncDecl)
-            ret.fn_ret_types[item.decl.name] = item.decl.type.type
-        if isinstance(item, c_ast.Decl) and isinstance(item.type, FuncDecl):
-            assert item.name is not None, "cannot define anonymous function"
-            ret.fn_ret_types[item.name] = item.type.type
     defined_function_decls: Set[c_ast.Decl] = set()
 
     class Visitor(c_ast.NodeVisitor):
