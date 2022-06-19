@@ -743,6 +743,13 @@ def main() -> None:
 
     assert isinstance(compiler_type, str)
 
+    if compiler_type is "base":
+        print(
+            """Warning: Compiler type is missing from this project's permuter settings. 
+        Defaulting to base compiler randomization settings. For best permtuation results, 
+        please set 'compiler_type' in this project's permuter_settings.toml  """
+        )
+
     func_name, asm_cont = parse_asm(args.asm_file)
     print(f"Function name: {func_name}")
 

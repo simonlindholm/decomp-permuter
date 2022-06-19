@@ -38,12 +38,9 @@ build_system = "ninja"
 ```
 Then `import.py` should work as expected if `build.ninja` is at the root of the project.
 
-All of the possible randomizations are assigned a weight value that affects the probability/frequency that the randomization is chosen.
-These weights are specific to the type of compiler because different randomizations are more or less helpful depending on the compiler.
-A list of the default weights and compiler specific weights are listed in default_weights.toml.
-Additionally, it is recommended to set the compiler type in the settings.toml file in the input directory, in practice this is done by setting the compiler type in permuter_settings.toml of the project you are matching.
-You can override the set weight values for a specific function by setting the weights for each pass type individually in the settings.toml file in the input dir.
-When using import.py it will generate comment lines for customizing that functions weights as reference.
+All of the possible randomizations are assigned a weight value that affects the frequency with which the randomization is chosen.
+The default set of weights is specified in `default_weights.toml` and vary based on the targeted compiler.
+These weights can be overridden by modifying `settings.toml` in the input directory.
 
 The .c file may be modified with any of the following macros which affect manual permutation:
 

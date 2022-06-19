@@ -11,7 +11,7 @@ from tempfile import mkstemp
 import threading
 import time
 import traceback
-from typing import Any, Counter, Dict, List, Mapping, Optional, Set, Tuple, Union
+from typing import Counter, Dict, List, Mapping, Optional, Set, Tuple, Union
 import zlib
 
 from nacl.secret import SecretBox
@@ -316,6 +316,7 @@ def main() -> None:
     should_remove: Set[str] = set()
     permuters: Dict[str, Permuter] = {}
 
+    # TODO pass weights across the network
     randomization_weights = get_default_randomization_weights("base")
 
     timestamp = 0

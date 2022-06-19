@@ -1,7 +1,7 @@
 import copy
 from dataclasses import dataclass, field
 import functools
-from typing import Any, Mapping, Optional, Tuple
+from typing import Mapping, Optional, Tuple
 
 from pycparser import c_ast as ca
 

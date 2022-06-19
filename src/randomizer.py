@@ -1,8 +1,6 @@
 import bisect
 import copy
-import os
 import sys
-import toml
 from dataclasses import dataclass, field
 from random import Random
 import typing
@@ -2057,7 +2055,9 @@ class Randomizer:
 
         for method in RANDOMIZATION_PASSES:
             if method.__name__ not in randomization_weights:
-                print(f"Error: missing {method.__name__} in randomization weights")
+                print(
+                    f"Error: missing value for {method.__name__} in default_weights.toml"
+                )
                 sys.exit(1)
 
         self.methods = [
