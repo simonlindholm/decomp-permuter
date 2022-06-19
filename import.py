@@ -11,13 +11,14 @@ import shutil
 import subprocess
 import sys
 import toml
-from typing import Callable, Dict, List, Match, Mapping, Optional, Pattern, Set, Tuple
+from typing import Callable, Dict, List, Match, Mapping, Optional, Pattern, Tuple
 import urllib.request
 import urllib.parse
 
 from src import ast_util
 from src.compiler import Compiler
 from src.error import CandidateConstructionFailure
+from src.helpers import get_default_randomization_weights
 
 is_macos = platform.system() == "Darwin"
 
@@ -644,6 +645,23 @@ def compile_base(compile_script: str, source: str, c_file: str, out_file: str) -
         print("Warning: failed to compile .c file.")
 
 
+def create_write_settings_toml(
+    func_name: str, compiler_type: str, filename: str
+) -> None:
+
+    rand_weights = get_default_randomization_weights(compiler_type)
+
+    with open(filename, "w", encoding="utf-8") as f:
+        f.write(f'func_name = "{func_name}"\n')
+        f.write(f'compiler_type = "{compiler_type}"\n\n')
+
+        f.write("# uncomment lines below to customize the weights\n")
+        f.write("# see README.md\n")
+        f.write("[weight_overrides]\n")
+        for key, weight in rand_weights.items():
+            f.write(f"# {key} = {weight}\n")
+
+
 def write_to_file(cont: str, filename: str) -> None:
     with open(filename, "w", encoding="utf-8") as f:
         f.write(cont)
@@ -717,10 +735,23 @@ def main() -> None:
                 settings = toml.load(f)
             break
 
+    compiler_type = settings.get("compiler_type", "base")
     build_system = settings.get("build_system", "make")
     compiler = settings.get("compiler_command")
     assembler = settings.get("assembler_command")
     make_flags = args.make_flags
+
+    compiler_type = settings.get("compiler_type")
+    if compiler_type is not None:
+        assert isinstance(compiler_type, str)
+        print(f"Compiler type: {compiler_type}")
+    else:
+        compiler_type = "base"
+        print(
+            "Warning: Compiler type is missing from this project's permuter settings.\n"
+            "Defaulting to base compiler randomization settings. For best permutation results,\n"
+            "please set 'compiler_type' in this project's permuter_settings.toml."
+        )
 
     func_name, asm_cont = parse_asm(args.asm_file)
     print(f"Function name: {func_name}")
@@ -783,11 +814,11 @@ def main() -> None:
     target_s_file = f"{dirname}/target.s"
     target_o_file = f"{dirname}/target.o"
     compile_script = f"{dirname}/compile.sh"
-    func_name_file = f"{dirname}/function.txt"
+    settings_file = f"{dirname}/settings.toml"
 
     try:
         write_to_file(source, base_c_file)
-        write_to_file(func_name, func_name_file)
+        create_write_settings_toml(func_name, compiler_type, settings_file)
         write_compile_command(compiler, root_dir, compile_script)
         write_asm(asm_cont, target_s_file)
         compile_asm(assembler, root_dir, target_s_file, target_o_file)

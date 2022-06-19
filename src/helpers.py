@@ -1,5 +1,7 @@
 import os
-from typing import NoReturn
+import toml
+from typing import NoReturn, Mapping, Dict
+from .error import CandidateConstructionFailure
 
 
 def plural(n: int, noun: str) -> str:
@@ -29,3 +31,33 @@ def trim_source(source: str, fn_name: str) -> str:
         if new_index != -1:
             return source[new_index:]
     return source
+
+
+def get_default_randomization_weights(compiler_type: str) -> Mapping[str, float]:
+    weights: Dict[str, float] = {}
+    with open("default_weights.toml") as f:
+        all_weights: Mapping[str, object] = toml.load(f)
+
+        base_weights = all_weights.get("base", {})
+        assert isinstance(base_weights, Mapping)
+        if compiler_type not in all_weights:
+            raise CandidateConstructionFailure(
+                f"Unable to find compiler type {compiler_type} in default_weights.toml"
+            )
+        compiler_weights = all_weights[compiler_type]
+        assert isinstance(compiler_weights, Mapping)
+
+        for key, weight in base_weights.items():
+            weight = compiler_weights.get(key, weight)
+            assert isinstance(weight, (int, float))
+            weights[key] = float(weight)
+
+        return weights
+
+
+def get_settings(dir: str) -> Mapping[str, object]:
+    try:
+        with open(os.path.join(dir, "settings.toml")) as f:
+            return toml.load(f)
+    except FileNotFoundError:
+        return {}

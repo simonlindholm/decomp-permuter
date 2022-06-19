@@ -8,20 +8,19 @@ import queue
 import sys
 import threading
 import time
-from typing import (
-    Callable,
-    Dict,
-    Iterable,
-    Iterator,
-    List,
-    Optional,
-    Tuple,
-)
+
+from typing import Callable, Dict, Iterable, Iterator, List, Mapping, Optional, Tuple
 
 from .candidate import CandidateResult
 from .compiler import Compiler
 from .error import CandidateConstructionFailure
-from .helpers import plural, static_assert_unreachable, trim_source
+from .helpers import (
+    get_settings,
+    get_default_randomization_weights,
+    plural,
+    static_assert_unreachable,
+    trim_source,
+)
 from .net.client import start_client
 from .net.core import ServerError, connect, enable_debug_mode, MAX_PRIO, MIN_PRIO
 from .permuter import (
@@ -291,12 +290,35 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             print(f"{compile_cmd} must be marked executable.", file=sys.stderr)
             sys.exit(1)
 
+        settings: Mapping[str, object] = get_settings(d)
+
+        compiler_type = settings.get("compiler_type", "base")
+        assert isinstance(compiler_type, str)
+
+        compiler_weights = get_default_randomization_weights(compiler_type)
+        weight_overrides = settings.get("weight_overrides", {})
+        assert isinstance(weight_overrides, Mapping)
+        final_weights: Dict[str, float] = {}
+
+        # Merge compiler weights with user specified weights.
+        for rand_type, compiler_weight in compiler_weights.items():
+            if rand_type in weight_overrides:
+                assert isinstance(weight_overrides[rand_type], (int, float))
+                final_weights[rand_type] = float(weight_overrides[rand_type])
+            else:
+                final_weights[rand_type] = compiler_weight
+
         fn_name: Optional[str] = None
-        try:
-            with open(os.path.join(d, "function.txt"), encoding="utf-8") as f:
-                fn_name = f.read().strip()
-        except FileNotFoundError:
-            pass
+        if "func_name" in settings:
+            assert isinstance(settings["func_name"], str)
+            fn_name = settings["func_name"]
+
+        if not fn_name:
+            try:
+                with open(os.path.join(d, "function.txt"), encoding="utf-8") as f:
+                    fn_name = f.read().strip()
+            except FileNotFoundError:
+                pass
 
         if fn_name:
             print(f"{base_c} ({fn_name})")
@@ -321,6 +343,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
                 scorer,
                 base_c,
                 c_source,
+                final_weights,
                 force_seed=force_seed,
                 force_rng_seed=force_rng_seed,
                 keep_prob=options.keep_prob,

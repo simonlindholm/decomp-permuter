@@ -1,0 +1,5 @@
+func_name = "func_800123456"
+compiler_type = "ido" # examples: base, ido, mwcc, gcc
+
+[weight_overrides]
+perm_temp_for_expr = 100

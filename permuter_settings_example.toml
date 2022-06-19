@@ -3,6 +3,8 @@
 
 build_system = "ninja"
 
+compiler_type = "ido"
+
 [preserve_macros]
 "g[DS]P.*" = "void"
 "gDma.*" = "void"

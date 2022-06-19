@@ -20,7 +20,8 @@ You'll first need to install a couple of prerequisites: `python3 -m pip install 
 The permuter expects as input one or more directory containing:
   - a .c file with a single function,
   - a .o file to match,
-  - a .sh file that compiles the .c file.
+  - a .sh file that compiles the .c file,
+  - a .toml file specifying settings.
 
 For projects with a properly configured makefile, you should be able to set these up by running
 ```
@@ -34,6 +35,10 @@ For projects using Ninja instead of Make, add a `permuter_settings.toml` in the 
 build_system = "ninja"
 ```
 Then `import.py` should work as expected if `build.ninja` is at the root of the project.
+
+All of the possible randomizations are assigned a weight value that affects the frequency with which the randomization is chosen.
+The default set of weights is specified in `default_weights.toml` and vary based on the targeted compiler.
+These weights can be overridden by modifying `settings.toml` in the input directory.
 
 The .c file may be modified with any of the following macros which affect manual permutation:
 

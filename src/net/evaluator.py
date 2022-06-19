@@ -11,7 +11,7 @@ from tempfile import mkstemp
 import threading
 import time
 import traceback
-from typing import Counter, Dict, List, Optional, Set, Tuple, Union
+from typing import Counter, Dict, List, Mapping, Optional, Set, Tuple, Union
 import zlib
 
 from nacl.secret import SecretBox
@@ -19,7 +19,11 @@ from nacl.secret import SecretBox
 from ..candidate import CandidateResult
 from ..compiler import Compiler
 from ..error import CandidateConstructionFailure
-from ..helpers import exception_to_string, static_assert_unreachable
+from ..helpers import (
+    exception_to_string,
+    get_default_randomization_weights,
+    static_assert_unreachable,
+)
 from ..permuter import EvalError, EvalResult, Permuter
 from ..profiler import Profiler
 from ..scorer import Scorer
@@ -63,7 +67,9 @@ def _setup_port(secret: bytes) -> Port:
     return port
 
 
-def _create_permuter(data: PermuterData) -> Permuter:
+def _create_permuter(
+    data: PermuterData, randomization_weights: Mapping[str, float]
+) -> Permuter:
     fd, path = mkstemp(suffix=".o", prefix="permuter", text=False)
     try:
         with os.fdopen(fd, "wb") as f:
@@ -88,6 +94,7 @@ def _create_permuter(data: PermuterData) -> Permuter:
             scorer=scorer,
             source_file=data.filename,
             source=data.source,
+            randomization_weights=randomization_weights,
             force_seed=None,
             force_rng_seed=None,
             keep_prob=data.keep_prob,
@@ -308,6 +315,10 @@ def main() -> None:
     remaining_work: Counter[str] = Counter()
     should_remove: Set[str] = set()
     permuters: Dict[str, Permuter] = {}
+
+    # TODO pass weights across the network
+    randomization_weights = get_default_randomization_weights("base")
+
     timestamp = 0
 
     def try_remove(perm_id: str) -> None:
@@ -338,7 +349,7 @@ def main() -> None:
             try:
                 # Construct a permuter. This involves a compilation on the main
                 # thread, which isn't great but we can live with it for now.
-                permuter = _create_permuter(item.data)
+                permuter = _create_permuter(item.data, randomization_weights)
 
                 if permuter.base_score != item.data.base_score:
                     _remove_permuter(permuter)

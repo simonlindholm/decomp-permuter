@@ -1,5 +1,6 @@
 import bisect
 import copy
+import sys
 from dataclasses import dataclass, field
 from random import Random
 import typing
@@ -8,6 +9,7 @@ from typing import (
     Callable,
     Dict,
     List,
+    Mapping,
     Optional,
     Sequence,
     Set,
@@ -2009,47 +2011,67 @@ def perm_pad_var_decl(
     ast_util.insert_decl(fn, var, type, random)
 
 
+RandomizationPass = Callable[[ca.FuncDef, ca.FileAST, Indices, Region, Random], None]
+
+RANDOMIZATION_PASSES: List[RandomizationPass] = [
+    perm_temp_for_expr,
+    perm_expand_expr,
+    perm_reorder_stmts,
+    perm_add_mask,
+    perm_xor_zero,
+    perm_cast_simple,
+    perm_refer_to_var,
+    perm_float_literal,
+    perm_randomize_internal_type,
+    perm_randomize_external_type,
+    perm_randomize_function_type,
+    perm_split_assignment,
+    perm_sameline,
+    perm_ins_block,
+    perm_struct_ref,
+    perm_empty_stmt,
+    perm_condition,
+    perm_mult_zero,
+    perm_dummy_comma_expr,
+    perm_add_self_assignment,
+    perm_commutative,
+    perm_add_sub,
+    perm_inequalities,
+    perm_compound_assignment,
+    perm_remove_ast,
+    perm_duplicate_assignment,
+    perm_chain_assignment,
+    perm_pad_var_decl,
+]
+
+
 class Randomizer:
-    def __init__(self, rng_seed: int) -> None:
+    def __init__(
+        self,
+        randomization_weights: Mapping[str, float],
+        rng_seed: int,
+    ) -> None:
         self.random = Random(rng_seed)
+
+        for method in RANDOMIZATION_PASSES:
+            if method.__name__ not in randomization_weights:
+                print(
+                    f"Error: missing value for {method.__name__} in default_weights.toml"
+                )
+                sys.exit(1)
+
+        self.methods = [
+            (method, randomization_weights[method.__name__])
+            for method in RANDOMIZATION_PASSES
+        ]
 
     def randomize(self, ast: ca.FileAST, fn_index: int) -> None:
         fn = ast.ext[fn_index]
         assert isinstance(fn, ca.FuncDef)
         indices = ast_util.compute_node_indices(fn)
         region = get_randomization_region(fn, indices, self.random)
-        methods = [
-            (perm_temp_for_expr, 100),
-            (perm_expand_expr, 20),
-            (perm_reorder_stmts, 20),
-            (perm_add_mask, 15),
-            (perm_xor_zero, 10),
-            (perm_cast_simple, 10),
-            (perm_refer_to_var, 10),
-            (perm_float_literal, 10),
-            (perm_randomize_internal_type, 10),
-            (perm_randomize_external_type, 5),
-            (perm_randomize_function_type, 5),
-            (perm_split_assignment, 10),
-            (perm_sameline, 10),
-            (perm_ins_block, 10),
-            (perm_struct_ref, 10),
-            (perm_empty_stmt, 10),
-            (perm_condition, 10),
-            (perm_mult_zero, 5),
-            (perm_dummy_comma_expr, 5),
-            (perm_add_self_assignment, 5),
-            (perm_commutative, 5),
-            (perm_add_sub, 5),
-            (perm_inequalities, 5),
-            (perm_compound_assignment, 5),
-            (perm_remove_ast, 5),
-            (perm_duplicate_assignment, 5),
-            (perm_chain_assignment, 5),
-            (perm_pad_var_decl, 1),
-        ]
         while True:
-            method = random_weighted(self.random, methods)
+            method = random_weighted(self.random, self.methods)
             try:
                 method(fn, ast, indices, region, self.random)
                 break
