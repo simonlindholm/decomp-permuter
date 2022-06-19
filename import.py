@@ -741,13 +741,16 @@ def main() -> None:
     assembler = settings.get("assembler_command")
     make_flags = args.make_flags
 
-    assert isinstance(compiler_type, str)
-
-    if compiler_type is "base":
+    compiler_type = settings.get("compiler_type")
+    if compiler_type is not None:
+        assert isinstance(compiler_type, str)
+        print(f"Compiler type: {compiler_type}")
+    else:
+        compiler_type = "base"
         print(
-            """Warning: Compiler type is missing from this project's permuter settings. 
-        Defaulting to base compiler randomization settings. For best permtuation results, 
-        please set 'compiler_type' in this project's permuter_settings.toml  """
+            "Warning: Compiler type is missing from this project's permuter settings.\n"
+            "Defaulting to base compiler randomization settings. For best permutation results,\n"
+            "please set 'compiler_type' in this project's permuter_settings.toml."
         )
 
     func_name, asm_cont = parse_asm(args.asm_file)
