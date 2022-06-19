@@ -387,6 +387,8 @@ def prune_ast(fn: ca.FuncDef, ast: ca.FileAST) -> int:
             add_type_edges(item.type, i)
         elif isinstance(item, ca.Pragma) and "GLOBAL_ASM" in item.string:
             pass
+        elif item is not fn and isinstance(item, ca.FuncDef):
+            edges[item.decl.name].append(i)
         else:
             gc_roots.append(i)
 
