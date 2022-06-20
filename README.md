@@ -40,6 +40,13 @@ All of the possible randomizations are assigned a weight value that affects the 
 The default set of weights is specified in `default_weights.toml` and vary based on the targeted compiler.
 These weights can be overridden by modifying `settings.toml` in the input directory.
 
+## Using import.py with decomp.me
+import.py has an additional feature where it can prepare a directory for the permuter by downloading what it needs from a decomp.me scratch. 
+To use this feature all you must setup a TOML file, decompme_mappings.toml in the current working directory (root of this repository). This TOML file must contain a key that matches the decompme compiler identifier for each compiler you intend to use, and for each of those you must set the properties: PATH, EXE_NAME, and USE_WINE. (See example_decompme_mappings.toml)
+Then run: `python3 import.py https://decomp.me/scratch/AbC12`
+
+## Permutation macros
+
 The .c file may be modified with any of the following macros which affect manual permutation:
 
 - `PERM_GENERAL(a, b, ...)` expands to any of `a`, `b`, ...

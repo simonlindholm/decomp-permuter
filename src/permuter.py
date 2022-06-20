@@ -23,7 +23,7 @@ from .perm.eval import perm_evaluate_one, perm_gen_all_seeds
 from .perm.parse import perm_parse
 from .profiler import Profiler
 from .scorer import Scorer
-from .helpers import trim_source
+from .helpers import find_fns, trim_source
 
 
 @dataclass
@@ -103,7 +103,7 @@ class Permuter:
             # function name. This would ideally be done on AST level instead of on the
             # pre-macro'ed source code, but we don't care enough to make that
             # refactoring.
-            fns = _find_fns(source)
+            fns = find_fns(source)
             if len(fns) == 0:
                 raise Exception(f"{self.source_file} does not contain any function!")
             self.fn_name = fns[-1]
@@ -286,12 +286,3 @@ class Permuter:
         return "\n".join(
             difflib.unified_diff(a, b, fromfile="before", tofile="after", lineterm="")
         )
-
-
-def _find_fns(source: str) -> List[str]:
-    fns = re.findall(r"(\w+)\([^()\n]*\)\s*?{", source)
-    return [
-        fn
-        for fn in fns
-        if not fn.startswith("PERM") and fn not in ["if", "for", "switch", "while"]
-    ]

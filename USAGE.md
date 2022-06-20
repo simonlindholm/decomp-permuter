@@ -24,3 +24,4 @@ does all this for you. See README.md for more details.
   - `<dir>/compile.sh <dir>/base.c -o <dir>/base.o`
   - `./diff.sh <dir>/target.o <dir>/base.o`
 * `./permuter.py <dir>`
+
