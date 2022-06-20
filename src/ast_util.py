@@ -388,7 +388,7 @@ def prune_ast(fn: ca.FuncDef, ast: ca.FileAST) -> int:
         elif isinstance(item, ca.Pragma) and "GLOBAL_ASM" in item.string:
             pass
         elif item is not fn and isinstance(item, ca.FuncDef):
-            assert isinstance(item.decl.name, str)
+            assert item.decl.name is not None
             edges[item.decl.name].append(i)
         else:
             gc_roots.append(i)
