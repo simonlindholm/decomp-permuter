@@ -13,3 +13,4 @@ does all this for you. See README.md for more details.
   - `<dir>/compile.sh <dir>/base.c -o <dir>/base.o`
   - `./permuter.py <dir> --debug`
 * `./permuter.py <dir>`
+

@@ -1,4 +1,5 @@
 import os
+import re
 import toml
 from pathlib import Path
 import typing
@@ -26,6 +27,15 @@ def try_remove(path: str) -> None:
         os.remove(path)
     except FileNotFoundError:
         pass
+
+
+def find_fns(source: str) -> List[str]:
+    fns = re.findall(r"(\w+)\([^()\n]*\)\s*?{", source)
+    return [
+        fn
+        for fn in fns
+        if not fn.startswith("PERM") and fn not in ["if", "for", "switch", "while"]
+    ]
 
 
 def trim_source(source: str, fn_name: str) -> str:

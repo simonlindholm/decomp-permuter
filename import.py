@@ -4,6 +4,8 @@ import argparse
 from collections import defaultdict
 import json
 import os
+import stat
+import traceback
 import platform
 import re
 import shlex
@@ -11,6 +13,8 @@ import shutil
 import subprocess
 import sys
 import toml
+import zipfile
+from io import BytesIO
 from typing import Callable, Dict, List, Match, Mapping, Optional, Pattern, Tuple
 import urllib.request
 import urllib.parse
@@ -18,9 +22,12 @@ import urllib.parse
 from src import ast_util
 from src.compiler import Compiler
 from src.error import CandidateConstructionFailure
-from src.helpers import get_default_randomization_weights
+from src.helpers import get_default_randomization_weights, find_fns
 
 is_macos = platform.system() == "Darwin"
+
+DECOMPME_API_BASE: str = os.environ.get("DECOMPME_API_BASE", "https://decomp.me")
+DECOMPME_BASE: str = os.environ.get("DECOMPME_BASE", "https://decomp.me")
 
 
 def homebrew_gcc_cpp() -> str:
@@ -767,10 +774,146 @@ def write_to_file(cont: str, filename: str) -> None:
         f.write(cont)
 
 
+def download_decompme(url_str: str) -> None:
+
+    try:
+        parsed_url = urllib.parse.urlparse(url_str)
+        slug = parsed_url.path[1:].split("/")[1]
+    except Exception:
+        print(traceback.format_exc())
+        print(
+            f"Failed to parse decomp.me url, it should look like:  {DECOMPME_BASE}/scratch/<id>"
+        )
+        sys.exit(1)
+
+    try:
+        response_str = urllib.request.urlopen(f"{DECOMPME_API_BASE}/api/scratch/{slug}")
+        response_json = json.load(response_str)
+
+        decompme_name = response_json["name"]
+        dirname = create_directory(decompme_name)
+
+        compile_script = f"{dirname}/compile.sh"
+        settings_file = f"{dirname}/settings.toml"
+
+        content = urllib.request.urlopen(
+            f"{DECOMPME_API_BASE}/api/scratch/{slug}/export"
+        )
+        zip = zipfile.ZipFile(BytesIO(content.read()))
+        zip.extractall(dirname)
+    except Exception:
+        print(traceback.format_exc())
+        print("Failed to download function information from decomp.me")
+        sys.exit(1)
+
+    try:
+
+        # Read the original files from decompme
+        with open(f"{dirname}/ctx.c", "r") as f:
+            original_ctx = f.read()
+
+        with open(f"{dirname}/code.c", "r") as f:
+            original_source = f.read()
+
+        # Rename the originals
+        os.rename(f"{dirname}/code.c", f"{dirname}/original_code.c")
+        os.rename(f"{dirname}/ctx.c", f"{dirname}/original_ctx.c")
+
+        # Find the function name (assume last/only function)
+        fns = find_fns(original_source)
+        if len(fns) == 0:
+            raise Exception(f"original_code.c does not contain any function!")
+        fn_name = fns[-1]
+        print(f"Assuming {fn_name} is the target function!")
+
+        # Prune to only context the target function needs
+        temp_source = original_ctx + "\n\n" + original_source
+        write_to_file(temp_source, f"{dirname}/temp.c")
+        cpp_command = CPP + ["temp.c", "-D__sgi", "-D_LANGUAGE_C", "-DNON_MATCHING"]
+        no_macros_source = subprocess.check_output(
+            cpp_command + STUB_FN_MACROS,
+            cwd=dirname,
+            encoding="utf-8",
+            stderr=subprocess.DEVNULL,
+        )
+        source, context = prune_and_separate_context(no_macros_source, True, fn_name)
+
+        # Write out our base.c and ctx.h
+        write_to_file(context, f"{dirname}/ctx.h")
+        write_to_file('#include "ctx.h"\n' + source, f"{dirname}/base.c")
+
+    except Exception:
+        print(traceback.format_exc())
+        print("Exception occured while setting up base.c and ctx.h for the permuter")
+        sys.exit(1)
+
+    try:
+
+        compiler_id = response_json["compiler"].replace(".", "_")
+
+        if not os.path.exists("decompme_mappings.toml"):
+            print("decompme_mappings.toml not found")
+            print("See example_decompme_mappings.toml")
+            print("cp example_decompme_mappings.toml decompme_mappings.toml")
+            print("Then set specific properties for your compiler")
+            sys.exit(1)
+
+        with open("decompme_mappings.toml") as f:
+            all_settings = toml.load(f)
+
+        if compiler_id not in all_settings:
+            print(
+                f"Compiler {compiler_id} not found in decompme_compiler_mappings.toml"
+            )
+            print(
+                f"Add a new entry to this toml file, for this compiler: {compiler_id}"
+            )
+            print("See example_decompme_mappings.toml")
+            sys.exit(1)
+
+        compiler_settings = all_settings[compiler_id]
+        with open(compile_script, "w") as f:
+            f.write("#!/usr/bin/env bash\n")
+            f.write(f"cd {compiler_settings['PATH']}\n")
+
+            compile_line = "wine " if compiler_settings["USE_WINE"] else ""
+            compile_line += compiler_settings["EXE_NAME"] + " "
+            compile_line += response_json["compiler_flags"]
+            compile_line += " -c -o $3 $1"
+            f.write(compile_line)
+
+        os.chmod(compile_script, os.stat(compile_script).st_mode | stat.S_IEXEC)
+
+        compiler_type = compiler_settings.get("compiler_type", "base")
+
+        create_write_settings_toml(fn_name, compiler_type, settings_file)
+
+        print(
+            f"Success!! Prepared new folder, {dirname}, that is ready for the permuter script! Run with 'python3 permuter.py {dirname} [additional_flags]'"
+        )
+
+    except Exception:
+        print(traceback.format_exc())
+        print(
+            "Exception occured while creating a compile.sh for the permuter from decompme_mappings.toml and scratch settings"
+        )
+        sys.exit(1)
+
+
 def main() -> None:
+
+    if len(sys.argv) > 1 and sys.argv[1].startswith(DECOMPME_BASE):
+        download_decompme(sys.argv[1])
+        return
+
     parser = argparse.ArgumentParser(
         description="""Import a function for use with the permuter.
-        Will create a new directory nonmatchings/<funcname>-<id>/."""
+        Will create a new directory nonmatchings/<funcname>-<id>/.""",
+        epilog="""There is an alternative usage of this script where you 
+        provide a URL to a decompme scratch as the only argument. 
+        The script will download and prepare a new directory for the 
+        permuter using the data downloaded from that scratch.
+        Alternate usage:  import.py https://decomp.me/scratch/<id>""",
     )
     parser.add_argument(
         "c_file",
@@ -881,8 +1024,9 @@ def main() -> None:
     source = import_c_file(compiler, root_dir, args.c_file, preserve_macros)
 
     if args.decompme:
-        api_base = os.environ.get("DECOMPME_API_BASE", "https://decomp.me")
-        compiler_name = get_decompme_compiler_name(compiler, settings, api_base)
+        compiler_name = get_decompme_compiler_name(
+            compiler, settings, DECOMPME_API_BASE
+        )
         source, context = prune_and_separate_context(source, args.prune, func_name)
         print("Uploading...")
         try:
@@ -896,12 +1040,14 @@ def main() -> None:
                     "compiler_flags": get_compiler_flags(compiler),
                 }
             ).encode("ascii")
-            with urllib.request.urlopen(f"{api_base}/api/scratch", post_data) as f:
+            with urllib.request.urlopen(
+                f"{DECOMPME_API_BASE}/api/scratch", post_data
+            ) as f:
                 resp = f.read()
                 json_data: Dict[str, str] = json.loads(resp)
                 if "slug" in json_data:
                     slug = json_data["slug"]
-                    print(f"https://decomp.me/scratch/{slug}")
+                    print(f"{DECOMPME_BASE}/scratch/{slug}")
                 else:
                     error = json_data.get("error", resp)
                     print(f"Server error: {error}")
