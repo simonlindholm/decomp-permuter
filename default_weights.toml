@@ -43,3 +43,16 @@ perm_sameline = 0.5
 perm_xor_zero = 0.5
 
 [gcc]
+# The following passes were originally written with IDO in mind and are not beneficial for GCC
+perm_add_mask = 0.5
+perm_xor_zero = 0.5
+perm_refer_to_var = 0.5
+perm_float_literal = 0.5
+perm_sameline = 0.5
+perm_empty_stmt = 0.5
+perm_condition = 0.5
+perm_mult_zero = 0.5
+perm_dummy_comma_expr = 0.5
+perm_add_self_assignment = 0.5
+perm_duplicate_assignment = 0.5
+perm_pad_var_decl = 0.5
