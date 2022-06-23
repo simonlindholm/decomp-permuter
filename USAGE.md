@@ -20,7 +20,7 @@ does all this for you. See README.md for more details.
 .endm
 ```
 * `mips-linux-gnu-as -march=vr4300 -mabi=32 <dir>/target.s -o <dir>/target.o`
-* optional sanity checks:
+* optional sanity check:
   - `<dir>/compile.sh <dir>/base.c -o <dir>/base.o`
-  - `./diff.sh <dir>/target.o <dir>/base.o`
+  - `./permuter.py <dir> --debug`
 * `./permuter.py <dir>`
