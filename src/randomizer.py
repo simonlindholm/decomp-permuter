@@ -688,20 +688,14 @@ def perm_temp_for_expr(
 
     # if ASSIGN_AT_FIRST_USE and expr is rvalue of an assignment
     # then decide whether to flip the order of assignments in the chain assignment statement
-    if place is None:
-        if should_make_ptr:
-            assert isinstance(expr, ca.UnaryOp)
-            assert not isinstance(expr.expr, ca.Typename)
-            stmt = find_assignment_stmt_by_rvalue(fn.body, expr.expr)
-        else:
-            stmt = find_assignment_stmt_by_rvalue(fn.body, expr)
-
+    if place is None and not should_make_ptr:
+        stmt = find_assignment_stmt_by_rvalue(fn.body, expr)
         if stmt and random_bool(random, PROB_REVERSE_CHAIN_CASE):
             assert isinstance(stmt, ca.Assignment)
             expr = stmt.lvalue
             reverse_chain_case = True
 
-    if should_make_ptr and not reverse_chain_case:
+    if should_make_ptr:
         assert isinstance(expr, ca.UnaryOp)
         assert not isinstance(expr.expr, ca.Typename)
         orig_expr = expr.expr
@@ -786,13 +780,8 @@ def perm_temp_for_expr(
 
     if reverse_chain_case:
         assert isinstance(stmt, ca.Assignment)
-        new_lvalue: Expression
-        if should_make_ptr:
-            new_lvalue = ca.UnaryOp("*", ca.ID(var))
-        else:
-            new_lvalue = ca.ID(var)
         stmt.rvalue = ca.Assignment("=", stmt.lvalue, stmt.rvalue)
-        stmt.lvalue = new_lvalue
+        stmt.lvalue = ca.ID(var)
 
     # Step 6: insert the assignment and any new variable declaration
     if place is not None:
