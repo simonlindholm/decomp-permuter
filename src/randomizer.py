@@ -1941,21 +1941,20 @@ def perm_duplicate_assignment(
 def perm_chain_assignment(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> None:
-    """Combine two consecutive assignments into one chain assignment."""
+    """Combine two assignments into one chain assignment."""
     cands: List[Tuple[int, int, Block]] = []
 
     def rec(block: Block) -> None:
         statements = ast_util.get_block_stmts(block, False)
 
-        # Chance to create the chain assignment using a non conesecutive statement
-        if random_bool(random, 0.5):
-            shift_range = 1
-        else:
-            shift_range = random.randint(1, 5)
-
-        for shift in range(1, shift_range + 1):
-            zipped_stmts = zip(statements, statements[shift:])
-            for i, (stmt, next_stmt) in enumerate(zipped_stmts):
+        for i, stmt in enumerate(statements):
+            if (
+                not isinstance(stmt, ca.Assignment)
+                or not region.contains_node(stmt)
+                or ast_util.is_effectful(stmt.rvalue)
+            ):
+                continue
+            for j, next_stmt in enumerate(statements[i + 1 : i + 5], i + 1):
                 if (
                     region.contains_node(stmt)
                     and region.contains_node(next_stmt)
