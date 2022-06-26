@@ -712,20 +712,22 @@ def perm_temp_for_expr(
     else:
         replace_subexprs(fn.body, find_duplicates)
 
-    assert orig_expr in replace_cands
+    replace_cand_set: Set[Expression] = set()
     if random_bool(random, PROB_TEMP_REPLACE_ALL):
-        lo_index = 0
-        hi_index = len(replace_cands)
-    else:
+        replace_cand_set.update(replace_cands)
+    elif random_bool(random, PROB_TEMP_REPLACE_MOST):
+        assert orig_expr in replace_cands
         index = replace_cands.index(orig_expr)
-        lo_index = random.randint(0, index)
-        hi_index = random.randint(index + 1, len(replace_cands))
-        if random_bool(random, PROB_TEMP_REPLACE_MOST):
-            if random_bool(random, 0.5):
-                lo_index = 0
-            else:
-                hi_index = len(replace_cands)
-    replace_cand_set = set(replace_cands[lo_index:hi_index])
+        if random_bool(random, 0.5):
+            replace_cand_set.update(replace_cands[: index + 1])
+        else:
+            replace_cand_set.update(replace_cands[index:])
+    else:
+        replace_cand_set.add(orig_expr)
+
+    for cand in replace_cands:
+        if random_bool(random, 0.5):
+            replace_cand_set.add(cand)
 
     # Step 5: replace the chosen expression
     def replacer(e: Expression) -> Optional[Expression]:
