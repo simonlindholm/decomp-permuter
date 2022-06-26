@@ -1992,6 +1992,76 @@ def perm_chain_assignment(
     del statements[next_stmt_idx]
 
 
+def perm_long_chain_assignment(
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
+) -> None:
+    """Create a long chain assignment"""
+    cands: List[Tuple[int, int, Block]] = []
+
+    def rec(block: Block) -> None:
+        statements = ast_util.get_block_stmts(block, False)
+
+        i = 0
+        while len(statements) > i:
+            j = i + 1
+
+            stmt = statements[i]
+            if (
+                isinstance(stmt, ca.Assignment)
+                and region.contains_node(stmt)
+                and not ast_util.is_effectful(stmt.rvalue)
+            ):
+                while len(statements) > j:
+                    additional_stmt = statements[j]
+                    if (
+                        isinstance(additional_stmt, ca.Assignment)
+                        and ast_util.equal_ast(stmt.rvalue, additional_stmt.rvalue)
+                        and region.contains_node(additional_stmt)
+                    ):
+                        j += 1
+                    else:
+                        break
+
+                if j > i + 1:
+                    cands.append((i, j - 1, block))
+
+            i = j
+
+        for stmt in statements:
+            ast_util.for_nested_blocks(stmt, rec)
+
+    rec(fn.body)
+
+    ensure(cands)
+    start_idx, end_idx, block = random.choice(cands)
+
+    statements = ast_util.get_block_stmts(block, True)
+    print("--")
+    print(statements[start_idx])
+    print(statements[end_idx])
+
+    ensure(False)
+    stmt = statements[chosen_assignment_idx]
+    next_stmt = statements[chosen_assignment_idx + shift]
+
+    assert isinstance(stmt, ca.Assignment)
+    assert isinstance(next_stmt, ca.Assignment)
+
+    # Insert the new lvalue into left or right side of old lvalue
+    if random_bool(random, 0.5):  # Insert Left Side
+        new_lvalue = next_stmt.lvalue
+        new_rvalue = stmt
+    else:  # Insert Right Side
+        if isinstance(stmt.rvalue, ca.Assignment):
+            # TODO while or recursive loop to insert the var into any spot in the chain
+            pass
+        new_lvalue = stmt.lvalue
+        new_rvalue = ca.Assignment("=", next_stmt.lvalue, stmt.rvalue)
+
+    statements[chosen_assignment_idx] = ca.Assignment("=", new_lvalue, new_rvalue)
+    del statements[chosen_assignment_idx + 1]
+
+
 def perm_pad_var_decl(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> None:
@@ -2046,6 +2116,7 @@ RANDOMIZATION_PASSES: List[RandomizationPass] = [
     perm_remove_ast,
     perm_duplicate_assignment,
     perm_chain_assignment,
+    perm_long_chain_assignment,
     perm_pad_var_decl,
 ]
 
