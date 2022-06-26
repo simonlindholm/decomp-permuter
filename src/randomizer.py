@@ -60,8 +60,6 @@ PROB_TEMP_PTR = 0.05
 # first expression it's used in with this probability.
 PROB_TEMP_ASSIGN_AT_FIRST_USE = 0.2
 
-PROB_REVERSE_CHAIN_CASE = 0.5
-
 # When creating a temporary for an expression, use the temporary for all equal
 # expressions with this probability.
 PROB_TEMP_REPLACE_ALL = 0.2
@@ -690,7 +688,7 @@ def perm_temp_for_expr(
     # then decide whether to flip the order of assignments in the chain assignment statement
     if place is None and not should_make_ptr:
         stmt = find_assignment_stmt_by_rvalue(fn.body, expr)
-        if stmt and random_bool(random, PROB_REVERSE_CHAIN_CASE):
+        if stmt and random_bool(random, 0.5):
             assert isinstance(stmt, ca.Assignment)
             expr = stmt.lvalue
             reverse_chain_case = True
