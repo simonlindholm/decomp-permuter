@@ -1942,23 +1942,32 @@ def perm_chain_assignment(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> None:
     """Combine two consecutive assignments into one chain assignment."""
-    cands: List[Tuple[int, Block]] = []
+    cands: List[Tuple[int, int, Block]] = []
 
     def rec(block: Block) -> None:
         statements = ast_util.get_block_stmts(block, False)
-        for i, (stmt, next_stmt) in enumerate(zip(statements, statements[1:])):
-            if (
-                region.contains_node(stmt)
-                and region.contains_node(next_stmt)
-                and isinstance(stmt, ca.Assignment)
-                and isinstance(next_stmt, ca.Assignment)
-                and (
-                    ast_util.equal_ast(stmt.lvalue, next_stmt.rvalue)
-                    or ast_util.equal_ast(stmt.rvalue, next_stmt.rvalue)
-                )
-                and not ast_util.is_effectful(next_stmt.rvalue)
-            ):
-                cands.append((i, block))
+
+        # Chance to create the chain assignment using a non conesecutive statement
+        if random_bool(random, 0.5):
+            shift_range = 1
+        else:
+            shift_range = random.randint(1, 5)
+
+        for shift in range(1, shift_range + 1):
+            zipped_stmts = zip(statements, statements[shift:])
+            for i, (stmt, next_stmt) in enumerate(zipped_stmts):
+                if (
+                    region.contains_node(stmt)
+                    and region.contains_node(next_stmt)
+                    and isinstance(stmt, ca.Assignment)
+                    and isinstance(next_stmt, ca.Assignment)
+                    and (
+                        ast_util.equal_ast(stmt.lvalue, next_stmt.rvalue)
+                        or ast_util.equal_ast(stmt.rvalue, next_stmt.rvalue)
+                    )
+                    and not ast_util.is_effectful(next_stmt.rvalue)
+                ):
+                    cands.append((i, shift, block))
 
         for stmt in statements:
             ast_util.for_nested_blocks(stmt, rec)
@@ -1966,11 +1975,11 @@ def perm_chain_assignment(
     rec(fn.body)
 
     ensure(cands)
-    chosen_assignment_idx, block = random.choice(cands)
+    chosen_assignment_idx, shift, block = random.choice(cands)
 
     statements = ast_util.get_block_stmts(block, True)
     stmt = statements[chosen_assignment_idx]
-    next_stmt = statements[chosen_assignment_idx + 1]
+    next_stmt = statements[chosen_assignment_idx + shift]
 
     assert isinstance(stmt, ca.Assignment)
     assert isinstance(next_stmt, ca.Assignment)
@@ -1984,7 +1993,7 @@ def perm_chain_assignment(
         new_rvalue = ca.Assignment("=", next_stmt.lvalue, stmt.rvalue)
 
     statements[chosen_assignment_idx] = ca.Assignment("=", new_lvalue, new_rvalue)
-    del statements[chosen_assignment_idx + 1]
+    del statements[chosen_assignment_idx + shift]
 
 
 def perm_pad_var_decl(
