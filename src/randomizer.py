@@ -2022,7 +2022,7 @@ def perm_long_chain_assignment(
                     else:
                         break
 
-                if j > i + 1:
+                if j > i + 2:
                     cands.append((i, j - 1, block))
 
             i = j
