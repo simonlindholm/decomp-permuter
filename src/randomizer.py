@@ -1968,11 +1968,11 @@ def perm_chain_assignment(
     rec(fn.body)
 
     ensure(cands)
-    chosen_assignment_idx, shift, block = random.choice(cands)
+    chosen_assignment_idx, next_stmt_idx, block = random.choice(cands)
 
     statements = ast_util.get_block_stmts(block, True)
     stmt = statements[chosen_assignment_idx]
-    next_stmt = statements[chosen_assignment_idx + shift]
+    next_stmt = statements[next_stmt_idx]
 
     assert isinstance(stmt, ca.Assignment)
     assert isinstance(next_stmt, ca.Assignment)
@@ -1986,7 +1986,7 @@ def perm_chain_assignment(
         new_rvalue = ca.Assignment("=", next_stmt.lvalue, stmt.rvalue)
 
     statements[chosen_assignment_idx] = ca.Assignment("=", new_lvalue, new_rvalue)
-    del statements[chosen_assignment_idx + shift]
+    del statements[next_stmt_idx]
 
 
 def perm_pad_var_decl(
