@@ -1948,17 +1948,11 @@ def perm_chain_assignment(
         statements = ast_util.get_block_stmts(block, False)
 
         for i, stmt in enumerate(statements):
-            if (
-                not isinstance(stmt, ca.Assignment)
-                or not region.contains_node(stmt)
-                or ast_util.is_effectful(stmt.rvalue)
-            ):
+            if not isinstance(stmt, ca.Assignment) or not region.contains_node(stmt):
                 continue
             for j, next_stmt in enumerate(statements[i + 1 : i + 5], i + 1):
                 if (
-                    region.contains_node(stmt)
-                    and region.contains_node(next_stmt)
-                    and isinstance(stmt, ca.Assignment)
+                    region.contains_node(next_stmt)
                     and isinstance(next_stmt, ca.Assignment)
                     and (
                         ast_util.equal_ast(stmt.lvalue, next_stmt.rvalue)
@@ -1966,7 +1960,7 @@ def perm_chain_assignment(
                     )
                     and not ast_util.is_effectful(next_stmt.rvalue)
                 ):
-                    cands.append((i, shift, block))
+                    cands.append((i, j, block))
 
         for stmt in statements:
             ast_util.for_nested_blocks(stmt, rec)
