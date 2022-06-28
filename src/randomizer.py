@@ -2038,7 +2038,7 @@ def perm_long_chain_assignment(
     a = random.randint(start_idx, end_idx)
     b = random.randint(start_idx, end_idx)
     if a + 3 <= b:
-        start_idx, end_idxj = a, b
+        start_idx, end_idx = a, b
 
     statements = ast_util.get_block_stmts(block, True)
 
