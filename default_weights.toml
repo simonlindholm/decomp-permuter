@@ -29,7 +29,7 @@ perm_compound_assignment = 5
 perm_remove_ast = 5
 perm_duplicate_assignment = 5
 perm_chain_assignment = 5
-perm_long_chain_assignment = 1
+perm_long_chain_assignment = 3
 perm_pad_var_decl = 1
 
 [ido]
