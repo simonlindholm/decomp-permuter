@@ -1992,6 +1992,70 @@ def perm_chain_assignment(
     del statements[next_stmt_idx]
 
 
+def perm_long_chain_assignment(
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
+) -> None:
+    """Create a long chain assignment out of 3 or more consecutive assignments with equal rvalue"""
+    cands: List[Tuple[int, int, Block]] = []
+
+    def rec(block: Block) -> None:
+        statements = ast_util.get_block_stmts(block, False)
+
+        i = 0
+        while len(statements) > i:
+            j = i + 1
+
+            stmt = statements[i]
+            if (
+                isinstance(stmt, ca.Assignment)
+                and region.contains_node(stmt)
+                and not ast_util.is_effectful(stmt.rvalue)
+            ):
+                while len(statements) > j:
+                    additional_stmt = statements[j]
+                    if (
+                        isinstance(additional_stmt, ca.Assignment)
+                        and ast_util.equal_ast(stmt.rvalue, additional_stmt.rvalue)
+                        and region.contains_node(additional_stmt)
+                    ):
+                        j += 1
+                    else:
+                        break
+
+                if j > i + 2:
+                    cands.append((i, j, block))
+
+            i = j
+
+        for stmt in statements:
+            ast_util.for_nested_blocks(stmt, rec)
+
+    rec(fn.body)
+    ensure(cands)
+
+    start_idx, end_idx, block = random.choice(cands)
+
+    a = random.randint(start_idx, end_idx)
+    b = random.randint(start_idx, end_idx)
+    if a + 3 <= b:
+        start_idx, end_idx = a, b
+
+    statements = ast_util.get_block_stmts(block, True)
+
+    # Merge all statements into long chain assignment at start_idx
+    stmt = statements[start_idx]
+    assert isinstance(stmt, ca.Assignment)
+    for i in range(start_idx + 1, end_idx):
+        additional_stmt = statements[i]
+        assert isinstance(additional_stmt, ca.Assignment)
+        new_lvalue = additional_stmt.lvalue
+        stmt.rvalue = copy.deepcopy(stmt)
+        stmt.lvalue = new_lvalue
+
+    # Delete the extra statements
+    del statements[start_idx + 1 : end_idx]
+
+
 def perm_pad_var_decl(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> None:
@@ -2046,6 +2110,7 @@ RANDOMIZATION_PASSES: List[RandomizationPass] = [
     perm_remove_ast,
     perm_duplicate_assignment,
     perm_chain_assignment,
+    perm_long_chain_assignment,
     perm_pad_var_decl,
 ]
 
