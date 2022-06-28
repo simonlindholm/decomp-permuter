@@ -1995,7 +1995,7 @@ def perm_chain_assignment(
 def perm_long_chain_assignment(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> None:
-    """Create a long chain assignment"""
+    """Create a long chain assignment out of 3 or more consecutive assignments with equal rvalue"""
     cands: List[Tuple[int, int, Block]] = []
 
     def rec(block: Block) -> None:
@@ -2031,35 +2031,24 @@ def perm_long_chain_assignment(
             ast_util.for_nested_blocks(stmt, rec)
 
     rec(fn.body)
-
     ensure(cands)
+
     start_idx, end_idx, block = random.choice(cands)
-
     statements = ast_util.get_block_stmts(block, True)
-    print("--")
-    print(statements[start_idx])
-    print(statements[end_idx])
 
-    ensure(False)
-    stmt = statements[chosen_assignment_idx]
-    next_stmt = statements[chosen_assignment_idx + shift]
-
+    # Merge all statements into long chain assignment at start_idx
+    stmt = statements[start_idx]
     assert isinstance(stmt, ca.Assignment)
-    assert isinstance(next_stmt, ca.Assignment)
+    for i in range(start_idx + 1, end_idx + 1):
+        additional_stmt = statements[i]
+        assert isinstance(additional_stmt, ca.Assignment)
+        new_lvalue = additional_stmt.lvalue
+        stmt.rvalue = ca.Assignment("=", stmt.lvalue, stmt.rvalue)  # copy of stmt
+        stmt.lvalue = new_lvalue
 
-    # Insert the new lvalue into left or right side of old lvalue
-    if random_bool(random, 0.5):  # Insert Left Side
-        new_lvalue = next_stmt.lvalue
-        new_rvalue = stmt
-    else:  # Insert Right Side
-        if isinstance(stmt.rvalue, ca.Assignment):
-            # TODO while or recursive loop to insert the var into any spot in the chain
-            pass
-        new_lvalue = stmt.lvalue
-        new_rvalue = ca.Assignment("=", next_stmt.lvalue, stmt.rvalue)
-
-    statements[chosen_assignment_idx] = ca.Assignment("=", new_lvalue, new_rvalue)
-    del statements[chosen_assignment_idx + 1]
+    # Delete the extra statements
+    for i in reversed(range(start_idx + 1, end_idx + 1)):
+        del statements[i]
 
 
 def perm_pad_var_decl(
