@@ -2034,6 +2034,12 @@ def perm_long_chain_assignment(
     ensure(cands)
 
     start_idx, end_idx, block = random.choice(cands)
+
+    a = random.randint(start_idx, end_idx)
+    b = random.randint(start_idx, end_idx)
+    if a + 3 <= b:
+        start_idx, end_idxj = a, b
+
     statements = ast_util.get_block_stmts(block, True)
 
     # Merge all statements into long chain assignment at start_idx
