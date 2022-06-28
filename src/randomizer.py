@@ -2043,12 +2043,11 @@ def perm_long_chain_assignment(
         additional_stmt = statements[i]
         assert isinstance(additional_stmt, ca.Assignment)
         new_lvalue = additional_stmt.lvalue
-        stmt.rvalue = ca.Assignment("=", stmt.lvalue, stmt.rvalue)  # copy of stmt
+        stmt.rvalue = copy.deepcopy(stmt)
         stmt.lvalue = new_lvalue
 
     # Delete the extra statements
-    for i in reversed(range(start_idx + 1, end_idx + 1)):
-        del statements[i]
+    del statements[start_idx + 1 : end_idx + 1]
 
 
 def perm_pad_var_decl(
