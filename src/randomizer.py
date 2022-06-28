@@ -2023,7 +2023,7 @@ def perm_long_chain_assignment(
                         break
 
                 if j > i + 2:
-                    cands.append((i, j - 1, block))
+                    cands.append((i, j, block))
 
             i = j
 
@@ -2039,7 +2039,7 @@ def perm_long_chain_assignment(
     # Merge all statements into long chain assignment at start_idx
     stmt = statements[start_idx]
     assert isinstance(stmt, ca.Assignment)
-    for i in range(start_idx + 1, end_idx + 1):
+    for i in range(start_idx + 1, end_idx):
         additional_stmt = statements[i]
         assert isinstance(additional_stmt, ca.Assignment)
         new_lvalue = additional_stmt.lvalue
@@ -2047,7 +2047,7 @@ def perm_long_chain_assignment(
         stmt.lvalue = new_lvalue
 
     # Delete the extra statements
-    del statements[start_idx + 1 : end_idx + 1]
+    del statements[start_idx + 1 : end_idx]
 
 
 def perm_pad_var_decl(
