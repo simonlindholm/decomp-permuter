@@ -2080,6 +2080,33 @@ def perm_pad_var_decl(
     ast_util.insert_decl(fn, var, type, random)
 
 
+def perm_inline_get_structmember(
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
+) -> None:
+    """Creates an inline for accessing a struct member."""
+
+    print("perm_inline")
+
+    cands: List[ca.StructRef] = []
+
+    class Visitor(ca.NodeVisitor):
+        def visit_StructRef(self, node: ca.StructRef) -> None:
+            if region.contains_node(node):
+                cands.append(node)
+            self.generic_visit(node)
+
+    Visitor().visit(fn.body)
+    ensure(cands)
+
+    cand = random.choice(cands)
+
+    replace_node(
+        fn.body, cand, ca.FuncCall(ca.ID("getStructMember"), ca.ExprList([cand.name]))
+    )
+
+    # Now create the new inline function definition
+
+
 RandomizationPass = Callable[[ca.FuncDef, ca.FileAST, Indices, Region, Random], None]
 
 RANDOMIZATION_PASSES: List[RandomizationPass] = [
@@ -2112,6 +2139,7 @@ RANDOMIZATION_PASSES: List[RandomizationPass] = [
     perm_chain_assignment,
     perm_long_chain_assignment,
     perm_pad_var_decl,
+    perm_inline_get_structmember,
 ]
 
 
