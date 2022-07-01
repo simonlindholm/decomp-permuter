@@ -35,7 +35,7 @@ class Candidate:
 
     ast: ca.FileAST
 
-    fn: ca.FuncDef
+    fn_name: str
     rng_seed: int
     randomizer: Randomizer
     score_value: Optional[int] = field(init=False, default=None)
@@ -70,15 +70,16 @@ class Candidate:
         fn_copy = copy.deepcopy(orig_fn)
         ast.ext[fn_index] = fn_copy
         apply_ast_perms(fn_copy, eval_state)
+        assert fn_copy.decl.name
         return Candidate(
             ast=ast,
-            fn=fn_copy,
+            fn_name=fn_copy.decl.name,
             rng_seed=rng_seed,
             randomizer=Randomizer(randomization_weights, rng_seed),
         )
 
     def randomize_ast(self) -> None:
-        self.randomizer.randomize(self.ast, self.fn)
+        self.randomizer.randomize(self.ast, self.fn_name)
         self._cache_source = None
 
     def get_source(self) -> str:
