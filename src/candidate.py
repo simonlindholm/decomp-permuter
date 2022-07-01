@@ -78,7 +78,9 @@ class Candidate:
         )
 
     def randomize_ast(self) -> None:
-        self.randomizer.randomize(self.ast, self.fn_index)
+        new_fn_index = self.randomizer.randomize(self.ast, self.fn_index)
+        if new_fn_index:
+            self.fn_index = new_fn_index
         self._cache_source = None
 
     def get_source(self) -> str:

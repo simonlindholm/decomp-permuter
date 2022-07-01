@@ -2120,6 +2120,7 @@ def perm_inline_get_structmember(
         counter += 1
         new_inline_fn_name = f"get_{member_name}{counter}"
 
+    # Replace the StructRef with a FuncCall to the new inline yet to be created
     replace_node(
         fn.body, cand, ca.FuncCall(ca.ID(new_inline_fn_name), ca.ExprList([cand.name]))
     )
@@ -2134,9 +2135,6 @@ def perm_inline_get_structmember(
     elif isinstance(member_type, ca.TypeDecl):
         assert isinstance(member_type.type, ca.IdentifierType)
         member_type_str = member_type.type.names[0]
-    else:
-        print("This should not happen")
-        sys.exit(1)
 
     # Now create the new inline function definition
     ast.ext.insert(
@@ -2213,6 +2211,8 @@ RANDOMIZATION_PASSES: List[RandomizationPass] = [
     perm_inline_get_structmember,
 ]
 
+PASSES_MOD_FN_INDEX: List[RandomizationPass] = [perm_inline_get_structmember]
+
 
 class Randomizer:
     def __init__(
@@ -2234,7 +2234,7 @@ class Randomizer:
             for method in RANDOMIZATION_PASSES
         ]
 
-    def randomize(self, ast: ca.FileAST, fn_index: int) -> None:
+    def randomize(self, ast: ca.FileAST, fn_index: int) -> Optional[int]:
         fn = ast.ext[fn_index]
         assert isinstance(fn, ca.FuncDef)
         indices = ast_util.compute_node_indices(fn)
@@ -2243,6 +2243,10 @@ class Randomizer:
             method = random_weighted(self.random, self.methods)
             try:
                 method(fn, ast, indices, region, self.random)
+                if method in PASSES_MOD_FN_INDEX:
+                    return ast.ext.index(fn)
                 break
             except RandomizationFailure:
                 pass
+
+        return None
