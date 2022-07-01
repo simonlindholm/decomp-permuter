@@ -2211,8 +2211,6 @@ RANDOMIZATION_PASSES: List[RandomizationPass] = [
     perm_inline_get_structmember,
 ]
 
-PASSES_MOD_FN_INDEX: List[RandomizationPass] = [perm_inline_get_structmember]
-
 
 class Randomizer:
     def __init__(
@@ -2234,8 +2232,7 @@ class Randomizer:
             for method in RANDOMIZATION_PASSES
         ]
 
-    def randomize(self, ast: ca.FileAST, fn_index: int) -> Optional[int]:
-        fn = ast.ext[fn_index]
+    def randomize(self, ast: ca.FileAST, fn: ca.FuncDef) -> None:
         assert isinstance(fn, ca.FuncDef)
         indices = ast_util.compute_node_indices(fn)
         region = get_randomization_region(fn, indices, self.random)
@@ -2243,10 +2240,7 @@ class Randomizer:
             method = random_weighted(self.random, self.methods)
             try:
                 method(fn, ast, indices, region, self.random)
-                if method in PASSES_MOD_FN_INDEX:
-                    return ast.ext.index(fn)
+
                 break
             except RandomizationFailure:
                 pass
-
-        return None
