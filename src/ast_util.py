@@ -199,6 +199,34 @@ def is_lvalue(expr: Expression) -> bool:
     return False
 
 
+def find_parent_addressOP(block: Block, target_node: ca.Node) -> Optional[ca.UnaryOp]:
+    ret: Optional[ca.UnaryOp] = None
+
+    class Visitor(ca.NodeVisitor):
+        def visit_UnaryOp(self, node: ca.UnaryOp) -> None:
+            nonlocal ret
+            if node.op is "&" and node.expr is target_node:
+                ret = node
+            self.generic_visit(node)
+
+    Visitor().visit(block)
+    return ret
+
+
+def is_assignment_lvalue(block: Block, target_node: ca.Node) -> bool:
+    ret = False
+
+    class Visitor(ca.NodeVisitor):
+        def visit_Assignment(self, node: ca.Assignment) -> None:
+            nonlocal ret
+            if node.lvalue is target_node:
+                ret = True
+            self.generic_visit(node)
+
+    Visitor().visit(block)
+    return ret
+
+
 def is_effectful(expr: Expression) -> bool:
     found = False
 

@@ -2114,7 +2114,11 @@ def perm_inline_get_structmember(
 
     class Visitor(ca.NodeVisitor):
         def visit_StructRef(self, node: ca.StructRef) -> None:
-            if region.contains_node(node):
+            if (
+                region.contains_node(node)
+                and isinstance(node.name, ca.ID)
+                and not ast_util.is_assignment_lvalue(fn.body, node)
+            ):
                 cands.append(node)
             self.generic_visit(node)
 
@@ -2122,6 +2126,9 @@ def perm_inline_get_structmember(
     ensure(cands)
 
     cand = random.choice(cands)
+
+    parentOp: Optional[ca.UnaryOp] = ast_util.find_parent_addressOP(fn.body, cand)
+
     member_type: SimpleType = decayed_expr_type(cand, typemap)
     member_name = cand.field.name
 
@@ -2129,7 +2136,9 @@ def perm_inline_get_structmember(
 
     # Replace the StructRef with a FuncCall to the new inline yet to be created
     replace_node(
-        fn.body, cand, ca.FuncCall(ca.ID(new_inline_fn_name), ca.ExprList([cand.name]))
+        fn.body,
+        cand if not parentOp else parentOp,
+        ca.FuncCall(ca.ID(new_inline_fn_name), ca.ExprList([cand.name])),
     )
 
     # Now create the new inline function definition
@@ -2147,7 +2156,7 @@ def perm_inline_get_structmember(
             args=ca.ParamList(
                 [ca.Typename(name=None, quals=[], align=[], type=arg_type)]
             ),
-            type=member_type,
+            type=copy.deepcopy(member_type),
         ),
         init=None,
         bitsize=None,
@@ -2155,20 +2164,18 @@ def perm_inline_get_structmember(
 
     set_decl_name(fn_decl)
 
+    return_expr: Expression = ca.StructRef(
+        name=ca.ID(arg_type.type.declname),
+        type="->",
+        field=ca.ID(member_name),
+    )
+    if parentOp:
+        return_expr = ca.UnaryOp("&", return_expr)
+
     fn_def = ca.FuncDef(
         decl=fn_decl,
         param_decls=[],
-        body=ca.Compound(
-            block_items=[
-                ca.Return(
-                    ca.StructRef(
-                        name=ca.ID(arg_type.type.declname),
-                        type="->",
-                        field=ca.ID(member_name),
-                    )
-                )
-            ]
-        ),
+        body=ca.Compound(block_items=[ca.Return(return_expr)]),
     )
 
     # Insert the new inline just above the main function
