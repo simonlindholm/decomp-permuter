@@ -231,10 +231,13 @@ def multiprocess_worker(
             permuter_index, seed = queue_item
             permuter = permuters[permuter_index]
             result = permuter.try_eval_candidate(seed)
-            if isinstance(result, CandidateResult) and permuter.should_output(result):
-                permuter.record_result(result)
-            output_queue.put((WorkDone(permuter_index, result), -1, None))
-            output_queue.put((NeedMoreWork(), -1, None))
+            if result:
+                if isinstance(result, CandidateResult) and permuter.should_output(
+                    result
+                ):
+                    permuter.record_result(result)
+                output_queue.put((WorkDone(permuter_index, result), -1, None))
+                output_queue.put((NeedMoreWork(), -1, None))
     except KeyboardInterrupt:
         # Don't clutter the output with stack traces; Ctrl+C is the expected
         # way to quit and sends KeyboardInterrupt to all processes.
@@ -384,7 +387,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             heartbeat()
             permuter = context.permuters[permuter_index]
             result = permuter.try_eval_candidate(seed)
-            if post_score(context, permuter, result, None):
+            if result and post_score(context, permuter, result, None):
                 found_zero = True
                 if options.stop_on_zero:
                     break

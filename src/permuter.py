@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 import difflib
+import hashlib
 import itertools
 import random
 import re
@@ -13,6 +14,7 @@ from typing import (
     Optional,
     Tuple,
     Union,
+    Set,
 )
 
 from .candidate import Candidate, CandidateResult
@@ -50,6 +52,10 @@ class NeedMoreWork:
 
 
 class _CompileFailure(Exception):
+    pass
+
+
+class _DuplicateRandomization(Exception):
     pass
 
 
@@ -135,6 +141,7 @@ class Permuter:
         self.hashes = {self.base_hash}
         self._cur_cand: Optional[Candidate] = None
         self._last_score: Optional[int] = None
+        self._source_cache: Set[str] = set()
 
     def _create_and_score_base(self) -> Tuple[int, str, str]:
         base_source, eval_state = perm_evaluate_one(self._permutations)
@@ -196,7 +203,12 @@ class Permuter:
 
         t1 = time.time()
 
-        self._cur_cand.get_source()
+        cand_source = self._cur_cand.get_source()
+        hash = hashlib.sha256(cand_source.encode()).hexdigest()
+        if hash in self._source_cache:
+            raise _DuplicateRandomization()
+        else:
+            self._source_cache.add(hash)
 
         t2 = time.time()
 
@@ -261,10 +273,12 @@ class Permuter:
             return itertools.repeat(self._force_seed)
         return iter([self._force_seed])
 
-    def try_eval_candidate(self, seed: int) -> EvalResult:
+    def try_eval_candidate(self, seed: int) -> Optional[EvalResult]:
         """Evaluate a seed for the permuter."""
         try:
             return self._eval_candidate(seed)
+        except _DuplicateRandomization:
+            return None
         except _CompileFailure:
             return EvalError(exc_str=None, seed=self._cur_seed)
         except Exception:
