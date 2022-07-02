@@ -493,6 +493,29 @@ def get_insertion_points(
     return cands
 
 
+def get_noncolliding_fn_name(ast: ca.FileAST, fn_name: str) -> str:
+
+    used_names: Set[str] = set()
+
+    for item in ast.ext:
+        if (
+            isinstance(item, ca.Decl)
+            and isinstance(item.type, ca.FuncDecl)
+            and item.name
+        ):
+            used_names.add(item.name)
+        if isinstance(item, ca.FuncDef) and item.decl.name:
+            used_names.add(item.decl.name)
+
+    new_fn_name = fn_name
+    counter = 1
+    while new_fn_name in used_names:
+        counter += 1
+        new_fn_name = f"{new_fn_name}{counter}"
+
+    return new_fn_name
+
+
 def maybe_reuse_var(
     var: Optional[str],
     assign_before: ca.Node,
@@ -2083,22 +2106,11 @@ def perm_pad_var_decl(
 def perm_inline_get_structmember(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> None:
-    """Creates an inline for accessing a struct member."""
+    """Creates an inline function for accessing a struct member."""
 
     typemap = build_typemap(ast)
 
-    ext_fns: List[str] = []
     cands: List[ca.StructRef] = []
-
-    for item in ast.ext:
-        if (
-            isinstance(item, ca.Decl)
-            and isinstance(item.type, ca.FuncDecl)
-            and item.name
-        ):
-            ext_fns.append(item.name)
-        if isinstance(item, ca.FuncDef) and item.decl.name:
-            ext_fns.append(item.decl.name)
 
     class Visitor(ca.NodeVisitor):
         def visit_StructRef(self, node: ca.StructRef) -> None:
@@ -2110,70 +2122,57 @@ def perm_inline_get_structmember(
     ensure(cands)
 
     cand = random.choice(cands)
-    arg_type: SimpleType = decayed_expr_type(cand.name, typemap)
     member_type: SimpleType = decayed_expr_type(cand, typemap)
     member_name = cand.field.name
 
-    new_inline_fn_name = f"get_{member_name}"
-    counter = 1
-    while new_inline_fn_name in ext_fns:
-        counter += 1
-        new_inline_fn_name = f"get_{member_name}{counter}"
+    new_inline_fn_name = get_noncolliding_fn_name(ast, f"get_{member_name}")
 
     # Replace the StructRef with a FuncCall to the new inline yet to be created
     replace_node(
         fn.body, cand, ca.FuncCall(ca.ID(new_inline_fn_name), ca.ExprList([cand.name]))
     )
 
+    # Now create the new inline function definition
+    arg_type: SimpleType = decayed_expr_type(cand.name, typemap)
     assert isinstance(arg_type.type, ca.TypeDecl)
     assert arg_type.type.declname
 
-    if isinstance(member_type, ca.PtrDecl):
-        assert isinstance(member_type.type, ca.TypeDecl)
-        assert isinstance(member_type.type.type, ca.IdentifierType)
-        member_type_str = member_type.type.type.names[0] + "*"
-    elif isinstance(member_type, ca.TypeDecl):
-        assert isinstance(member_type.type, ca.IdentifierType)
-        member_type_str = member_type.type.names[0]
+    fn_decl = ca.Decl(
+        name=new_inline_fn_name,
+        quals=[],
+        align=[],
+        storage=[],
+        funcspec=["inline"],
+        type=ca.FuncDecl(
+            args=ca.ParamList(
+                [ca.Typename(name=None, quals=[], align=[], type=arg_type)]
+            ),
+            type=member_type,
+        ),
+        init=None,
+        bitsize=None,
+    )
 
-    # Now create the new inline function definition
-    ast.ext.insert(
-        ast.ext.index(fn),
-        ca.FuncDef(
-            decl=ca.Decl(
-                name=new_inline_fn_name,
-                quals=[],
-                align=[],
-                storage=[],
-                funcspec=["inline"],
-                type=ca.FuncDecl(
-                    ca.ParamList(
-                        [ca.Typename(name=None, quals=[], align=[], type=arg_type)]
-                    ),
-                    ca.TypeDecl(
-                        declname=new_inline_fn_name,
-                        quals=[],
-                        align=[],
-                        type=ca.IdentifierType(names=[member_type_str]),
-                    ),
-                ),
-                init=None,
-                bitsize=None,
-            ),
-            param_decls=[],
-            body=ca.Compound(
-                block_items=[
-                    ca.Return(
-                        ca.StructRef(
-                            name=ca.ID(arg_type.type.declname),
-                            type="->",
-                            field=ca.ID(member_name),
-                        )
+    set_decl_name(fn_decl)
+
+    fn_def = ca.FuncDef(
+        decl=fn_decl,
+        param_decls=[],
+        body=ca.Compound(
+            block_items=[
+                ca.Return(
+                    ca.StructRef(
+                        name=ca.ID(arg_type.type.declname),
+                        type="->",
+                        field=ca.ID(member_name),
                     )
-                ]
-            ),
+                )
+            ]
         ),
     )
+
+    # Insert the new inline just above the main function
+    ast.ext.insert(ast.ext.index(fn), fn_def)
 
 
 RandomizationPass = Callable[[ca.FuncDef, ca.FileAST, Indices, Region, Random], None]

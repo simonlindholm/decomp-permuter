@@ -70,10 +70,9 @@ class Candidate:
         fn_copy = copy.deepcopy(orig_fn)
         ast.ext[fn_index] = fn_copy
         apply_ast_perms(fn_copy, eval_state)
-        assert fn_copy.decl.name
         return Candidate(
             ast=ast,
-            fn_name=fn_copy.decl.name,
+            fn_name=fn_name,
             rng_seed=rng_seed,
             randomizer=Randomizer(randomization_weights, rng_seed),
         )
