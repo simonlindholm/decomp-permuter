@@ -32,6 +32,7 @@ from .helpers import trim_source
 class EvalError:
     exc_str: Optional[str]
     seed: Optional[Tuple[int, int]]
+    duplicate: bool
 
 
 EvalResult = Union[CandidateResult, EvalError]
@@ -281,11 +282,14 @@ class Permuter:
             return EvalError(
                 exc_str="Duplicate Source from Randomization - not scoring",
                 seed=self._cur_seed,
+                duplicate=True,
             )
         except _CompileFailure:
-            return EvalError(exc_str=None, seed=self._cur_seed)
+            return EvalError(exc_str=None, seed=self._cur_seed, duplicate=False)
         except Exception:
-            return EvalError(exc_str=traceback.format_exc(), seed=self._cur_seed)
+            return EvalError(
+                exc_str=traceback.format_exc(), seed=self._cur_seed, duplicate=False
+            )
 
     def diff(self, other_source: str) -> str:
         """Compute a unified white-space-ignoring diff from the (pretty-printed)
