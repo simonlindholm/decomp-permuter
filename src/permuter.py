@@ -273,12 +273,15 @@ class Permuter:
             return itertools.repeat(self._force_seed)
         return iter([self._force_seed])
 
-    def try_eval_candidate(self, seed: int) -> Optional[EvalResult]:
+    def try_eval_candidate(self, seed: int) -> EvalResult:
         """Evaluate a seed for the permuter."""
         try:
             return self._eval_candidate(seed)
         except _DuplicateRandomization:
-            return None
+            return EvalError(
+                exc_str="Duplicate Source from Randomization - not scoring",
+                seed=self._cur_seed,
+            )
         except _CompileFailure:
             return EvalError(exc_str=None, seed=self._cur_seed)
         except Exception:

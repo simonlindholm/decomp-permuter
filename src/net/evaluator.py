@@ -217,25 +217,22 @@ def multiprocess_worker(
 
         permuter = permuters[work.perm_id]
         result = permuter.try_eval_candidate(work.seed)
-        if result:
-            if isinstance(result, CandidateResult) and permuter.should_output(result):
-                permuter.record_result(result)
+        if isinstance(result, CandidateResult) and permuter.should_output(result):
+            permuter.record_result(result)
 
-            # Compress the source within the worker. (Why waste a free
-            # multi-threading opportunity?)
-            if isinstance(result, CandidateResult):
-                compressed_source: Optional[bytes] = None
-                if result.source is not None:
-                    compressed_source = zlib.compress(result.source.encode("utf-8"))
-                setattr(result, "compressed_source", compressed_source)
-                result.source = None
+        # Compress the source within the worker. (Why waste a free
+        # multi-threading opportunity?)
+        if isinstance(result, CandidateResult):
+            compressed_source: Optional[bytes] = None
+            if result.source is not None:
+                compressed_source = zlib.compress(result.source.encode("utf-8"))
+            setattr(result, "compressed_source", compressed_source)
+            result.source = None
 
-            time_us = int((time.time() - time_before) * 10 ** 6)
-            task_queue.put(
-                WorkDone(
-                    perm_id=work.perm_id, id=work.id, time_us=time_us, result=result
-                )
-            )
+        time_us = int((time.time() - time_before) * 10 ** 6)
+        task_queue.put(
+            WorkDone(perm_id=work.perm_id, id=work.id, time_us=time_us, result=result)
+        )
 
 
 def read_loop(task_queue: "Queue[Task]", port: Port) -> None:
