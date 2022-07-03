@@ -35,7 +35,7 @@ class Candidate:
 
     ast: ca.FileAST
 
-    fn_index: int
+    fn_name: str
     rng_seed: int
     randomizer: Randomizer
     score_value: Optional[int] = field(init=False, default=None)
@@ -72,13 +72,13 @@ class Candidate:
         apply_ast_perms(fn_copy, eval_state)
         return Candidate(
             ast=ast,
-            fn_index=fn_index,
+            fn_name=fn_name,
             rng_seed=rng_seed,
             randomizer=Randomizer(randomization_weights, rng_seed),
         )
 
     def randomize_ast(self) -> None:
-        self.randomizer.randomize(self.ast, self.fn_index)
+        self.randomizer.randomize(self.ast, self.fn_name)
         self._cache_source = None
 
     def get_source(self) -> str:

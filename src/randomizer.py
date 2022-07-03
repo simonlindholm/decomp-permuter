@@ -493,6 +493,25 @@ def get_insertion_points(
     return cands
 
 
+def get_noncolliding_name(ast: ca.FileAST, name: str) -> str:
+
+    used_names: Set[str] = set()
+
+    for item in ast.ext:
+        if isinstance(item, ca.Decl) and item.name:
+            used_names.add(item.name)
+        if isinstance(item, ca.FuncDef) and item.decl.name:
+            used_names.add(item.decl.name)
+
+    new_name = name
+    counter = 1
+    while new_name in used_names:
+        counter += 1
+        new_name = f"{new_name}{counter}"
+
+    return new_name
+
+
 def maybe_reuse_var(
     var: Optional[str],
     assign_before: ca.Node,
@@ -2080,6 +2099,76 @@ def perm_pad_var_decl(
     ast_util.insert_decl(fn, var, type, random)
 
 
+def perm_inline_get_structmember(
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
+) -> None:
+    """Creates an inline function for accessing a struct member."""
+
+    typemap = build_typemap(ast)
+
+    cands: List[Union[ca.StructRef, ca.UnaryOp]] = []
+    for expr in get_block_expressions(fn.body, region):
+        if isinstance(expr, ca.StructRef) and expr.type == "->":
+            cands.append(expr)
+        if (
+            isinstance(expr, ca.UnaryOp)
+            and expr.op is "&"
+            and isinstance(expr.expr, ca.StructRef)
+            and expr.expr.type == "->"
+        ):
+            cands.append(expr)
+
+    ensure(cands)
+    cand = random.choice(cands)
+
+    parent_op: Optional[ca.UnaryOp] = None
+    if isinstance(cand, ca.UnaryOp):
+        parent_op = cand
+        assert isinstance(parent_op.expr, ca.StructRef)
+        cand = parent_op.expr
+
+    member_type: SimpleType = decayed_expr_type(cand, typemap)
+    member_name = cand.field.name
+
+    new_inline_fn_name = get_noncolliding_name(ast, f"get_{member_name}")
+
+    # Replace the StructRef with a FuncCall to the new inline yet to be created
+    replace_node(
+        fn.body,
+        parent_op or cand,
+        ca.FuncCall(ca.ID(new_inline_fn_name), ca.ExprList([cand.name])),
+    )
+
+    # Now create the new inline function definition
+    arg_type: SimpleType = decayed_expr_type(cand.name, typemap)
+
+    fn_decl = ast_util.make_decl(
+        new_inline_fn_name,
+        ca.FuncDecl(
+            args=ca.ParamList([ast_util.make_decl("x", arg_type)]),
+            type=copy.deepcopy(member_type),
+        ),
+        funcspec=["inline"],
+    )
+
+    return_expr: Expression = ca.StructRef(
+        name=ca.ID("x"),
+        type="->",
+        field=ca.ID(member_name),
+    )
+    if parent_op:
+        return_expr = ca.UnaryOp("&", return_expr)
+
+    fn_def = ca.FuncDef(
+        decl=fn_decl,
+        param_decls=[],
+        body=ca.Compound(block_items=[ca.Return(return_expr)]),
+    )
+
+    # Insert the new inline just above the main function
+    ast.ext.insert(ast.ext.index(fn), fn_def)
+
+
 RandomizationPass = Callable[[ca.FuncDef, ca.FileAST, Indices, Region, Random], None]
 
 RANDOMIZATION_PASSES: List[RandomizationPass] = [
@@ -2112,6 +2201,7 @@ RANDOMIZATION_PASSES: List[RandomizationPass] = [
     perm_chain_assignment,
     perm_long_chain_assignment,
     perm_pad_var_decl,
+    perm_inline_get_structmember,
 ]
 
 
@@ -2135,9 +2225,8 @@ class Randomizer:
             for method in RANDOMIZATION_PASSES
         ]
 
-    def randomize(self, ast: ca.FileAST, fn_index: int) -> None:
-        fn = ast.ext[fn_index]
-        assert isinstance(fn, ca.FuncDef)
+    def randomize(self, ast: ca.FileAST, fn_name: str) -> None:
+        fn = ast_util.extract_fn(ast, fn_name)[0]
         indices = ast_util.compute_node_indices(fn)
         region = get_randomization_region(fn, indices, self.random)
         while True:

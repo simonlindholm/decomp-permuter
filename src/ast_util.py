@@ -234,21 +234,36 @@ def get_block_stmts(block: Block, force: bool) -> List[Statement]:
     return ret
 
 
+def make_decl(
+    name: str,
+    type: "ca.Type",
+    *,
+    quals: Optional[List[str]] = None,
+    align: Optional[List[ca.Alignas]] = None,
+    storage: Optional[List[str]] = None,
+    funcspec: Optional[List[str]] = None,
+    init: Optional[Union[Expression, ca.InitList]] = None,
+    bitsize: Optional[Expression] = None,
+) -> ca.Decl:
+    type = copy.deepcopy(type)
+    decl = ca.Decl(
+        name=name,
+        quals=quals or [],
+        align=align or [],
+        storage=storage or [],
+        funcspec=funcspec or [],
+        type=type,
+        init=init,
+        bitsize=bitsize,
+    )
+    set_decl_name(decl)
+    return decl
+
+
 def insert_decl(
     fn: ca.FuncDef, var: str, type: SimpleType, random: Optional[Random] = None
 ) -> None:
-    type = copy.deepcopy(type)
-    decl = ca.Decl(
-        name=var,
-        quals=[],
-        align=[],
-        storage=[],
-        funcspec=[],
-        type=type,
-        init=None,
-        bitsize=None,
-    )
-    set_decl_name(decl)
+    decl = make_decl(var, type)
     assert fn.body.block_items, "Non-empty function"
     for index, stmt in enumerate(fn.body.block_items):
         if not isinstance(stmt, ca.Decl):
