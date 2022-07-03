@@ -2108,27 +2108,24 @@ def perm_inline_get_structmember(
 
     cands: List[Union[ca.StructRef, ca.UnaryOp]] = []
     for expr in get_block_expressions(fn.body, region):
-        if isinstance(expr, ca.StructRef):
+        if isinstance(expr, ca.StructRef) and expr.type == "->":
             cands.append(expr)
         if (
             isinstance(expr, ca.UnaryOp)
             and expr.op is "&"
             and isinstance(expr.expr, ca.StructRef)
+            and expr.expr.type == "->"
         ):
             cands.append(expr)
 
     ensure(cands)
-
     cand = random.choice(cands)
 
-    ensure(cands)
-    cand = random.choice(cands)
-
-    parentOp: Optional[ca.UnaryOp] = None
+    parent_op: Optional[ca.UnaryOp] = None
     if isinstance(cand, ca.UnaryOp):
-        parentOp = cand
-        assert isinstance(parentOp.expr, ca.StructRef)
-        cand = parentOp.expr
+        parent_op = cand
+        assert isinstance(parent_op.expr, ca.StructRef)
+        cand = parent_op.expr
 
     member_type: SimpleType = decayed_expr_type(cand, typemap)
     member_name = cand.field.name
@@ -2138,48 +2135,30 @@ def perm_inline_get_structmember(
     # Replace the StructRef with a FuncCall to the new inline yet to be created
     replace_node(
         fn.body,
-        cand if not parentOp else parentOp,
+        parent_op or cand,
         ca.FuncCall(ca.ID(new_inline_fn_name), ca.ExprList([cand.name])),
     )
 
     # Now create the new inline function definition
     arg_type: SimpleType = decayed_expr_type(cand.name, typemap)
-    assert isinstance(arg_type.type, ca.TypeDecl)
-    assert arg_type.type.declname
 
-    theParam = ca.Decl(
-        name=None,
-        quals=[],
-        align=[],
-        storage=[],
-        funcspec=[],
-        type=arg_type,
-        init=None,
-        bitsize=None,
-    )
+    param = ast_util.make_decl("x", arg_type)
 
-    fn_decl = ca.Decl(
-        name=new_inline_fn_name,
-        quals=[],
-        align=[],
-        storage=[],
-        funcspec=["inline"],
-        type=ca.FuncDecl(
-            args=ca.ParamList([theParam]),
+    fn_decl = ast_util.make_decl(
+        new_inline_fn_name,
+        ca.FuncDecl(
+            args=ca.ParamList([param]),
             type=copy.deepcopy(member_type),
         ),
-        init=None,
-        bitsize=None,
+        funcspec=["inline"],
     )
 
-    set_decl_name(fn_decl)
-
     return_expr: Expression = ca.StructRef(
-        name=ca.ID(arg_type.type.declname),
+        name=ca.ID("x"),
         type="->",
         field=ca.ID(member_name),
     )
-    if parentOp:
+    if parent_op:
         return_expr = ca.UnaryOp("&", return_expr)
 
     fn_def = ca.FuncDef(
@@ -2256,7 +2235,6 @@ class Randomizer:
             method = random_weighted(self.random, self.methods)
             try:
                 method(fn, ast, indices, region, self.random)
-
                 break
             except RandomizationFailure:
                 pass
