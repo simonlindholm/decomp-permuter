@@ -237,6 +237,7 @@ def get_block_stmts(block: Block, force: bool) -> List[Statement]:
 def make_decl(
     name: str,
     type: "ca.Type",
+    *,
     quals: Optional[List[str]] = None,
     align: Optional[List[ca.Alignas]] = None,
     storage: Optional[List[str]] = None,
