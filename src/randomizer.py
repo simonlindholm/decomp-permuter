@@ -2106,26 +2106,29 @@ def perm_inline_get_structmember(
 
     typemap = build_typemap(ast)
 
-    cands: List[ca.StructRef] = []
+    cands: List[Union[ca.StructRef, ca.UnaryOp]] = []
+    for expr in get_block_expressions(fn.body, region):
+        if isinstance(expr, ca.StructRef):
+            cands.append(expr)
+        if (
+            isinstance(expr, ca.UnaryOp)
+            and expr.op is "&"
+            and isinstance(expr.expr, ca.StructRef)
+        ):
+            cands.append(expr)
 
-    class Visitor(ca.NodeVisitor):
-        def visit_BinaryOp(self, node: ca.BinaryOp) -> None:
-            self.visit(node.right)
+    ensure(cands)
 
-        def visit_Assignment(self, node: ca.Assignment) -> None:
-            self.visit(node.rvalue)
-
-        def visit_StructRef(self, node: ca.StructRef) -> None:
-            if region.contains_node(node) and isinstance(node.name, ca.ID):
-                cands.append(node)
-            self.generic_visit(node)
-
-    Visitor().visit(fn.body)
+    cand = random.choice(cands)
 
     ensure(cands)
     cand = random.choice(cands)
 
-    parentOp: Optional[ca.UnaryOp] = ast_util.find_parent_address_op(fn.body, cand)
+    parentOp: Optional[ca.UnaryOp] = None
+    if isinstance(cand, ca.UnaryOp):
+        parentOp = cand
+        assert isinstance(parentOp.expr, ca.StructRef)
+        cand = parentOp.expr
 
     member_type: SimpleType = decayed_expr_type(cand, typemap)
     member_name = cand.field.name
