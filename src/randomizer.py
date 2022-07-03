@@ -493,27 +493,23 @@ def get_insertion_points(
     return cands
 
 
-def get_noncolliding_fn_name(ast: ca.FileAST, fn_name: str) -> str:
+def get_noncolliding_name(ast: ca.FileAST, name: str) -> str:
 
     used_names: Set[str] = set()
 
     for item in ast.ext:
-        if (
-            isinstance(item, ca.Decl)
-            and isinstance(item.type, ca.FuncDecl)
-            and item.name
-        ):
+        if isinstance(item, ca.Decl) and item.name:
             used_names.add(item.name)
         if isinstance(item, ca.FuncDef) and item.decl.name:
             used_names.add(item.decl.name)
 
-    new_fn_name = fn_name
+    new_name = name
     counter = 1
-    while new_fn_name in used_names:
+    while new_name in used_names:
         counter += 1
-        new_fn_name = f"{new_fn_name}{counter}"
+        new_name = f"{new_name}{counter}"
 
-    return new_fn_name
+    return new_name
 
 
 def maybe_reuse_var(
@@ -2113,26 +2109,28 @@ def perm_inline_get_structmember(
     cands: List[ca.StructRef] = []
 
     class Visitor(ca.NodeVisitor):
+        def visit_BinaryOp(self, node: ca.BinaryOp) -> None:
+            self.visit(node.right)
+
+        def visit_Assignment(self, node: ca.Assignment) -> None:
+            self.visit(node.rvalue)
+
         def visit_StructRef(self, node: ca.StructRef) -> None:
-            if (
-                region.contains_node(node)
-                and isinstance(node.name, ca.ID)
-                and not ast_util.is_assignment_lvalue(fn.body, node)
-            ):
+            if region.contains_node(node) and isinstance(node.name, ca.ID):
                 cands.append(node)
             self.generic_visit(node)
 
     Visitor().visit(fn.body)
-    ensure(cands)
 
+    ensure(cands)
     cand = random.choice(cands)
 
-    parentOp: Optional[ca.UnaryOp] = ast_util.find_parent_addressOP(fn.body, cand)
+    parentOp: Optional[ca.UnaryOp] = ast_util.find_parent_address_op(fn.body, cand)
 
     member_type: SimpleType = decayed_expr_type(cand, typemap)
     member_name = cand.field.name
 
-    new_inline_fn_name = get_noncolliding_fn_name(ast, f"get_{member_name}")
+    new_inline_fn_name = get_noncolliding_name(ast, f"get_{member_name}")
 
     # Replace the StructRef with a FuncCall to the new inline yet to be created
     replace_node(
@@ -2146,6 +2144,17 @@ def perm_inline_get_structmember(
     assert isinstance(arg_type.type, ca.TypeDecl)
     assert arg_type.type.declname
 
+    theParam = ca.Decl(
+        name=None,
+        quals=[],
+        align=[],
+        storage=[],
+        funcspec=[],
+        type=arg_type,
+        init=None,
+        bitsize=None,
+    )
+
     fn_decl = ca.Decl(
         name=new_inline_fn_name,
         quals=[],
@@ -2153,9 +2162,7 @@ def perm_inline_get_structmember(
         storage=[],
         funcspec=["inline"],
         type=ca.FuncDecl(
-            args=ca.ParamList(
-                [ca.Typename(name=None, quals=[], align=[], type=arg_type)]
-            ),
+            args=ca.ParamList([theParam]),
             type=copy.deepcopy(member_type),
         ),
         init=None,

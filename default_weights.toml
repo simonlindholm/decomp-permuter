@@ -36,6 +36,7 @@ perm_inline_get_structmember = 1
 [ido]
 perm_float_literal = 10
 perm_sameline = 10
+perm_inline_get_structmember = 0
 
 [mwcc]
 perm_chain_assignment = 10
