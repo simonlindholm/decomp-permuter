@@ -2142,12 +2142,10 @@ def perm_inline_get_structmember(
     # Now create the new inline function definition
     arg_type: SimpleType = decayed_expr_type(cand.name, typemap)
 
-    param = ast_util.make_decl("x", arg_type)
-
     fn_decl = ast_util.make_decl(
         new_inline_fn_name,
         ca.FuncDecl(
-            args=ca.ParamList([param]),
+            args=ca.ParamList([ast_util.make_decl("x", arg_type)]),
             type=copy.deepcopy(member_type),
         ),
         funcspec=["inline"],

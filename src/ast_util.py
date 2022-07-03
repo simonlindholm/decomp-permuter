@@ -236,21 +236,21 @@ def get_block_stmts(block: Block, force: bool) -> List[Statement]:
 
 def make_decl(
     name: str,
-    type: Union[SimpleType, ca.FuncDecl],
-    quals: List[str] = [],
-    align: List[ca.Alignas] = [],
-    storage: List[str] = [],
-    funcspec: List[str] = [],
+    type: "ca.Type",
+    quals: Optional[List[str]] = None,
+    align: Optional[List[ca.Alignas]] = None,
+    storage: Optional[List[str]] = None,
+    funcspec: Optional[List[str]] = None,
     init: Optional[Union[Expression, ca.InitList]] = None,
     bitsize: Optional[Expression] = None,
 ) -> ca.Decl:
     type = copy.deepcopy(type)
     decl = ca.Decl(
         name=name,
-        quals=quals,
-        align=align,
-        storage=storage,
-        funcspec=funcspec,
+        quals=quals or [],
+        align=align or [],
+        storage=storage or [],
+        funcspec=funcspec or [],
         type=type,
         init=init,
         bitsize=bitsize,
