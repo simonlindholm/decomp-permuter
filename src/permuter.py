@@ -180,7 +180,7 @@ class Permuter:
         if not self._cur_cand or not keep:
             eval_state = EvalState()
             cand_c = self._permutations.evaluate(seed, eval_state)
-            rng_seed = self._force_rng_seed or random.randrange(1, 10 ** 20)
+            rng_seed = self._force_rng_seed or random.randrange(1, 10**20)
             self._cur_seed = (seed, rng_seed)
             self._cur_cand = Candidate.from_source(
                 cand_c,

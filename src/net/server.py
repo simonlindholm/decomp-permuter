@@ -383,7 +383,7 @@ class NetThread:
             self._port.send_json({"type": "need_work"})
 
         elif isinstance(item, OutputWork):
-            overhead_us = int((time.time() - item.time_start) * 10 ** 6) - item.time_us
+            overhead_us = int((time.time() - item.time_start) * 10**6) - item.time_us
             self._port.send_json(
                 {
                     "type": "update",
@@ -860,7 +860,7 @@ def _start_evaluator(docker_image: str, options: ServerOptions) -> DockerPort:
             volumes={src_path: {"bind": "/src", "mode": "ro"}},
             tmpfs={"/tmp": "size=1G,exec"},
             nano_cpus=int(options.num_cores * 1e9),
-            mem_limit=int(options.max_memory_gb * 2 ** 30),
+            mem_limit=int(options.max_memory_gb * 2**30),
             read_only=True,
             network_disabled=True,
         )

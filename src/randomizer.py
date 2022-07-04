@@ -81,7 +81,7 @@ PROB_RET_VOID = 0.2
 
 # Number larger than any node index. (If you're trying to compile a 1 GB large
 # C file to matching asm, you have bigger problems than this limit.)
-MAX_INDEX = 10 ** 9
+MAX_INDEX = 10**9
 
 T = TypeVar("T")
 

@@ -229,7 +229,7 @@ def multiprocess_worker(
             setattr(result, "compressed_source", compressed_source)
             result.source = None
 
-        time_us = int((time.time() - time_before) * 10 ** 6)
+        time_us = int((time.time() - time_before) * 10**6)
         task_queue.put(
             WorkDone(perm_id=work.perm_id, id=work.id, time_us=time_us, result=result)
         )
@@ -389,7 +389,7 @@ def main() -> None:
                 else:
                     traceback.print_exc()
 
-            msg["time_us"] = int((time.time() - time_before) * 10 ** 6)
+            msg["time_us"] = int((time.time() - time_before) * 10**6)
             port.send_json(msg)
 
         elif isinstance(item, RemovePermuter):

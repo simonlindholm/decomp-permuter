@@ -8,7 +8,7 @@ from .objdump import ArchSettings, Line, objdump, get_arch
 
 
 class Scorer:
-    PENALTY_INF = 10 ** 9
+    PENALTY_INF = 10**9
 
     PENALTY_STACKDIFF = 1
     PENALTY_REGALLOC = 5
