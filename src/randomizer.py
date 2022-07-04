@@ -2220,6 +2220,12 @@ class Randomizer:
                     f"Error: missing value for {method.__name__} in default_weights.toml"
                 )
                 sys.exit(1)
+            if not method.__doc__:
+                print(f"Error: {method.__name__} is missing a documentation comment.")
+                print(
+                    "It must have one, which will get printed when running --help=randomization-passes."
+                )
+                sys.exit(1)
 
         self.methods = [
             (method, randomization_weights[method.__name__])

@@ -559,7 +559,8 @@ class PrintRandomizationPassesAction(argparse.Action):
         weights = get_default_randomization_weights("base")
         for method in RANDOMIZATION_PASSES:
             print(f"{method.__name__}:")
-            docs = re.sub(r"^(    )?", "  ", method.__doc__.strip(), 0, re.MULTILINE)
+            docs = (method.__doc__ or "").strip()
+            docs = re.sub(r"^(    )?", "  ", docs, flags=re.MULTILINE)
             print(docs)
             print()
         sys.exit(0)
