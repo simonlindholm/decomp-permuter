@@ -33,6 +33,8 @@ perm_chain_assignment = 5
 perm_long_chain_assignment = 3
 perm_pad_var_decl = 1
 perm_inline = 10
+perm_inline_get_structmember = 1
+perm_flatten_struct = 5
 
 [ido]
 perm_float_literal = 10
