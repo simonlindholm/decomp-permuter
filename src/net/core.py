@@ -111,10 +111,12 @@ def read_config() -> Config:
 
         temp = read("server_public_key", str)
         if temp:
-            config.server_verify_key = VerifyKey(HexEncoder.decode(temp))
+            config.server_verify_key = VerifyKey(
+                HexEncoder.decode(temp.encode("utf-8"))
+            )
         temp = read("secret_key", str)
         if temp:
-            config.signing_key = SigningKey(HexEncoder.decode(temp))
+            config.signing_key = SigningKey(HexEncoder.decode(temp.encode("utf-8")))
         config.initial_setup_nickname = read("initial_setup_nickname", str)
         config.server_address = read("server_address", str)
     except FileNotFoundError:
