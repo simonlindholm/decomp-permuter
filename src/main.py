@@ -67,6 +67,7 @@ class Options:
     network_priority: float = 1.0
     no_context_output: bool = False
     debug_mode: bool = False
+    strip_other_fn_defs: bool = False
 
 
 def restricted_float(lo: float, hi: float) -> Callable[[str], float]:
@@ -356,6 +357,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
                 better_only=options.better_only,
                 score_threshold=options.score_threshold,
                 debug_mode=options.debug_mode,
+                strip_other_fn_defs=options.strip_other_fn_defs,
             )
         except CandidateConstructionFailure as e:
             print(e.message, file=sys.stderr)
@@ -708,6 +710,12 @@ def main() -> None:
         action="store_true",
         help="Debug mode, only compiles and scores the base for debugging issues",
     )
+    parser.add_argument(
+        "--strip-extra_fn_defs",
+        dest="strip_other_fn_defs",
+        action="store_true",
+        help="Strip all function defs except for the target function and inlines into just function declarations",
+    )
 
     args = parser.parse_args()
 
@@ -735,6 +743,7 @@ def main() -> None:
         network_priority=args.network_priority,
         no_context_output=args.no_context_output,
         debug_mode=args.debug_mode,
+        strip_other_fn_defs=args.strip_other_fn_defs,
     )
 
     run(options)

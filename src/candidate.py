@@ -36,6 +36,7 @@ class Candidate:
     ast: ca.FileAST
 
     fn_name: str
+    strip_other_fn_defs: bool
     rng_seed: int
     randomizer: Randomizer
     score_value: Optional[int] = field(init=False, default=None)
@@ -45,10 +46,10 @@ class Candidate:
     @staticmethod
     @functools.lru_cache(maxsize=16)
     def _cached_shared_ast(
-        source: str, fn_name: str
+        source: str, fn_name: str, strip_other_fn_defs: bool
     ) -> Tuple[ca.FuncDef, int, ca.FileAST]:
         ast = ast_util.parse_c(source)
-        orig_fn, fn_index = ast_util.extract_fn(ast, fn_name)
+        orig_fn, fn_index = ast_util.extract_fn(ast, fn_name, strip_other_fn_defs)
         ast_util.normalize_ast(orig_fn, ast)
         return orig_fn, fn_index, ast
 
@@ -57,6 +58,7 @@ class Candidate:
         source: str,
         eval_state: EvalState,
         fn_name: str,
+        strip_other_fn_defs: bool,
         randomization_weights: Mapping[str, float],
         rng_seed: int,
     ) -> "Candidate":
@@ -64,7 +66,9 @@ class Candidate:
         # with the target function deeply copied. Since we never change the
         # AST outside of the target function, this is fine, and it saves us
         # performance (deepcopy is really slow).
-        orig_fn, fn_index, ast = Candidate._cached_shared_ast(source, fn_name)
+        orig_fn, fn_index, ast = Candidate._cached_shared_ast(
+            source, fn_name, strip_other_fn_defs
+        )
         ast = copy.copy(ast)
         ast.ext = copy.copy(ast.ext)
         fn_copy = copy.deepcopy(orig_fn)
@@ -73,12 +77,13 @@ class Candidate:
         return Candidate(
             ast=ast,
             fn_name=fn_name,
+            strip_other_fn_defs=strip_other_fn_defs,
             rng_seed=rng_seed,
             randomizer=Randomizer(randomization_weights, rng_seed),
         )
 
     def randomize_ast(self) -> None:
-        self.randomizer.randomize(self.ast, self.fn_name)
+        self.randomizer.randomize(self.ast, self.fn_name, self.strip_other_fn_defs)
         self._cache_source = None
 
     def get_source(self) -> str:

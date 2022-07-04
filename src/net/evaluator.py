@@ -105,6 +105,7 @@ def _create_permuter(
             best_only=False,
             score_threshold=None,
             debug_mode=False,
+            strip_other_fn_defs=False,
         )
     except:
         os.unlink(path)

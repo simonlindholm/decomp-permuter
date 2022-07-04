@@ -481,7 +481,7 @@ def prune_source(
     Returns (source, compilable_source)."""
     try:
         ast = ast_util.parse_c(source, from_import=True)
-        orig_fn, _ = ast_util.extract_fn(ast, func_name)
+        orig_fn, _ = ast_util.extract_fn(ast, func_name, True)
         if should_prune:
             try:
                 ast_util.prune_ast(orig_fn, ast)
@@ -516,7 +516,7 @@ def prune_and_separate_context(
     Returns (source, context)."""
     try:
         ast = ast_util.parse_c(source, from_import=True)
-        orig_fn, ind = ast_util.extract_fn(ast, func_name)
+        orig_fn, ind = ast_util.extract_fn(ast, func_name, True)
         if should_prune:
             try:
                 ind = ast_util.prune_ast(orig_fn, ast)
