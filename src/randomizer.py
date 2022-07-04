@@ -2113,7 +2113,7 @@ def perm_inline_get_structmember(
             cands.append(expr)
         if (
             isinstance(expr, ca.UnaryOp)
-            and expr.op is "&"
+            and expr.op == "&"
             and isinstance(expr.expr, ca.StructRef)
             and expr.expr.type == "->"
         ):
