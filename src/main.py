@@ -5,6 +5,7 @@ import multiprocessing
 from multiprocessing import Queue
 import os
 import queue
+import re
 import sys
 import threading
 import time
@@ -37,6 +38,7 @@ from .permuter import (
 from .preprocess import preprocess
 from .printer import Printer
 from .profiler import Profiler
+from .randomizer import RANDOMIZATION_PASSES
 from .scorer import Scorer
 
 # The probability that the randomizer continues transforming the output it
@@ -546,6 +548,23 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
     return [permuter.best_score for permuter in context.permuters]
 
 
+class PrintRandomizationPassesAction(argparse.Action):
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: object,
+        option_string: Optional[str] = None,
+    ) -> None:
+        weights = get_default_randomization_weights("base")
+        for method in RANDOMIZATION_PASSES:
+            print(f"{method.__name__}:")
+            docs = re.sub(r"^(    )?", "  ", method.__doc__.strip(), 0, re.MULTILINE)
+            print(docs)
+            print()
+        sys.exit(0)
+
+
 def main() -> None:
     multiprocessing.freeze_support()
     sys.setrecursionlimit(10000)
@@ -567,6 +586,12 @@ def main() -> None:
         nargs="+",
         metavar="directory",
         help="Directory containing base.c, target.o and compile.sh. Multiple directories may be given.",
+    )
+    parser.add_argument(
+        "--help=randomization-passes",
+        nargs=0,
+        action=PrintRandomizationPassesAction,
+        help="Show documentation for all the available randomization passes.",
     )
     parser.add_argument(
         "--show-errors",

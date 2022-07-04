@@ -655,8 +655,8 @@ def create_write_settings_toml(
         f.write(f'func_name = "{func_name}"\n')
         f.write(f'compiler_type = "{compiler_type}"\n\n')
 
-        f.write("# uncomment lines below to customize the weights\n")
-        f.write("# see README.md\n")
+        f.write("# uncomment lines below to customize randomization pass weights\n")
+        f.write("# see --help=randomization-passes for descriptions\n")
         f.write("[weight_overrides]\n")
         for key, weight in rand_weights.items():
             f.write(f"# {key} = {weight}\n")

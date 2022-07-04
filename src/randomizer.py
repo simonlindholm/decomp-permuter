@@ -1114,8 +1114,7 @@ def perm_empty_stmt(
     - label:
     - goto label; label:;
     - ;
-    Control flow can have remote effects, so this
-    ignores the region restriction."""
+    Control flow can have remote effects, so this ignores the region restriction."""
 
     # Insert the statement wherever, except before a declaration.
     cands = get_insertion_points(fn, Region.unbounded())
@@ -1501,9 +1500,10 @@ def perm_inequalities(
 def perm_add_mask(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> None:
-    """Add a random amount of masks of 0xFF[FFFFFFFFFFFFFF] to a random expression of integer type.
-    In some cases this mask is optimized out but affects regalloc.
-    The regalloc change seems to cycle with slight differences every n masks."""
+    """Add a random amount of masks of 0xFF[FFFFFFFFFFFFFF] to a random expression
+    of integer type. For IDO these masks may get optimized out while still
+    affecting regalloc. The regalloc change seems to cycle with slight
+    differences every n masks."""
     typemap = build_typemap(ast)
 
     # Find expression to add the mask to
@@ -1831,7 +1831,8 @@ def perm_struct_ref(
 def perm_split_assignment(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> None:
-    """Split assignments of the form a = b . c . d ...; into a = b; a = a . c . d ...;, a = c . d ...; a = b . a;, etc."""
+    """Split assignments of the form `a = b . c . d ...;` into
+    `a = b; a = a . c . d ...;` or `a = c . d ...; a = b . a;` or similar."""
     cands = []
     # Look for assignments of the form 'var = binaryOp' (ignores op=)
     class Visitor(ca.NodeVisitor):
