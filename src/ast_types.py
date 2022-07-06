@@ -243,12 +243,11 @@ def allowed_basic_type(
     return True
 
 
-def build_typemap(ast: ca.FileAST) -> TypeMap:
+def build_typemap(ast: ca.FileAST, target_fn: ca.FuncDef) -> TypeMap:
     ret = TypeMap()
     for item in ast.ext:
         if isinstance(item, ca.Typedef):
             ret.typedefs[item.name] = item.type
-    defined_function_decls: Set[ca.Decl] = set()
 
     class Visitor(ca.NodeVisitor):
         def visit_Struct(self, struct: ca.Struct) -> None:
@@ -264,19 +263,20 @@ def build_typemap(ast: ca.FileAST) -> TypeMap:
         def visit_Decl(self, decl: ca.Decl) -> None:
             if decl.name is not None:
                 ret.var_types[decl.name] = get_decl_type(decl)
-            if not isinstance(decl.type, ca.FuncDecl) or decl in defined_function_decls:
-                # Do not visit declarations in parameter lists of functions
-                # other than our own.
+            # Do not visit function parameter declarations
+            if not isinstance(decl.type, ca.FuncDecl):
                 self.visit(decl.type)
 
         def visit_Enumerator(self, enumerator: ca.Enumerator) -> None:
             ret.var_types[enumerator.name] = basic_type("int")
 
         def visit_FuncDef(self, fn: ca.FuncDef) -> None:
-            if fn.decl.name is not None:
-                ret.var_types[fn.decl.name] = get_decl_type(fn.decl)
-            defined_function_decls.add(fn.decl)
-            self.generic_visit(fn)
+            if fn.decl.name is None:
+                return
+            ret.var_types[fn.decl.name] = get_decl_type(fn.decl)
+            if fn is target_fn:
+                self.visit(fn.decl.type)
+                self.visit(fn.body)
 
     Visitor().visit(ast)
     return ret

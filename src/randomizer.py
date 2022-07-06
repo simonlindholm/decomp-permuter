@@ -565,7 +565,7 @@ def perm_temp_for_expr(
     einds: Dict[ca.Node, int] = {}
     writes: Dict[str, List[int]] = compute_write_locations(fn, indices)
     reads: Dict[str, List[int]] = compute_read_locations(fn, indices)
-    typemap = build_typemap(ast)
+    typemap = build_typemap(ast, fn)
     candidates: List[Tuple[Tuple[Place, Expression, Optional[str]], float]] = []
 
     # Step 0: decide whether to make a pointer to the chosen expression, or to
@@ -869,7 +869,7 @@ def perm_randomize_internal_type(
 
     IdVisitor().visit(fn)
 
-    typemap = build_typemap(ast)
+    typemap = build_typemap(ast, fn)
     decls: List[ca.Decl] = []
 
     class Visitor(ca.NodeVisitor):
@@ -918,7 +918,7 @@ def perm_randomize_external_type(
     decl = random.choice(decls)[0]
     decl_type = get_decl_type(decl)
 
-    typemap = build_typemap(ast)
+    typemap = build_typemap(ast, fn)
     new_type = randomize_innermost_type(decl_type, typemap, random, ensure_changed=True)
 
     for decl, i in decls:
@@ -980,7 +980,7 @@ def perm_randomize_function_type(
     if not main_decl:
         main_decl = random.choice(all_decls)[0]
 
-    typemap = build_typemap(ast)
+    typemap = build_typemap(ast, fn)
 
     main_fndecl = copy.deepcopy(main_decl.type)
     assert isinstance(main_fndecl, ca.FuncDecl), "checked above"
@@ -1040,7 +1040,7 @@ def perm_refer_to_var(
     ensure(cands)
     expr = random.choice(cands)
     ensure(not ast_util.is_effectful(expr))
-    typemap = build_typemap(ast)
+    typemap = build_typemap(ast, fn)
     type: Type = resolve_typedefs(decayed_expr_type(expr, typemap), typemap)
     if isinstance(type, ca.TypeDecl) and isinstance(type.type, (ca.Struct, ca.Union)):
         expr = ca.UnaryOp("&", expr)
@@ -1504,7 +1504,7 @@ def perm_add_mask(
     of integer type. For IDO these masks may get optimized out while still
     affecting regalloc. The regalloc change seems to cycle with slight
     differences every n masks."""
-    typemap = build_typemap(ast)
+    typemap = build_typemap(ast, fn)
 
     # Find expression to add the mask to
     cands: List[Expression] = get_block_expressions(fn.body, region)
@@ -1535,7 +1535,7 @@ def perm_xor_zero(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> None:
     """Add ^0 to a random expression of integer type, or *1 to floats."""
-    typemap = build_typemap(ast)
+    typemap = build_typemap(ast, fn)
 
     # Find a random expression
     cands: List[Expression] = get_block_expressions(fn.body, region)
@@ -1561,7 +1561,7 @@ def perm_mult_zero(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> None:
     """Convert 0 to x*0 for some randomly chosen x."""
-    typemap = build_typemap(ast)
+    typemap = build_typemap(ast, fn)
 
     # Find all expressions in the region
     cands: List[Expression] = get_block_expressions(fn.body, region)
@@ -1633,7 +1633,7 @@ def perm_cast_simple(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> None:
     """Cast a random expression to a simple type (integral or floating point only)."""
-    typemap = build_typemap(ast)
+    typemap = build_typemap(ast, fn)
 
     # Find a random expression
     cands: List[Expression] = get_block_expressions(fn.body, region)
@@ -1872,7 +1872,7 @@ def perm_split_assignment(
 
     split = random.choice(binops)
 
-    typemap = build_typemap(ast)
+    typemap = build_typemap(ast, fn)
     vartype = decayed_expr_type(var, typemap)
 
     # Choose which side to move to a new assignment
@@ -2105,7 +2105,7 @@ def perm_inline_get_structmember(
 ) -> None:
     """Creates an inline function for accessing a struct member."""
 
-    typemap = build_typemap(ast)
+    typemap = build_typemap(ast, fn)
 
     cands: List[Union[ca.StructRef, ca.UnaryOp]] = []
     for expr in get_block_expressions(fn.body, region):
