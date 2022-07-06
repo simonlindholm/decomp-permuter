@@ -286,7 +286,9 @@ def visit_replace(top_node: ca.Node, callback: Callable[[ca.Node, bool], Any]) -
             node.left = rec(node.left)
             node.right = rec(node.right)
         elif isinstance(node, ca.FuncCall):
-            # not worth replacing .name
+            # not worth replacing .name if it's a normal function call
+            if not isinstance(node.name, ca.ID):
+                node.name = rec(node.name)
             if node.args:
                 rec(node.args, True)
         elif isinstance(node, ca.ExprList):
