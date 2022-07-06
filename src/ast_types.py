@@ -22,7 +22,12 @@ StructUnion = Union[ca.Struct, ca.Union]
 class TypeMap:
     typedefs: Dict[str, Type] = field(default_factory=dict)
     var_types: Dict[str, Type] = field(default_factory=dict)
+    local_vars: Set[str] = field(default_factory=set)
     struct_defs: Dict[str, StructUnion] = field(default_factory=dict)
+
+
+def is_local_var(name: str, typemap: TypeMap) -> bool:
+    return name in typemap.local_vars
 
 
 def basic_type(name: Union[str, List[str]]) -> ca.TypeDecl:
@@ -248,6 +253,7 @@ def build_typemap(ast: ca.FileAST, target_fn: ca.FuncDef) -> TypeMap:
     for item in ast.ext:
         if isinstance(item, ca.Typedef):
             ret.typedefs[item.name] = item.type
+    within_fn: bool = False
 
     class Visitor(ca.NodeVisitor):
         def visit_Struct(self, struct: ca.Struct) -> None:
@@ -263,6 +269,8 @@ def build_typemap(ast: ca.FileAST, target_fn: ca.FuncDef) -> TypeMap:
         def visit_Decl(self, decl: ca.Decl) -> None:
             if decl.name is not None:
                 ret.var_types[decl.name] = get_decl_type(decl)
+                if within_fn:
+                    ret.local_vars.add(decl.name)
             # Do not visit function parameter declarations
             if not isinstance(decl.type, ca.FuncDecl):
                 self.visit(decl.type)
@@ -275,8 +283,11 @@ def build_typemap(ast: ca.FileAST, target_fn: ca.FuncDef) -> TypeMap:
                 return
             ret.var_types[fn.decl.name] = get_decl_type(fn.decl)
             if fn is target_fn:
+                nonlocal within_fn
+                within_fn = True
                 self.visit(fn.decl.type)
                 self.visit(fn.body)
+                within_fn = False
 
     Visitor().visit(ast)
     return ret

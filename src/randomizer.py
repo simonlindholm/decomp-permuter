@@ -28,6 +28,7 @@ from .ast_types import (
     TypeMap,
     allowed_basic_type,
     build_typemap,
+    is_local_var,
     decayed_expr_type,
     get_decl_type,
     resolve_typedefs,
@@ -90,7 +91,7 @@ class RandomizationFailure(Exception):
     pass
 
 
-def ensure(condition: Any) -> None:
+def ensure(condition: object) -> None:
     """Abort the randomization pass if 'condition' fails to hold, and try
     another pass instead. Don't call this after making any modifications to
     the AST."""
@@ -496,7 +497,6 @@ def get_insertion_points(
 
 
 def get_noncolliding_name(ast: ca.FileAST, name: str) -> str:
-
     used_names: Set[str] = set()
 
     for item in ast.ext:
@@ -551,6 +551,25 @@ def maybe_reuse_var(
         # Our write will be overwritten before we manage to read from it.
         return None
     return var
+
+
+def pick_random_subset(random: Random, cands: List[T], mid: int) -> List[T]:
+    all_before = cands[:mid]
+    all_after = cands[mid + 1 :]
+    prob = 0.5 if random_bool(random, 0.5) else 0
+    before = [x for x in all_before if random_bool(random, prob)]
+    after = [x for x in all_after if random_bool(random, prob)]
+
+    if random_bool(random, PROB_TEMP_REPLACE_ALL):
+        before = all_before
+        after = all_after
+    elif random_bool(random, PROB_TEMP_REPLACE_MOST):
+        if random_bool(random, 0.5):
+            before = all_before
+        else:
+            after = all_after
+
+    return before + [cands[mid]] + after
 
 
 def perm_temp_for_expr(
@@ -734,22 +753,9 @@ def perm_temp_for_expr(
         replace_subexprs(fn.body, find_duplicates)
 
     assert orig_expr in replace_cands
-    replace_cand_set: Set[Expression] = set()
-    if random_bool(random, PROB_TEMP_REPLACE_ALL):
-        replace_cand_set.update(replace_cands)
-    elif random_bool(random, PROB_TEMP_REPLACE_MOST):
-        index = replace_cands.index(orig_expr)
-        if random_bool(random, 0.5):
-            replace_cand_set.update(replace_cands[: index + 1])
-        else:
-            replace_cand_set.update(replace_cands[index:])
-    else:
-        replace_cand_set.add(orig_expr)
-
-    if random_bool(random, 0.5):
-        for cand in replace_cands:
-            if random_bool(random, 0.5):
-                replace_cand_set.add(cand)
+    replace_cand_set: Set[Expression] = set(
+        pick_random_subset(random, replace_cands, replace_cands.index(orig_expr))
+    )
 
     # Step 5: replace the chosen expression
     def replacer(e: Expression) -> Optional[Expression]:
@@ -2102,68 +2108,131 @@ def perm_pad_var_decl(
     ast_util.insert_decl(fn, var, type, random)
 
 
-def perm_inline_get_structmember(
+def cut_ast(
+    expr: Expression,
+    cut_prob: float,
+    typemap: TypeMap,
+    random: Random,
+) -> Tuple[Expression, Dict[ca.ID, SimpleType]]:
+    cut_types: Dict[ca.ID, SimpleType] = {}
+
+    def callback(node: ca.Node, is_expr: bool, prob: float = cut_prob) -> Any:
+        if isinstance(node, ca.ID) and is_local_var(node.name, typemap):
+            # Force cuts for all local variables, but do not allow them as lvalues
+            ensure(is_expr)
+            cut = True
+        else:
+            # For other parts of the AST, cut randomly
+            cut = is_expr and random_bool(random, prob)
+        if cut:
+            expr = typing.cast(Expression, node)
+            tp = decayed_expr_type(expr, typemap)
+            new_expr = ca.ID("")
+            cut_types[new_expr] = tp
+            return new_expr
+        return None
+
+    expr = copy.deepcopy(expr)
+
+    # Generate an identity function only with very small probability
+    toplevel_expr = callback(expr, True, 0.05)
+    if toplevel_expr:
+        return toplevel_expr, cut_types
+    visit_replace(expr, callback)
+    return expr, cut_types
+
+
+def match_cut(
+    node: ca.Node,
+    cut_node: ca.Node,
+    cut_types: Dict[ca.ID, SimpleType],
+    out_exprs: List[Expression],
+    typemap: TypeMap,
+) -> bool:
+    def cmp(node: object, cut_node: object) -> Optional[bool]:
+        if not isinstance(cut_node, ca.ID):
+            return None
+        cut_tp = cut_types.get(cut_node)
+        if cut_tp is None:
+            return None
+        expr = ast_util.as_expr(node)
+        if expr is None:
+            return None
+        tp = decayed_expr_type(expr, typemap)
+        if not same_type(tp, cut_types[cut_node], typemap, allow_similar=True):
+            return False
+        out_exprs.append(expr)
+        return True
+
+    return ast_util.equal_ast(node, cut_node, cmp)
+
+
+def perm_inline(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> None:
-    """Creates an inline function for accessing a struct member."""
+    """Creates an inline function for a random expression, possibly occurring in multiple places."""
 
     typemap = build_typemap(ast, fn)
 
-    cands: List[Union[ca.StructRef, ca.UnaryOp]] = []
-    for expr in get_block_expressions(fn.body, region):
-        if isinstance(expr, ca.StructRef) and expr.type == "->":
-            cands.append(expr)
-        if (
-            isinstance(expr, ca.UnaryOp)
-            and expr.op == "&"
-            and isinstance(expr.expr, ca.StructRef)
-            and expr.expr.type == "->"
-        ):
-            cands.append(expr)
-
+    cands: List[Tuple[Expression, float]] = []
+    for cand in get_block_expressions(fn.body, region):
+        if isinstance(cand, ca.ID):
+            prob = 0.05
+        elif isinstance(cand, ca.Constant):
+            prob = 0.01
+        else:
+            prob = 1.0
+        cands.append((cand, prob))
     ensure(cands)
-    cand = random.choice(cands)
+    chosen_cand = random_weighted(random, cands)
 
-    parent_op: Optional[ca.UnaryOp] = None
-    if isinstance(cand, ca.UnaryOp):
-        parent_op = cand
-        assert isinstance(parent_op.expr, ca.StructRef)
-        cand = parent_op.expr
+    ret_type = decayed_expr_type(chosen_cand, typemap)
+    new_fn_name = get_noncolliding_name(ast, "inline_fn")
 
-    member_type: SimpleType = decayed_expr_type(cand, typemap)
-    member_name = cand.field.name
+    cut_prob = random.uniform(0, 1) * random.uniform(0, 1)
+    cut_expr, cut_types = cut_ast(chosen_cand, cut_prob, typemap, random)
 
-    new_inline_fn_name = get_noncolliding_name(ast, f"get_{member_name}")
+    if not cut_types and random_bool(random, 0.5):
+        # If the generated function takes no arguments it's probably useless.
+        raise RandomizationFailure
 
-    # Replace the StructRef with a FuncCall to the new inline yet to be created
-    replace_node(
-        fn.body,
-        parent_op or cand,
-        ca.FuncCall(ca.ID(new_inline_fn_name), ca.ExprList([cand.name])),
-    )
+    cands2 = []
+    if cut_expr in cut_types:
+        # If we generate an identify function, it's not worth expanding that to
+        # cover every single expression in the function.
+        cands2 = [chosen_cand]
+    else:
+        for cand2, _ in cands:
+            if match_cut(cand2, cut_expr, cut_types, [], typemap):
+                cands2.append(cand2)
 
-    # Now create the new inline function definition
-    arg_type: SimpleType = decayed_expr_type(cand.name, typemap)
+    assert chosen_cand in cands2
+    subset = pick_random_subset(random, cands2, cands2.index(chosen_cand))
 
-    fn_decl = ast_util.make_decl(
-        new_inline_fn_name,
-        ca.FuncDecl(
-            args=ca.ParamList([ast_util.make_decl("x", arg_type)]),
-            type=copy.deepcopy(member_type),
-        ),
-        funcspec=["inline"],
-    )
+    for expr in subset:
+        args: List[Expression] = []
+        if not match_cut(expr, cut_expr, cut_types, args, typemap):
+            # Since we're modifying the AST the expression may not match the
+            # cut any longer.
+            continue
+        fn_call = ca.FuncCall(ca.ID(new_fn_name), ca.ExprList(list(args)))
+        replace_node(fn.body, expr, fn_call)
 
-    return_expr: Expression = ca.StructRef(
-        name=ca.ID("x"),
-        type="->",
-        field=ca.ID(member_name),
-    )
-    if parent_op:
-        return_expr = ca.UnaryOp("&", return_expr)
+    params = []
+    for i, (cut, tp) in enumerate(cut_types.items()):
+        cut.name = f"arg{i}"
+        params.append(ast_util.make_decl(cut.name, tp))
+    return_expr = cut_expr
 
     fn_def = ca.FuncDef(
-        decl=fn_decl,
+        decl=ast_util.make_decl(
+            new_fn_name,
+            ca.FuncDecl(
+                args=ca.ParamList(list(params)),
+                type=copy.deepcopy(ret_type),
+            ),
+            funcspec=["inline"],
+        ),
         param_decls=[],
         body=ca.Compound(block_items=[ca.Return(return_expr)]),
     )
@@ -2204,7 +2273,7 @@ RANDOMIZATION_PASSES: List[RandomizationPass] = [
     perm_chain_assignment,
     perm_long_chain_assignment,
     perm_pad_var_decl,
-    perm_inline_get_structmember,
+    perm_inline,
 ]
 
 

@@ -166,8 +166,16 @@ def compute_node_indices(top_node: ca.Node) -> Indices:
     return Indices(starts, ends)
 
 
-def equal_ast(a: ca.Node, b: ca.Node) -> bool:
-    def equal(a: Any, b: Any) -> bool:
+def equal_ast(
+    a: ca.Node,
+    b: ca.Node,
+    cmp: Optional[Callable[[object, object], Optional[bool]]] = None,
+) -> bool:
+    def equal(a: object, b: object) -> bool:
+        if cmp is not None:
+            res = cmp(a, b)
+            if res is not None:
+                return res
         if type(a) != type(b):
             return False
         if a is None:
@@ -183,12 +191,35 @@ def equal_ast(a: ca.Node, b: ca.Node) -> bool:
         if isinstance(a, (int, str)):
             return bool(a == b)
         assert isinstance(a, ca.Node)
+        assert isinstance(b, ca.Node)
         for name in a.__slots__[:-2]:  # type: ignore
             if not equal(getattr(a, name), getattr(b, name)):
                 return False
         return True
 
     return equal(a, b)
+
+
+def as_expr(value: object) -> Optional[Expression]:
+    if isinstance(
+        value,
+        (
+            ca.ArrayRef,
+            ca.Assignment,
+            ca.BinaryOp,
+            ca.Cast,
+            ca.CompoundLiteral,
+            ca.Constant,
+            ca.ExprList,
+            ca.FuncCall,
+            ca.ID,
+            ca.StructRef,
+            ca.TernaryOp,
+            ca.UnaryOp,
+        ),
+    ):
+        return value
+    return None
 
 
 def is_lvalue(expr: Expression) -> bool:
