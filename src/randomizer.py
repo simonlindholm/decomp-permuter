@@ -99,6 +99,12 @@ def ensure(condition: object) -> None:
         raise RandomizationFailure
 
 
+def dedup(li: List[T]) -> List[T]:
+    """Remove duplicate values from a list, keeping only the first instance.
+    This should be used instead of list(set(x)) to ensure determinism."""
+    return list(dict.fromkeys(li))
+
+
 @dataclass
 class Region:
     start: int
@@ -900,12 +906,12 @@ def perm_randomize_external_type(
 ) -> None:
     """Randomize types of global variables. Only variables mentioned within the
     given region are affected."""
-    names: Set[str] = set()
+    names: List[str] = []
 
     class IdVisitor(ca.NodeVisitor):
         def visit_ID(self, node: ca.ID) -> None:
             if region.contains_node(node):
-                names.add(node.name)
+                names.append(node.name)
 
         def visit_StructRef(self, node: ca.StructRef) -> None:
             self.visit(node.name)
@@ -913,7 +919,7 @@ def perm_randomize_external_type(
     IdVisitor().visit(fn)
 
     ensure(names)
-    name = random.choice(list(names))
+    name = random.choice(dedup(names))
     decls: List[Tuple[ca.Decl, int]] = []
 
     for i in range(len(ast.ext)):
@@ -941,17 +947,17 @@ def perm_randomize_function_type(
     """Randomize types of function parameters and returns. Only functions
     called within the given region are affected, plus the current function."""
     assert fn.decl.name is not None, "function definitions have names"
-    names: Set[str] = {fn.decl.name}
+    names: List[str] = [fn.decl.name]
 
     class IdVisitor(ca.NodeVisitor):
         def visit_FuncCall(self, node: ca.FuncCall) -> None:
             if region.contains_node(node) and isinstance(node.name, ca.ID):
-                names.add(node.name.name)
+                names.append(node.name.name)
             self.generic_visit(node)
 
     IdVisitor().visit(fn)
 
-    name = random.choice(list(names))
+    name = random.choice(dedup(names))
 
     # Find the declarations of function with the given name. For performance
     # reasons, the part of the AST they live in are shared between all
