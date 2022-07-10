@@ -266,26 +266,30 @@ def build_typemap(ast: ca.FileAST, target_fn: ca.FuncDef) -> TypeMap:
                 ret.struct_defs[union.name] = union
             # Do not visit decls of this union
 
+        def visit_FuncDecl(self, fn_decl: ca.FuncDecl) -> None:
+            self.visit(fn_decl.type)
+            # Do not visit params of this function declaration
+
         def visit_Decl(self, decl: ca.Decl) -> None:
             if decl.name is not None:
                 ret.var_types[decl.name] = get_decl_type(decl)
                 if within_fn:
                     ret.local_vars.add(decl.name)
-            # Do not visit function parameter declarations
-            if not isinstance(decl.type, ca.FuncDecl):
-                self.visit(decl.type)
+            self.visit(decl.type)
 
         def visit_Enumerator(self, enumerator: ca.Enumerator) -> None:
             ret.var_types[enumerator.name] = basic_type("int")
 
         def visit_FuncDef(self, fn: ca.FuncDef) -> None:
+            assert isinstance(fn.decl.type, ca.FuncDecl)
             if fn.decl.name is None:
                 return
             ret.var_types[fn.decl.name] = get_decl_type(fn.decl)
             if fn is target_fn:
                 nonlocal within_fn
                 within_fn = True
-                self.visit(fn.decl.type)
+                if fn.decl.type.args:
+                    self.visit(fn.decl.type.args)
                 self.visit(fn.body)
                 within_fn = False
 
