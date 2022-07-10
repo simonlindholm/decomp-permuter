@@ -974,7 +974,6 @@ def perm_randomize_function_type(
             and item.name == name
         ):
             new_decl = copy.copy(item)
-            ast.ext[i] = new_decl
             all_decls.append((new_decl, i, new_decl))
         if isinstance(item, ca.FuncDef) and item.decl.name == name:
             assert isinstance(
@@ -983,7 +982,6 @@ def perm_randomize_function_type(
             new_fndef = copy.copy(item)
             new_decl = copy.copy(item.decl)
             new_fndef.decl = new_decl
-            ast.ext[i] = new_fndef
             all_decls.append((new_decl, i, new_fndef))
             main_decl = new_decl
 
