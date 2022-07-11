@@ -4,7 +4,8 @@
 [base]
 perm_temp_for_expr = 100
 perm_expand_expr = 20
-perm_reorder_stmts = 20
+perm_reorder_stmts = 10
+perm_reorder_decls = 10
 perm_add_mask = 15
 perm_xor_zero = 10
 perm_cast_simple = 10

@@ -482,23 +482,23 @@ def ensure_arithmetic_type(expr: Expression, typemap: TypeMap) -> None:
 
 def get_insertion_points(
     fn: ca.FuncDef, region: Region, *, allow_within_decl: bool = False
-) -> List[Tuple[Block, int, Optional[ca.Node]]]:
-    cands: List[Tuple[Block, int, Optional[ca.Node]]] = []
+) -> List[Tuple[Block, int, Optional[ca.Node], Optional[ca.Node]]]:
+    cands: List[Tuple[Block, int, Optional[ca.Node], Optional[ca.Node]]] = []
 
     def rec(block: Block) -> None:
         stmts = ast_util.get_block_stmts(block, False)
-        last_node: ca.Node = block
+        last_node: Optional[ca.Node] = None
         for i, stmt in enumerate(stmts):
             if region.contains_pre(stmt):
-                cands.append((block, i, stmt))
+                cands.append((block, i, last_node, stmt))
             ast_util.for_nested_blocks(stmt, rec)
             last_node = stmt
-        if region.contains_node(last_node):
-            cands.append((block, len(stmts), None))
+        if region.contains_node(last_node or block):
+            cands.append((block, len(stmts), last_node, None))
 
     rec(fn.body)
     if not allow_within_decl:
-        cands = [c for c in cands if not isinstance(c[2], ca.Decl)]
+        cands = [c for c in cands if not isinstance(c[3], ca.Decl)]
     return cands
 
 
@@ -1072,7 +1072,7 @@ def perm_refer_to_var(
         cond = ca.BinaryOp("&&", cond, copy.deepcopy(expr))
 
     stmt = ca.If(cond=cond, iftrue=ca.Compound(block_items=[]), iffalse=None)
-    tob, toi, _ = random.choice(ins_cands)
+    tob, toi, _, _ = random.choice(ins_cands)
     ast_util.insert_statement(tob, toi, stmt)
 
 
@@ -1156,7 +1156,7 @@ def perm_empty_stmt(
     elif kind == 4:  # ;
         stmts = [ca.EmptyStatement()]
 
-    tob, toi, _ = random.choice(cands)
+    tob, toi, _, _ = random.choice(cands)
     stmts.insert(0, ca.Pragma("_permuter sameline start"))
     stmts.append(ca.Pragma("_permuter sameline end"))
     for stmt in stmts[::-1]:
@@ -1343,10 +1343,22 @@ def perm_reorder_stmts(
     # Figure out candidate statements to be moved. Don't move pragmas; it can
     # cause assertion failures. Don't move blocks; statements are generally not
     # reordered across basic blocks, and we don't want to risk moving a block
-    # to inside itself.
+    # to inside itself. Don't move declarations, except for ones with initializers
+    # which we can extract as individual statements.
+    cands = [
+        (block, i, before, node)
+        for block, i, before, node in cands
+        if not isinstance(node, ca.Decl)
+        or (
+            node.name is not None
+            and node.init is not None
+            and not isinstance(node.init, ca.InitList)
+        )
+    ]
+
     source_inds = []
     for i, c in enumerate(cands):
-        stmt = c[2]
+        stmt = c[3]
         if (
             stmt is not None
             and not isinstance(stmt, ca.Pragma)
@@ -1355,71 +1367,112 @@ def perm_reorder_stmts(
             source_inds.append(i)
 
     ensure(source_inds)
-    fromi = random.choice(source_inds)
+    sourcei = random.choice(source_inds)
+    fromb, fromi, _, from_stmt = cands[sourcei]
+    sourcei_after = sourcei + 1
+    if (
+        isinstance(from_stmt, ca.Decl)
+        or sourcei_after == len(cands)
+        or cands[sourcei_after][2] != from_stmt
+    ):
+        sourcei_after -= 1
 
     weighted_cands = []
     for i in range(len(cands)):
-        dist = max(fromi - i, i - (fromi + 1))
+        dist = max(sourcei - i, i - sourcei_after)
         if dist == 0:
+            continue
+        if isinstance(cands[i][3], ca.Decl):
+            # Don't move to before a declaration, to maintain C89 compat
             continue
         # Move distance 1, 2, 3, ... with probabilities
         # 23%, 12%, 8%, 6%, 4%, 3%, 3%, 2%, 2%, 2%, ...
-        prob = (dist + 1) ** -1.5
+        # weighted-averaged with a uniform distribution
+        prob = (dist + 1) ** -1.5 + 0.5 / len(cands)
         weighted_cands.append((i, prob))
     ensure(weighted_cands)
     toi = random_weighted(random, weighted_cands)
 
-    fromb, fromi, from_stmt = cands[fromi]
-    tob, toi, to_stmt = cands[toi]
+    tob, toi, _, to_stmt = cands[toi]
 
     if fromb == tob:
         ensure(toi != fromi and toi != fromi + 1)
 
     if isinstance(from_stmt, ca.Decl):
-        # Moving a declaration is tricky, when also preserving C89 compatibility.
-        # We can move it to after another declaration, or to the start of a block.
-        # Alternatively, if the declaration includes an initializer, and we move
-        # it forwards, we can split that out as an assignment.
-        # We don't allow moving the declaration or assignment past the next
-        # occurrence of the variable.
-        ensure(from_stmt.name)
-        var_name = from_stmt.name
-        to_index = indices.starts[to_stmt] if to_stmt else indices.ends[fromb]
-        uses = 0
-
-        class Visitor(ca.NodeVisitor):
-            def visit_ID(self, node: ca.ID) -> None:
-                nonlocal uses
-                if node.name == var_name and indices.starts[node] < to_index:
-                    uses += 1
-
-            def visit_TypeDecl(self, node: ca.TypeDecl) -> None:
-                nonlocal uses
-                if node.declname == var_name and indices.starts[node] < to_index:
-                    uses += 1
-
-        Visitor().visit(fn.body)
-        ensure(uses <= 1)
-
-        to_block_stmts = ast_util.get_block_stmts(tob, False)
-        if toi == 0 or isinstance(to_block_stmts[toi - 1], ca.Decl):
-            # Fine to move
-            pass
-        elif (
-            from_stmt.name
-            and from_stmt.init
-            and not isinstance(from_stmt.init, ca.InitList)
-            and uses > 0
-        ):
-            assignment = ca.Assignment("=", ca.ID(from_stmt.name), from_stmt.init)
-            ast_util.insert_statement(tob, toi, assignment)
-            from_stmt.init = None
-            return
-        else:
-            raise RandomizationFailure
+        assert from_stmt.name
+        assert from_stmt.init is not None
+        assert not isinstance(from_stmt.init, ca.InitList)
+        assignment = ca.Assignment("=", ca.ID(from_stmt.name), from_stmt.init)
+        ast_util.insert_statement(tob, toi, assignment)
+        from_stmt.init = None
     else:
-        # Don't put statements before declarations.
-        ensure(not isinstance(to_stmt, ca.Decl))
+        if fromb == tob and fromi < toi:
+            toi -= 1
+        stmt = ast_util.get_block_stmts(fromb, True).pop(fromi)
+        ast_util.insert_statement(tob, toi, stmt)
+
+
+def perm_reorder_decls(
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
+) -> None:
+    """Move a declaration to another random place."""
+    cands = get_insertion_points(fn, region, allow_within_decl=True)
+
+    # Restrict target position candidates to starts of blocks and just before/after
+    # declarations, to preserve C89 compatibility if the code follows that.
+    cands = [
+        (block, i, before, after)
+        for block, i, before, after in cands
+        if i == 0 or isinstance(before, ca.Decl) or isinstance(after, ca.Decl)
+    ]
+
+    source_inds = [i for i, c in enumerate(cands) if isinstance(c[3], ca.Decl)]
+    ensure(source_inds)
+    sourcei = random.choice(source_inds)
+
+    weighted_cands = []
+    for i in range(len(cands)):
+        dist = max(sourcei - i, i - (sourcei + 1))
+        if dist == 0:
+            continue
+        # Move distance 1, 2, 3, ... with probabilities
+        # 23%, 12%, 8%, 6%, 4%, 3%, 3%, 2%, 2%, 2%, ...
+        # weighted-averaged with a uniform distribution
+        prob = (dist + 1) ** -1.5 + 1 / len(cands)
+        weighted_cands.append((i, prob))
+    ensure(weighted_cands)
+    desti = random_weighted(random, weighted_cands)
+
+    fromb, fromi, _, from_stmt = cands[sourcei]
+    tob, toi, _, to_stmt = cands[desti]
+
+    if fromb == tob:
+        assert toi != fromi
+        assert toi != fromi + 1
+
+    assert isinstance(from_stmt, ca.Decl)
+
+    # We don't allow moving the declaration past the next occurrence of the
+    # variable. (It would be nice to take scopes into account here, but currently
+    # we don't.)
+    ensure(from_stmt.name)
+    var_name = from_stmt.name
+    to_index = indices.starts[to_stmt] if to_stmt else indices.ends[fromb]
+    uses = 0
+
+    class Visitor(ca.NodeVisitor):
+        def visit_ID(self, node: ca.ID) -> None:
+            nonlocal uses
+            if node.name == var_name and indices.starts[node] < to_index:
+                uses += 1
+
+        def visit_TypeDecl(self, node: ca.TypeDecl) -> None:
+            nonlocal uses
+            if node.declname == var_name and indices.starts[node] < to_index:
+                uses += 1
+
+    Visitor().visit(fn.body)
+    ensure(uses <= 1)
 
     if fromb == tob and fromi < toi:
         toi -= 1
@@ -1865,7 +1918,7 @@ def perm_split_assignment(
 
     ins_cands = get_insertion_points(fn, region)
 
-    for ins_block, ins_index, node in ins_cands:
+    for ins_block, ins_index, _, node in ins_cands:
         if node is assign:
             break
     else:
@@ -1969,7 +2022,7 @@ def perm_duplicate_assignment(
     ensure(ins_cands)
 
     dup = copy.deepcopy(cand)
-    tob, toi, _ = random.choice(ins_cands)
+    tob, toi, _, _ = random.choice(ins_cands)
     ast_util.insert_statement(tob, toi, dup)
 
 
@@ -2251,6 +2304,7 @@ RANDOMIZATION_PASSES: List[RandomizationPass] = [
     perm_temp_for_expr,
     perm_expand_expr,
     perm_reorder_stmts,
+    perm_reorder_decls,
     perm_add_mask,
     perm_xor_zero,
     perm_cast_simple,
