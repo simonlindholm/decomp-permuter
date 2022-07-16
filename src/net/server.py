@@ -825,7 +825,9 @@ def _start_evaluator(docker_image: str, options: ServerOptions) -> DockerPort:
     command = ["python3", "-m", "src.net.evaluator"]
     secret = nacl.utils.random(32)
     enc_secret = base64.b64encode(secret).decode("utf-8")
-    src_path = pathlib.Path(__file__).parent.parent.absolute()
+    root_dir = pathlib.Path(__file__).parent.parent.parent
+    src_path = (root_dir / "src").absolute()
+    weights_path = (root_dir / "default_weights.toml").absolute()
 
     try:
         import docker
@@ -857,7 +859,10 @@ def _start_evaluator(docker_image: str, options: ServerOptions) -> DockerPort:
             stdin_open=True,
             stdout=True,
             environment={"SECRET": enc_secret},
-            volumes={src_path: {"bind": "/src", "mode": "ro"}},
+            volumes={
+                src_path: {"bind": "/src", "mode": "ro"},
+                weights_path: {"bind": "/default_weights.toml", "mode": "ro"},
+            },
             tmpfs={"/tmp": "size=1G,exec"},
             nano_cpus=int(options.num_cores * 1e9),
             mem_limit=int(options.max_memory_gb * 2**30),
