@@ -1,5 +1,6 @@
 import os
 import toml
+from pathlib import Path
 from typing import NoReturn, Mapping, Dict
 from .error import CandidateConstructionFailure
 
@@ -34,8 +35,9 @@ def trim_source(source: str, fn_name: str) -> str:
 
 
 def get_default_randomization_weights(compiler_type: str) -> Mapping[str, float]:
+    default_weights_file = Path(__file__).parent.parent / "default_weights.toml"
     weights: Dict[str, float] = {}
-    with open("default_weights.toml") as f:
+    with open(default_weights_file) as f:
         all_weights: Mapping[str, object] = toml.load(f)
 
         base_weights = all_weights.get("base", {})
