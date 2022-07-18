@@ -67,9 +67,7 @@ def _setup_port(secret: bytes) -> Port:
     return port
 
 
-def _create_permuter(
-    data: PermuterData, randomization_weights: Mapping[str, float]
-) -> Permuter:
+def _create_permuter(data: PermuterData) -> Permuter:
     fd, path = mkstemp(suffix=".o", prefix="permuter", text=False)
     try:
         with os.fdopen(fd, "wb") as f:
@@ -94,7 +92,7 @@ def _create_permuter(
             scorer=scorer,
             source_file=data.filename,
             source=data.source,
-            randomization_weights=randomization_weights,
+            randomization_weights=data.randomization_weights,
             force_seed=None,
             force_rng_seed=None,
             keep_prob=data.keep_prob,
@@ -316,9 +314,6 @@ def main() -> None:
     should_remove: Set[str] = set()
     permuters: Dict[str, Permuter] = {}
 
-    # TODO pass weights across the network
-    randomization_weights = get_default_randomization_weights("base")
-
     timestamp = 0
 
     def try_remove(perm_id: str) -> None:
@@ -349,7 +344,7 @@ def main() -> None:
             try:
                 # Construct a permuter. This involves a compilation on the main
                 # thread, which isn't great but we can live with it for now.
-                permuter = _create_permuter(item.data, randomization_weights)
+                permuter = _create_permuter(item.data)
 
                 if permuter.base_score != item.data.base_score:
                     _remove_permuter(permuter)

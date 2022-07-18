@@ -94,6 +94,7 @@ def make_portable_permuter(permuter: Permuter) -> PermuterData:
         keep_prob=permuter.keep_prob,
         need_profiler=permuter.need_profiler,
         stack_differences=permuter.scorer.stack_differences,
+        randomization_weights=permuter.randomization_weights,
         compile_script=compile_script,
         source=permuter.source,
         target_o_bin=target_o_bin,

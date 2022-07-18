@@ -7,7 +7,7 @@ import struct
 import sys
 import toml
 import typing
-from typing import BinaryIO, List, Optional, Type, TypeVar, Union
+from typing import BinaryIO, Dict, Mapping, Optional, Type, TypeVar, Union
 
 from nacl.encoding import HexEncoder
 from nacl.public import Box, PrivateKey, PublicKey
@@ -56,6 +56,7 @@ class PermuterData:
     keep_prob: float
     need_profiler: bool
     stack_differences: bool
+    randomization_weights: Mapping[str, float]
     compile_script: str
     source: str
     target_o_bin: bytes
@@ -73,6 +74,9 @@ def permuter_data_from_json(
         need_profiler=json_prop(obj, "need_profiler", bool),
         stack_differences=json_prop(obj, "stack_differences", bool),
         compile_script=json_prop(obj, "compile_script", str),
+        randomization_weights=json_dict(
+            json_prop(obj, "randomization_weights", dict, {}), float
+        ),
         source=source,
         target_o_bin=target_o_bin,
     )
@@ -87,6 +91,7 @@ def permuter_data_to_json(perm: PermuterData) -> dict:
         "keep_prob": perm.keep_prob,
         "need_profiler": perm.need_profiler,
         "stack_differences": perm.stack_differences,
+        "randomization_weights": perm.randomization_weights,
         "compile_script": perm.compile_script,
     }
 

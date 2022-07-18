@@ -6,7 +6,6 @@ import re
 import time
 import traceback
 from typing import (
-    Any,
     List,
     Iterator,
     Mapping,
@@ -275,7 +274,7 @@ class Permuter:
         base source against another source generated from this permuter."""
 
         class Line(str):
-            def __eq__(self, other: Any) -> bool:
+            def __eq__(self, other: object) -> bool:
                 return isinstance(other, str) and self.strip() == other.strip()
 
             def __hash__(self) -> int:

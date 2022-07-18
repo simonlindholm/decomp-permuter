@@ -16,7 +16,13 @@ if TYPE_CHECKING:
 from nacl.secret import SecretBox
 import nacl.utils
 
-from ..helpers import exception_to_string, json_prop, static_assert_unreachable
+from ..helpers import (
+    exception_to_string,
+    get_default_randomization_weights,
+    json_prop,
+    merge_randomization_weights,
+    static_assert_unreachable,
+)
 from .core import (
     CancelToken,
     Config,
@@ -312,6 +318,11 @@ class NetThread:
                     client=client,
                     reason=f"Failed to parse permuter: {exception_to_string(e)}",
                 )
+
+            base_weights = get_default_randomization_weights("base")
+            permuter.randomization_weights = merge_randomization_weights(
+                base_weights, permuter.randomization_weights
+            )
 
             return AddPermuter(
                 handle=handle,
@@ -826,7 +837,6 @@ def _start_evaluator(docker_image: str, options: ServerOptions) -> DockerPort:
     enc_secret = base64.b64encode(secret).decode("utf-8")
     root_dir = pathlib.Path(__file__).parent.parent.parent
     src_path = (root_dir / "src").absolute()
-    weights_path = (root_dir / "default_weights.toml").absolute()
 
     try:
         import docker
@@ -858,10 +868,7 @@ def _start_evaluator(docker_image: str, options: ServerOptions) -> DockerPort:
             stdin_open=True,
             stdout=True,
             environment={"SECRET": enc_secret},
-            volumes={
-                src_path: {"bind": "/src", "mode": "ro"},
-                weights_path: {"bind": "/default_weights.toml", "mode": "ro"},
-            },
+            volumes={src_path: {"bind": "/src", "mode": "ro"}},
             tmpfs={"/tmp": "size=1G,exec"},
             nano_cpus=int(options.num_cores * 1e9),
             mem_limit=int(options.max_memory_gb * 2**30),
