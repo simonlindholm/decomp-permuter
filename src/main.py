@@ -18,6 +18,9 @@ from .error import CandidateConstructionFailure
 from .helpers import (
     get_settings,
     get_default_randomization_weights,
+    json_prop,
+    json_dict,
+    merge_randomization_weights,
     plural,
     static_assert_unreachable,
     trim_source,
@@ -294,26 +297,19 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
 
         settings: Mapping[str, object] = get_settings(d)
 
-        compiler_type = settings.get("compiler_type", "base")
-        assert isinstance(compiler_type, str)
+        compiler_type = json_prop(settings, "compiler_type", str, "base")
 
-        compiler_weights = get_default_randomization_weights(compiler_type)
-        weight_overrides = settings.get("weight_overrides", {})
-        assert isinstance(weight_overrides, Mapping)
-        final_weights: Dict[str, float] = {}
-
-        # Merge compiler weights with user specified weights.
-        for rand_type, compiler_weight in compiler_weights.items():
-            if rand_type in weight_overrides:
-                assert isinstance(weight_overrides[rand_type], (int, float))
-                final_weights[rand_type] = float(weight_overrides[rand_type])
-            else:
-                final_weights[rand_type] = compiler_weight
+        default_weights = get_default_randomization_weights(compiler_type)
+        weight_overrides = json_dict(
+            json_prop(settings, "weight_overrides", dict, {}), float
+        )
+        randomization_weights = merge_randomization_weights(
+            default_weights, weight_overrides
+        )
 
         fn_name: Optional[str] = None
         if "func_name" in settings:
-            assert isinstance(settings["func_name"], str)
-            fn_name = settings["func_name"]
+            fn_name = json_prop(settings, "func_name", str)
 
         if not fn_name:
             try:
@@ -345,7 +341,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
                 scorer,
                 base_c,
                 c_source,
-                final_weights,
+                randomization_weights=randomization_weights,
                 force_seed=force_seed,
                 force_rng_seed=force_rng_seed,
                 keep_prob=options.keep_prob,

@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 from nacl.secret import SecretBox
 import nacl.utils
 
-from ..helpers import exception_to_string, static_assert_unreachable
+from ..helpers import exception_to_string, json_prop, static_assert_unreachable
 from .core import (
     CancelToken,
     Config,
@@ -26,7 +26,6 @@ from .core import (
     SocketPort,
     connect,
     file_read_fixed,
-    json_prop,
     permuter_data_from_json,
     permuter_data_to_json,
 )

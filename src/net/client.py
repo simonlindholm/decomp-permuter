@@ -5,7 +5,7 @@ from typing import Optional, Tuple
 import zlib
 
 from ..candidate import CandidateResult
-from ..helpers import exception_to_string
+from ..helpers import exception_to_string, json_prop
 from ..permuter import (
     EvalError,
     EvalResult,
@@ -22,7 +22,6 @@ from ..profiler import Profiler
 from .core import (
     PermuterData,
     SocketPort,
-    json_prop,
     permuter_data_to_json,
 )
 

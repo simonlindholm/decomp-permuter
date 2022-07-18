@@ -15,7 +15,7 @@ from nacl.secret import SecretBox
 from nacl.signing import SigningKey, VerifyKey
 
 from ..error import ServerError
-from ..helpers import exception_to_string
+from ..helpers import exception_to_string, json_prop, json_dict
 
 T = TypeVar("T")
 AnyBox = Union[Box, SecretBox]
@@ -196,28 +196,6 @@ def socket_shutdown(sock: socket.socket, how: int) -> None:
         sock.shutdown(how)
     except Exception:
         pass
-
-
-def json_prop(obj: dict, prop: str, t: Type[T]) -> T:
-    ret = obj.get(prop)
-    if not isinstance(ret, t):
-        if t is float and isinstance(ret, int):
-            return typing.cast(T, float(ret))
-        found_type = type(ret).__name__
-        if prop not in obj:
-            raise ValueError(f"Member {prop} does not exist")
-        raise ValueError(f"Member {prop} must have type {t.__name__}; got {found_type}")
-    return ret
-
-
-def json_array(obj: list, t: Type[T]) -> List[T]:
-    for elem in obj:
-        if not isinstance(elem, t):
-            found_type = type(elem).__name__
-            raise ValueError(
-                f"Array elements must have type {t.__name__}; got {found_type}"
-            )
-    return obj
 
 
 def sign_with_magic(magic: bytes, signing_key: SigningKey, data: bytes) -> bytes:
