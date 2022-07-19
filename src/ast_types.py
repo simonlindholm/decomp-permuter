@@ -199,7 +199,6 @@ def decayed_expr_type(expr: ca.Node, typemap: TypeMap) -> SimpleType:
 def resolve_struct_def(struct: ca.TypeDecl, typemap: TypeMap) -> Optional[ca.Struct]:
     """Resolve struct definition for a given type.
     """
-    # print('resolve structdef of:', struct)
     if isinstance(struct.type, ca.IdentifierType):
         idType = struct.type.names[0]
         if idType in typemap.typedefs:

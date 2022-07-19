@@ -2290,44 +2290,16 @@ def perm_inline(
 # references via that parent.
 ParentRefs = Dict[ca.Struct, List[ca.StructRef]]
 
-### How to commit struct changes
-    # Two parts:
-    #  1) Commit change to struct definition
-    #  2) Commit change to any struct references (not restricted by region,
-    #     since we want the file to compile)
-    #
-    # Notes:
-    #  - We don't need to modify the AST of the whole struct, just the parent
-    #    and substruct.
-
-# How to add this: We'll probably need to collect all the struct references
-# within the given region. Then we'll have to modify the struct and re-commit it
-# (somehow?)
 def perm_flatten_struct(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> None:
     """Moves fields from a nested struct into its parent struct. Only types used
     within the given region are affected."""
-    # Steps:
-    #  1. Get all leaf fields referenced from the region. Make sure to only pull
-    #     leaf fields in a substruct (??).
-    #  2. Select a leaf field at random.
-    #  3. Toss coin to flatten upwards or downwards.
-    #  4. Pick a random `endpoint` within the substruct.
-    #  5. Shift subset of fields upwards or downwards into parent struct.
-    #     `shift_fields(parent_struct: Node, substruct: Node, field_idx: int, shift_up: bool)` # todo: should be more specific than Node
-    # ??  How do I commit struct changes and change all other references to
-    #     shifted fields?
-    #
-    # No topological sort required for struct definitions with flatten. Will
-    # need to do this for FOLD.
-
     # TODO: With a get_mutable_node(node: Node) function, you could instead
     # just get a mutable copy of the parent struct once it is selected.
     ast_util.deepcopy_struct_defs(ast)
     typemap = build_typemap(ast, fn)
     substructs: Dict[ca.Struct, ParentRefs] = defaultdict(lambda: defaultdict(list))
-    fields: Set[ca.StructRef] = set()
 
     class StructRefVisitor(ca.NodeVisitor):
         def visit_StructRef(self, node: ca.StructRef) -> None:
@@ -2340,119 +2312,59 @@ def perm_flatten_struct(
     # Get all leaf fields in the region that are within a substruct. The fields
     # must be accessed from a parent struct.
     StructRefVisitor().visit(fn)
-    print('barboach')
-    # print('Length structrefs:', len(fields))
-    # print(fields)
-
-    # print('substructs:')
-    # print(substructs)
-    print('Length of substructs:', len(list(substructs.keys())))
     ensure(substructs)
-
     substruct = random.choice(list(substructs.keys()))
-    print('chosen substruct:')
-    substruct.show()
 
-    old_typemap = copy.deepcopy(typemap)
-    # print('typemap:', typemap)
-    # print('field types:', [decayed_expr_type(field, typemap) for field in fields])
-    # print('substruct types:', [decayed_expr_type(field.name, typemap) for field in fields])
-    # print('parent types:', [decayed_expr_type(field.name.name, typemap) for field in fields])
-
-    # substruct = resolve_struct_def(decayed_expr_type(field.name, typemap), typemap)
-    # parent = resolve_struct_def(decayed_expr_type(field.name.name, typemap), typemap)
-    old_substruct = copy.deepcopy(substruct)
-    # old_parent = copy.deepcopy(parent)
-
-    # print('whiscash')
-    # print([decl.name for decl in substruct.decls])
     ensure(substruct.decls)
     endpoint = random.choice(substruct.decls)
     flatten_upwards = random_bool(random, PROB_FLATTEN_UPWARDS)
-    print('oddish')
+
     for parent, structRefs in substructs[substruct].items():
-        # TODO: Clean this up!!
-        # DO NOT SUBMIT until figuring out how to get field of `substruct` within parent.
         substruct_idx = ast_util.struct_substruct_idx(parent, substruct, typemap)
-        print('substruct_idx:', substruct_idx)
         parent_field_name = parent.decls[substruct_idx].name
-        print('parent field name:', parent_field_name)
         moved_names = ast_util.flatten_fields(parent, parent_field_name, substruct, endpoint.name, flatten_upwards)
-        print('Moved names:')
-        print(moved_names)
-        print('structRefs:')
-        print(structRefs)
         # Commit these changes to all StructRefs under this parent. We should
         # only update references to fields that were moved.
         for structRef in structRefs:
             if structRef.field.name in moved_names:
-                print('structref before:')
-                structRef.show()
                 structRef.name = structRef.name.name
                 structRef.field.name = moved_names[structRef.field.name]
-                print('structref after:')
-                structRef.show()
-            else:
-                print("wingull -- not a moved field!")
-
-    # print('new typemap:', typemap)
-
-    # Call replace_subexprs(). Replace StructRef if its `name` field is a
-    # StructRef that resolves to the parent. Replace it with a new StructRef
-    # whose `name` is the `name` of the inner StructRef, and whose ID is the new
-    # field name from moved_names.
-    # def structref_replace(expr: Expression) -> Optional[Expression]:
-    #     if isinstance(expr, ca.StructRef) and isinstance(expr.name, ca.StructRef):  # nested StructRef
-    #         print('litten')
-    #         print('expression:')
-    #         print(expr)
-    #         # TODO NEXT: Try using `substruct` directly?
-    #         expr_type = resolve_struct_def(decayed_expr_type(expr.name, typemap), typemap)
-    #         print('expr type:', expr_type)
-    #         print('old substruct:', old_substruct)
-    #         # If we are referencing a field that got moved out of the substruct
-    #         if same_type(expr_type, substruct, typemap) and expr.field.name in moved_names:
-    #             print('torracat')
-    #             return ca.StructRef(expr.name.name, ".", moved_names[expr.field.name])
-    #     return None
-
-    # replace_subexprs(fn.body, structref_replace)
 
 
 RandomizationPass = Callable[[ca.FuncDef, ca.FileAST, Indices, Region, Random], None]
 
 RANDOMIZATION_PASSES: List[RandomizationPass] = [
-    # perm_temp_for_expr,
-    # perm_expand_expr,
-    # perm_reorder_stmts,
-    # perm_reorder_decls,
-    # perm_add_mask,
-    # perm_xor_zero,
-    # perm_cast_simple,
-    # perm_refer_to_var,
-    # perm_float_literal,
-    # perm_randomize_internal_type,
-    # perm_randomize_external_type,
-    # perm_randomize_function_type,
-    # perm_split_assignment,
-    # perm_sameline,
-    # perm_ins_block,
-    # perm_struct_ref,
-    # perm_empty_stmt,
-    # perm_condition,
-    # perm_mult_zero,
-    # perm_dummy_comma_expr,
-    # perm_add_self_assignment,
-    # perm_commutative,
-    # perm_add_sub,
-    # perm_inequalities,
-    # perm_compound_assignment,
-    # perm_remove_ast,
-    # perm_duplicate_assignment,
-    # perm_chain_assignment,
-    # perm_long_chain_assignment,
-    # perm_pad_var_decl,
-    # perm_inline,
+    perm_temp_for_expr,
+    perm_expand_expr,
+    perm_reorder_stmts,
+    perm_reorder_decls,
+    perm_add_mask,
+    perm_xor_zero,
+    perm_cast_simple,
+    perm_refer_to_var,
+    perm_float_literal,
+    perm_randomize_internal_type,
+    perm_randomize_external_type,
+    perm_randomize_function_type,
+    perm_split_assignment,
+    perm_sameline,
+    perm_ins_block,
+    perm_struct_ref,
+    perm_empty_stmt,
+    perm_condition,
+    perm_mult_zero,
+    perm_dummy_comma_expr,
+    perm_add_self_assignment,
+    perm_commutative,
+    perm_add_sub,
+    perm_inequalities,
+    perm_compound_assignment,
+    perm_remove_ast,
+    perm_duplicate_assignment,
+    perm_chain_assignment,
+    perm_long_chain_assignment,
+    perm_pad_var_decl,
+    perm_inline,
     perm_flatten_struct,
 ]
 

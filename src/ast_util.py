@@ -202,10 +202,9 @@ def struct_field_idx(struct: ca.Struct, field_name: str) -> int:
 
 
 def struct_substruct_idx(parent: ca.Struct, substruct: ca.Struct, typemap: TypeMap) -> int:
-    print('parent:')
     parent.show()
     for i, decl in enumerate(parent.decls):
-        if isinstance(decl.type, ca.TypeDecl): # and same_type(decl.type.type, substruct, typemap):
+        if isinstance(decl.type, ca.TypeDecl):
             decl_struct = resolve_struct_def(decl.type, typemap)
             if decl_struct is substruct:
                 return i
@@ -349,18 +348,10 @@ def flatten_fields(parent: ca.Struct, parent_field: str, substruct: ca.Struct, s
     Returns a mapping from the original names of the moved fields to their
     (potentially) new names in the parent.
     """
-    # print('parent:')
-    # parent.show()
-    # print('substruct:')
-    # substruct.show()
-
     parent_field_names = set([decl.name for decl in parent.decls])
 
     parent_idx = struct_field_idx(parent, parent_field)
     shift_idx = struct_field_idx(substruct, substruct_field)
-    print('parent_idx:', parent_idx)
-    print('shift_idx:', shift_idx)
-    print('flatten upwards', flatten_upwards)
     if flatten_upwards:
         moved_fields = move_fields(substruct, parent, 0, shift_idx + 1, parent_idx)
         substruct_i = parent_idx + shift_idx + 1
@@ -370,14 +361,8 @@ def flatten_fields(parent: ca.Struct, parent_field: str, substruct: ca.Struct, s
 
     # If substruct is empty, remove it from the parent
     if not substruct.decls:
-        print('gloom')
         struct_remove_field_i(parent, substruct_i)
         parent_field_names.remove(parent_field)
-
-    print('newParent:')
-    parent.show()
-    print('newSubstruct:')
-    substruct.show()
 
     return deduplicate_struct_field_names(moved_fields, parent_field_names)
 
