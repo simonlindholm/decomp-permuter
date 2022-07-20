@@ -195,13 +195,13 @@ class Permuter:
 
         # Randomize the candidate
         if self._permutations.is_random():
-            found_new_source = False
-            while not found_new_source:
+            while True:
                 # Continue randomizing until we find a new unique source code
                 self._cur_cand.randomize_ast()
                 cand_source = self._cur_cand.get_source()
                 hash = hashlib.sha256(cand_source.encode()).digest()
-                found_new_source = hash not in self._seen_sources
+                if hash not in self._seen_sources:
+                    break
             self._seen_sources.add(hash)
 
         t1 = time.time()
