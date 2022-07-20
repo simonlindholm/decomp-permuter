@@ -26,10 +26,6 @@ from .helpers import (
     trim_source,
 )
 
-import platform
-
-system = platform.system().lower()
-
 
 try:
     from .net.client import start_client
