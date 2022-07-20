@@ -25,8 +25,10 @@ from .helpers import (
     static_assert_unreachable,
     trim_source,
 )
-from .net.client import start_client
-from .net.core import ServerError, connect, enable_debug_mode, MAX_PRIO, MIN_PRIO
+
+MIN_PRIO = 0.01
+MAX_PRIO = 2.0
+
 from .permuter import (
     EvalError,
     EvalResult,
@@ -401,6 +403,10 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         # Connect to network and create client threads and queues.
         net_conns: "List[Tuple[threading.Thread, Queue[Task]]]" = []
         if options.use_network:
+
+            from .net.client import start_client
+            from .net.core import ServerError, connect, enable_debug_mode
+
             print("Connecting to permuter@home...")
             if options.network_debug:
                 enable_debug_mode()
