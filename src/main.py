@@ -125,12 +125,12 @@ def post_score(
     context: EvalContext, permuter: Permuter, result: EvalResult, who: Optional[str]
 ) -> bool:
     if isinstance(result, EvalError):
-        if result.exc_str is not None and not result.duplicate:
+        if result.exc_str is not None:
             context.printer.print(
                 "internal permuter failure.", permuter, who, keep_progress=True
             )
             print(result.exc_str)
-        if result.seed is not None and not result.duplicate:
+        if result.seed is not None:
             seed_str = str(result.seed[1])
             if result.seed[0] != 0:
                 seed_str = f"{result.seed[0]},{seed_str}"

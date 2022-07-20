@@ -39,9 +39,7 @@ def _profiler_from_json(obj: dict) -> Profiler:
 
 def _result_from_json(obj: dict, source: Optional[str]) -> EvalResult:
     if "error" in obj:
-        return EvalError(
-            exc_str=json_prop(obj, "error", str), seed=None, duplicate=False
-        )
+        return EvalError(exc_str=json_prop(obj, "error", str), seed=None)
 
     profiler: Optional[Profiler] = None
     if "profiler" in obj:

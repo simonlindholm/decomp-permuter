@@ -32,7 +32,6 @@ from .helpers import trim_source
 class EvalError:
     exc_str: Optional[str]
     seed: Optional[Tuple[int, int]]
-    duplicate: bool
 
 
 EvalResult = Union[CandidateResult, EvalError]
@@ -53,10 +52,6 @@ class NeedMoreWork:
 
 
 class _CompileFailure(Exception):
-    pass
-
-
-class _DuplicateRandomization(Exception):
     pass
 
 
@@ -142,7 +137,7 @@ class Permuter:
         self.hashes = {self.base_hash}
         self._cur_cand: Optional[Candidate] = None
         self._last_score: Optional[int] = None
-        self._source_cache: Set[str] = set()
+        self._seen_sources: Set[bytes] = set()
 
     def _create_and_score_base(self) -> Tuple[int, str, str]:
         base_source, eval_state = perm_evaluate_one(self._permutations)
@@ -200,16 +195,18 @@ class Permuter:
 
         # Randomize the candidate
         if self._permutations.is_random():
-            self._cur_cand.randomize_ast()
+            found_new_source = False
+            while not found_new_source:
+                # Continue randomizing until we find a new unique source code
+                self._cur_cand.randomize_ast()
+                cand_source = self._cur_cand.get_source()
+                hash = hashlib.sha256(cand_source.encode()).digest()
+                found_new_source = hash not in self._seen_sources
+            self._seen_sources.add(hash)
 
         t1 = time.time()
 
-        cand_source = self._cur_cand.get_source()
-        hash = hashlib.sha256(cand_source.encode()).hexdigest()
-        if hash in self._source_cache:
-            raise _DuplicateRandomization()
-        else:
-            self._source_cache.add(hash)
+        # Profile time for stringify is broken
 
         t2 = time.time()
 
@@ -278,18 +275,10 @@ class Permuter:
         """Evaluate a seed for the permuter."""
         try:
             return self._eval_candidate(seed)
-        except _DuplicateRandomization:
-            return EvalError(
-                exc_str="Duplicate Source from Randomization - not scoring",
-                seed=self._cur_seed,
-                duplicate=True,
-            )
         except _CompileFailure:
-            return EvalError(exc_str=None, seed=self._cur_seed, duplicate=False)
+            return EvalError(exc_str=None, seed=self._cur_seed)
         except Exception:
-            return EvalError(
-                exc_str=traceback.format_exc(), seed=self._cur_seed, duplicate=False
-            )
+            return EvalError(exc_str=traceback.format_exc(), seed=self._cur_seed)
 
     def diff(self, other_source: str) -> str:
         """Compute a unified white-space-ignoring diff from the (pretty-printed)
