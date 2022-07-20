@@ -5,23 +5,26 @@ import multiprocessing
 from multiprocessing import Queue
 import os
 import queue
+import re
 import sys
 import threading
 import time
-from typing import (
-    Callable,
-    Dict,
-    Iterable,
-    Iterator,
-    List,
-    Optional,
-    Tuple,
-)
+
+from typing import Callable, Dict, Iterable, Iterator, List, Mapping, Optional, Tuple
 
 from .candidate import CandidateResult
 from .compiler import Compiler
 from .error import CandidateConstructionFailure
-from .helpers import plural, static_assert_unreachable, trim_source
+from .helpers import (
+    get_settings,
+    get_default_randomization_weights,
+    json_prop,
+    json_dict,
+    merge_randomization_weights,
+    plural,
+    static_assert_unreachable,
+    trim_source,
+)
 
 import platform
 
@@ -59,6 +62,7 @@ from .permuter import (
 from .preprocess import preprocess
 from .printer import Printer
 from .profiler import Profiler
+from .randomizer import RANDOMIZATION_PASSES
 from .scorer import Scorer
 
 # The probability that the randomizer continues transforming the output it
@@ -312,12 +316,28 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             print(f"{compile_cmd} must be marked executable.", file=sys.stderr)
             sys.exit(1)
 
+        settings: Mapping[str, object] = get_settings(d)
+
+        compiler_type = json_prop(settings, "compiler_type", str, "base")
+
+        default_weights = get_default_randomization_weights(compiler_type)
+        weight_overrides = json_dict(
+            json_prop(settings, "weight_overrides", dict, {}), float
+        )
+        randomization_weights = merge_randomization_weights(
+            default_weights, weight_overrides
+        )
+
         fn_name: Optional[str] = None
-        try:
-            with open(os.path.join(d, "function.txt"), encoding="utf-8") as f:
-                fn_name = f.read().strip()
-        except FileNotFoundError:
-            pass
+        if "func_name" in settings:
+            fn_name = json_prop(settings, "func_name", str)
+
+        if not fn_name:
+            try:
+                with open(os.path.join(d, "function.txt"), encoding="utf-8") as f:
+                    fn_name = f.read().strip()
+            except FileNotFoundError:
+                pass
 
         if fn_name:
             print(f"{base_c} ({fn_name})")
@@ -342,6 +362,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
                 scorer,
                 base_c,
                 c_source,
+                randomization_weights=randomization_weights,
                 force_seed=force_seed,
                 force_rng_seed=force_rng_seed,
                 keep_prob=options.keep_prob,
@@ -544,6 +565,24 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
     return [permuter.best_score for permuter in context.permuters]
 
 
+class PrintRandomizationPassesAction(argparse.Action):
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: object,
+        option_string: Optional[str] = None,
+    ) -> None:
+        weights = get_default_randomization_weights("base")
+        for method in RANDOMIZATION_PASSES:
+            print(f"{method.__name__}:")
+            docs = (method.__doc__ or "").strip()
+            docs = re.sub(r"^(    )?", "  ", docs, flags=re.MULTILINE)
+            print(docs)
+            print()
+        sys.exit(0)
+
+
 def main() -> None:
     multiprocessing.freeze_support()
     sys.setrecursionlimit(10000)
@@ -565,6 +604,12 @@ def main() -> None:
         nargs="+",
         metavar="directory",
         help="Directory containing base.c, target.o and compile.sh. Multiple directories may be given.",
+    )
+    parser.add_argument(
+        "--help=randomization-passes",
+        nargs=0,
+        action=PrintRandomizationPassesAction,
+        help="Show documentation for all the available randomization passes.",
     )
     parser.add_argument(
         "--show-errors",

@@ -11,7 +11,7 @@ from tempfile import mkstemp
 import threading
 import time
 import traceback
-from typing import Counter, Dict, List, Optional, Set, Tuple, Union
+from typing import Counter, Dict, List, Mapping, Optional, Set, Tuple, Union
 import zlib
 
 from nacl.secret import SecretBox
@@ -19,7 +19,11 @@ from nacl.secret import SecretBox
 from ..candidate import CandidateResult
 from ..compiler import Compiler
 from ..error import CandidateConstructionFailure
-from ..helpers import exception_to_string, static_assert_unreachable
+from ..helpers import (
+    exception_to_string,
+    get_default_randomization_weights,
+    static_assert_unreachable,
+)
 from ..permuter import EvalError, EvalResult, Permuter
 from ..profiler import Profiler
 from ..scorer import Scorer
@@ -88,6 +92,7 @@ def _create_permuter(data: PermuterData) -> Permuter:
             scorer=scorer,
             source_file=data.filename,
             source=data.source,
+            randomization_weights=data.randomization_weights,
             force_seed=None,
             force_rng_seed=None,
             keep_prob=data.keep_prob,
@@ -222,7 +227,7 @@ def multiprocess_worker(
             setattr(result, "compressed_source", compressed_source)
             result.source = None
 
-        time_us = int((time.time() - time_before) * 10 ** 6)
+        time_us = int((time.time() - time_before) * 10**6)
         task_queue.put(
             WorkDone(perm_id=work.perm_id, id=work.id, time_us=time_us, result=result)
         )
@@ -308,6 +313,7 @@ def main() -> None:
     remaining_work: Counter[str] = Counter()
     should_remove: Set[str] = set()
     permuters: Dict[str, Permuter] = {}
+
     timestamp = 0
 
     def try_remove(perm_id: str) -> None:
@@ -378,7 +384,7 @@ def main() -> None:
                 else:
                     traceback.print_exc()
 
-            msg["time_us"] = int((time.time() - time_before) * 10 ** 6)
+            msg["time_us"] = int((time.time() - time_before) * 10**6)
             port.send_json(msg)
 
         elif isinstance(item, RemovePermuter):

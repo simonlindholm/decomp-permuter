@@ -7,7 +7,7 @@ import struct
 import sys
 import toml
 import typing
-from typing import BinaryIO, List, Optional, Type, TypeVar, Union
+from typing import BinaryIO, Dict, Mapping, Optional, Type, TypeVar, Union
 
 from nacl.encoding import HexEncoder
 from nacl.public import Box, PrivateKey, PublicKey
@@ -15,7 +15,7 @@ from nacl.secret import SecretBox
 from nacl.signing import SigningKey, VerifyKey
 
 from ..error import ServerError
-from ..helpers import exception_to_string
+from ..helpers import exception_to_string, json_prop, json_dict
 
 T = TypeVar("T")
 AnyBox = Union[Box, SecretBox]
@@ -53,6 +53,7 @@ class PermuterData:
     keep_prob: float
     need_profiler: bool
     stack_differences: bool
+    randomization_weights: Mapping[str, float]
     compile_script: str
     source: str
     target_o_bin: bytes
@@ -70,6 +71,9 @@ def permuter_data_from_json(
         need_profiler=json_prop(obj, "need_profiler", bool),
         stack_differences=json_prop(obj, "stack_differences", bool),
         compile_script=json_prop(obj, "compile_script", str),
+        randomization_weights=json_dict(
+            json_prop(obj, "randomization_weights", dict, {}), float
+        ),
         source=source,
         target_o_bin=target_o_bin,
     )
@@ -84,6 +88,7 @@ def permuter_data_to_json(perm: PermuterData) -> dict:
         "keep_prob": perm.keep_prob,
         "need_profiler": perm.need_profiler,
         "stack_differences": perm.stack_differences,
+        "randomization_weights": perm.randomization_weights,
         "compile_script": perm.compile_script,
     }
 
@@ -108,10 +113,12 @@ def read_config() -> Config:
 
         temp = read("server_public_key", str)
         if temp:
-            config.server_verify_key = VerifyKey(HexEncoder.decode(temp))
+            config.server_verify_key = VerifyKey(
+                HexEncoder.decode(temp.encode("utf-8"))
+            )
         temp = read("secret_key", str)
         if temp:
-            config.signing_key = SigningKey(HexEncoder.decode(temp))
+            config.signing_key = SigningKey(HexEncoder.decode(temp.encode("utf-8")))
         config.initial_setup_nickname = read("initial_setup_nickname", str)
         config.server_address = read("server_address", str)
     except FileNotFoundError:
@@ -191,28 +198,6 @@ def socket_shutdown(sock: socket.socket, how: int) -> None:
         sock.shutdown(how)
     except Exception:
         pass
-
-
-def json_prop(obj: dict, prop: str, t: Type[T]) -> T:
-    ret = obj.get(prop)
-    if not isinstance(ret, t):
-        if t is float and isinstance(ret, int):
-            return typing.cast(T, float(ret))
-        found_type = type(ret).__name__
-        if prop not in obj:
-            raise ValueError(f"Member {prop} does not exist")
-        raise ValueError(f"Member {prop} must have type {t.__name__}; got {found_type}")
-    return ret
-
-
-def json_array(obj: list, t: Type[T]) -> List[T]:
-    for elem in obj:
-        if not isinstance(elem, t):
-            found_type = type(elem).__name__
-            raise ValueError(
-                f"Array elements must have type {t.__name__}; got {found_type}"
-            )
-    return obj
 
 
 def sign_with_magic(magic: bytes, signing_key: SigningKey, data: bytes) -> bytes:

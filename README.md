@@ -8,9 +8,7 @@ The modes can also be combined, by using the `PERM_RANDOMIZE` macro.
 
 [<img src="https://asciinema.org/a/232846.svg" height="300">](https://asciinema.org/a/232846)
 
-The main target for the tool is MIPS code compiled by old compilers (IDO, possibly GCC).
-Getting it to work on other architectures shouldn't be too hard, however.
-https://github.com/laqieer/decomp-permuter-arm has an ARM port.
+This tool supports MIPS (compiled by IDO, possibly GCC), PowerPC, and ARM32 assembly.
 
 ## Usage
 
@@ -22,7 +20,8 @@ You'll first need to install a couple of prerequisites: `python3 -m pip install 
 The permuter expects as input one or more directory containing:
   - a .c file with a single function,
   - a .o file to match,
-  - a .sh file that compiles the .c file.
+  - a .sh file that compiles the .c file,
+  - a .toml file specifying settings.
 
 For projects with a properly configured makefile, you should be able to set these up by running
 ```
@@ -36,6 +35,10 @@ For projects using Ninja instead of Make, add a `permuter_settings.toml` in the 
 build_system = "ninja"
 ```
 Then `import.py` should work as expected if `build.ninja` is at the root of the project.
+
+All of the possible randomizations are assigned a weight value that affects the frequency with which the randomization is chosen.
+The default set of weights is specified in `default_weights.toml` and vary based on the targeted compiler.
+These weights can be overridden by modifying `settings.toml` in the input directory.
 
 The .c file may be modified with any of the following macros which affect manual permutation:
 
@@ -69,13 +72,10 @@ To allow others to use your computer for permuter runs, do the following:
 
 - install Docker (used for sandboxing and to ensure a consistent environment)
 - if on Linux, add yourself to the Docker group: `sudo usermod -aG docker $USER`
+  or set up [rootless Docker](https://docs.docker.com/engine/security/rootless/)
 - install required packages: `python3 -m pip install docker`
 - open a terminal, and run `./pah.py run-server` to start the server.
   There are a few required arguments (e.g. how many cores to use), see `--help` for more details.
-
-Please be aware that being in the Docker group implies (password-less) sudo rights.
-You can avoid that for your personal account by running the permuter under a separate user.
-Unfortunately, there is currently no way to run a sandboxed permuter server without sudo rights. 😢
 
 Anyone who is granted access to permuter@home can run a server.
 

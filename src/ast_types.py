@@ -10,37 +10,40 @@ For the purposes of the randomizer these restrictions are acceptable."""
 from dataclasses import dataclass, field
 from typing import Union, Dict, Set, List
 
-from pycparser import c_ast
-from pycparser.c_ast import ArrayDecl, TypeDecl, PtrDecl, FuncDecl, IdentifierType
+from pycparser import c_ast as ca
 
-Type = Union[PtrDecl, ArrayDecl, TypeDecl, FuncDecl]
-SimpleType = Union[PtrDecl, TypeDecl]
+Type = Union[ca.PtrDecl, ca.ArrayDecl, ca.TypeDecl, ca.FuncDecl]
+SimpleType = Union[ca.PtrDecl, ca.TypeDecl]
 
-StructUnion = Union[c_ast.Struct, c_ast.Union]
+StructUnion = Union[ca.Struct, ca.Union]
 
 
 @dataclass
 class TypeMap:
     typedefs: Dict[str, Type] = field(default_factory=dict)
-    fn_ret_types: Dict[str, Type] = field(default_factory=dict)
     var_types: Dict[str, Type] = field(default_factory=dict)
+    local_vars: Set[str] = field(default_factory=set)
     struct_defs: Dict[str, StructUnion] = field(default_factory=dict)
 
 
-def basic_type(name: Union[str, List[str]]) -> TypeDecl:
+def is_local_var(name: str, typemap: TypeMap) -> bool:
+    return name in typemap.local_vars
+
+
+def basic_type(name: Union[str, List[str]]) -> ca.TypeDecl:
     names = [name] if isinstance(name, str) else name
-    idtype = IdentifierType(names=names)
-    return TypeDecl(declname=None, quals=[], align=[], type=idtype)
+    idtype = ca.IdentifierType(names=names)
+    return ca.TypeDecl(declname=None, quals=[], align=[], type=idtype)
 
 
 def pointer(type: Type) -> Type:
-    return PtrDecl(quals=[], type=type)
+    return ca.PtrDecl(quals=[], type=type)
 
 
 def resolve_typedefs(type: Type, typemap: TypeMap) -> Type:
     while (
-        isinstance(type, TypeDecl)
-        and isinstance(type.type, IdentifierType)
+        isinstance(type, ca.TypeDecl)
+        and isinstance(type.type, ca.IdentifierType)
         and len(type.type.names) == 1
         and type.type.names[0] in typemap.typedefs
     ):
@@ -50,29 +53,29 @@ def resolve_typedefs(type: Type, typemap: TypeMap) -> Type:
 
 def pointer_decay(type: Type, typemap: TypeMap) -> SimpleType:
     real_type = resolve_typedefs(type, typemap)
-    if isinstance(real_type, ArrayDecl):
-        return PtrDecl(quals=[], type=real_type.type)
-    if isinstance(real_type, FuncDecl):
-        return PtrDecl(quals=[], type=type)
-    if isinstance(real_type, TypeDecl) and isinstance(real_type.type, c_ast.Enum):
+    if isinstance(real_type, ca.ArrayDecl):
+        return ca.PtrDecl(quals=[], type=real_type.type)
+    if isinstance(real_type, ca.FuncDecl):
+        return ca.PtrDecl(quals=[], type=type)
+    if isinstance(real_type, ca.TypeDecl) and isinstance(real_type.type, ca.Enum):
         return basic_type("int")
     assert not isinstance(
-        type, (ArrayDecl, FuncDecl)
+        type, (ca.ArrayDecl, ca.FuncDecl)
     ), "resolve_typedefs can't hide arrays/functions"
     return type
 
 
-def get_decl_type(decl: c_ast.Decl) -> Type:
+def get_decl_type(decl: ca.Decl) -> Type:
     """For a Decl that declares a variable (and not just a struct/union/enum),
     return its type."""
     assert decl.name is not None
-    assert isinstance(decl.type, (PtrDecl, ArrayDecl, FuncDecl, TypeDecl))
+    assert isinstance(decl.type, (ca.PtrDecl, ca.ArrayDecl, ca.FuncDecl, ca.TypeDecl))
     return decl.type
 
 
 def deref_type(type: Type, typemap: TypeMap) -> Type:
     type = resolve_typedefs(type, typemap)
-    assert isinstance(type, (ArrayDecl, PtrDecl)), "dereferencing non-pointer"
+    assert isinstance(type, (ca.ArrayDecl, ca.PtrDecl)), "dereferencing non-pointer"
     return type.type
 
 
@@ -84,10 +87,10 @@ def struct_member_type(struct: StructUnion, field_name: str, typemap: TypeMap) -
         struct = typemap.struct_defs[struct.name]
     assert struct.decls, "struct_defs never points to an incomplete type"
     for decl in struct.decls:
-        if isinstance(decl, c_ast.Decl):
+        if isinstance(decl, ca.Decl):
             if decl.name == field_name:
                 return get_decl_type(decl)
-            if decl.name == None and isinstance(decl.type, (c_ast.Struct, c_ast.Union)):
+            if decl.name == None and isinstance(decl.type, (ca.Struct, ca.Union)):
                 try:
                     return struct_member_type(decl.type, field_name, typemap)
                 except AssertionError:
@@ -96,33 +99,33 @@ def struct_member_type(struct: StructUnion, field_name: str, typemap: TypeMap) -
     assert False, f"No field {field_name} in struct {struct.name}"
 
 
-def expr_type(node: c_ast.Node, typemap: TypeMap) -> Type:
-    def rec(sub_expr: c_ast.Node) -> Type:
+def expr_type(node: ca.Node, typemap: TypeMap) -> Type:
+    def rec(sub_expr: ca.Node) -> Type:
         return expr_type(sub_expr, typemap)
 
-    if isinstance(node, c_ast.Assignment):
+    if isinstance(node, ca.Assignment):
         return rec(node.lvalue)
-    if isinstance(node, c_ast.StructRef):
+    if isinstance(node, ca.StructRef):
         lhs_type = rec(node.name)
         if node.type == "->":
             lhs_type = deref_type(lhs_type, typemap)
         struct_type = resolve_typedefs(lhs_type, typemap)
-        assert isinstance(struct_type, TypeDecl)
+        assert isinstance(struct_type, ca.TypeDecl)
         assert isinstance(
-            struct_type.type, (c_ast.Struct, c_ast.Union)
+            struct_type.type, (ca.Struct, ca.Union)
         ), f"struct deref of non-struct {struct_type.declname}"
         return struct_member_type(struct_type.type, node.field.name, typemap)
-    if isinstance(node, c_ast.Cast):
+    if isinstance(node, ca.Cast):
         return node.to_type.type
-    if isinstance(node, c_ast.Constant):
+    if isinstance(node, ca.Constant):
         if node.type == "string":
             return pointer(basic_type("char"))
         if node.type == "char":
             return basic_type("int")
         return basic_type(node.type.split(" "))
-    if isinstance(node, c_ast.ID):
+    if isinstance(node, ca.ID):
         return typemap.var_types[node.name]
-    if isinstance(node, c_ast.UnaryOp):
+    if isinstance(node, ca.UnaryOp):
         if node.op in ["p++", "p--", "++", "--"]:
             return rec(node.expr)
         if node.op == "&":
@@ -139,7 +142,7 @@ def expr_type(node: c_ast.Node, typemap: TypeMap) -> Type:
         if node.op in ["sizeof", "-", "+", "~", "!"]:
             return basic_type("int")
         assert False, f"unknown unary op {node.op}"
-    if isinstance(node, c_ast.BinaryOp):
+    if isinstance(node, ca.BinaryOp):
         lhs_type = pointer_decay(rec(node.left), typemap)
         rhs_type = pointer_decay(rec(node.right), typemap)
         if node.op in [">>", "<<"]:
@@ -151,8 +154,8 @@ def expr_type(node: c_ast.Node, typemap: TypeMap) -> Type:
         real_lhs = resolve_typedefs(lhs_type, typemap)
         real_rhs = resolve_typedefs(rhs_type, typemap)
         if node.op in "+-":
-            lptr = isinstance(real_lhs, PtrDecl)
-            rptr = isinstance(real_rhs, PtrDecl)
+            lptr = isinstance(real_lhs, ca.PtrDecl)
+            rptr = isinstance(real_rhs, ca.PtrDecl)
             if lptr or rptr:
                 if lptr and rptr:
                     assert node.op != "+", "pointer + pointer"
@@ -162,39 +165,34 @@ def expr_type(node: c_ast.Node, typemap: TypeMap) -> Type:
                 assert node.op == "+", "int - pointer"
                 return rhs_type
         if node.op in "*/+-":
-            assert isinstance(real_lhs, TypeDecl)
-            assert isinstance(real_rhs, TypeDecl)
-            assert isinstance(real_lhs.type, IdentifierType)
-            assert isinstance(real_rhs.type, IdentifierType)
+            assert isinstance(real_lhs, ca.TypeDecl)
+            assert isinstance(real_rhs, ca.TypeDecl)
+            assert isinstance(real_lhs.type, ca.IdentifierType)
+            assert isinstance(real_rhs.type, ca.IdentifierType)
             if "double" in real_lhs.type.names + real_rhs.type.names:
                 return basic_type("double")
             if "float" in real_lhs.type.names + real_rhs.type.names:
                 return basic_type("float")
             return basic_type("int")
-    if isinstance(node, c_ast.FuncCall):
+    if isinstance(node, ca.FuncCall):
         expr = node.name
-        if isinstance(expr, c_ast.ID):
-            if expr.name not in typemap.fn_ret_types:
-                raise Exception(f"Called function {expr.name} is missing a prototype")
-            return typemap.fn_ret_types[expr.name]
-        else:
-            fptr_type = resolve_typedefs(rec(expr), typemap)
-            if isinstance(fptr_type, PtrDecl):
-                fptr_type = fptr_type.type
-            fptr_type = resolve_typedefs(fptr_type, typemap)
-            assert isinstance(fptr_type, FuncDecl), "call to non-function"
-            return fptr_type.type
-    if isinstance(node, c_ast.ExprList):
+        fptr_type = resolve_typedefs(rec(expr), typemap)
+        if isinstance(fptr_type, ca.PtrDecl):
+            fptr_type = fptr_type.type
+        fptr_type = resolve_typedefs(fptr_type, typemap)
+        assert isinstance(fptr_type, ca.FuncDecl), "call to non-function"
+        return fptr_type.type
+    if isinstance(node, ca.ExprList):
         return rec(node.exprs[-1])
-    if isinstance(node, c_ast.ArrayRef):
+    if isinstance(node, ca.ArrayRef):
         subtype = rec(node.name)
         return deref_type(subtype, typemap)
-    if isinstance(node, c_ast.TernaryOp):
+    if isinstance(node, ca.TernaryOp):
         return rec(node.iftrue)
     assert False, f"Unknown expression node type: {node}"
 
 
-def decayed_expr_type(expr: c_ast.Node, typemap: TypeMap) -> SimpleType:
+def decayed_expr_type(expr: ca.Node, typemap: TypeMap) -> SimpleType:
     return pointer_decay(expr_type(expr, typemap), typemap)
 
 
@@ -204,31 +202,33 @@ def same_type(
     while True:
         type1 = resolve_typedefs(type1, typemap)
         type2 = resolve_typedefs(type2, typemap)
-        if isinstance(type1, ArrayDecl) and isinstance(type2, ArrayDecl):
+        if isinstance(type1, ca.ArrayDecl) and isinstance(type2, ca.ArrayDecl):
             type1 = type1.type
             type2 = type2.type
             continue
-        if isinstance(type1, PtrDecl) and isinstance(type2, PtrDecl):
+        if isinstance(type1, ca.PtrDecl) and isinstance(type2, ca.PtrDecl):
             type1 = type1.type
             type2 = type2.type
             continue
-        if isinstance(type1, TypeDecl) and isinstance(type2, TypeDecl):
+        if isinstance(type1, ca.TypeDecl) and isinstance(type2, ca.TypeDecl):
             sub1 = type1.type
             sub2 = type2.type
-            if isinstance(sub1, c_ast.Struct) and isinstance(sub2, c_ast.Struct):
+            if isinstance(sub1, ca.Struct) and isinstance(sub2, ca.Struct):
                 return sub1.name == sub2.name
-            if isinstance(sub1, c_ast.Union) and isinstance(sub2, c_ast.Union):
+            if isinstance(sub1, ca.Union) and isinstance(sub2, ca.Union):
                 return sub1.name == sub2.name
             if (
                 allow_similar
-                and isinstance(sub1, (IdentifierType, c_ast.Enum))
-                and isinstance(sub2, (IdentifierType, c_ast.Enum))
+                and isinstance(sub1, (ca.IdentifierType, ca.Enum))
+                and isinstance(sub2, (ca.IdentifierType, ca.Enum))
             ):
                 # All int-ish types are similar (except void, but whatever)
                 return True
-            if isinstance(sub1, c_ast.Enum) and isinstance(sub2, c_ast.Enum):
+            if isinstance(sub1, ca.Enum) and isinstance(sub2, ca.Enum):
                 return sub1.name == sub2.name
-            if isinstance(sub1, IdentifierType) and isinstance(sub2, IdentifierType):
+            if isinstance(sub1, ca.IdentifierType) and isinstance(
+                sub2, ca.IdentifierType
+            ):
                 return sorted(sub1.names) == sorted(sub2.names)
         return False
 
@@ -239,65 +239,68 @@ def allowed_basic_type(
     """Check if a type resolves to a basic type with one of the allowed_types
     keywords in it."""
     base_type = resolve_typedefs(type, typemap)
-    if not isinstance(base_type, c_ast.TypeDecl):
+    if not isinstance(base_type, ca.TypeDecl):
         return False
-    if not isinstance(base_type.type, c_ast.IdentifierType):
+    if not isinstance(base_type.type, ca.IdentifierType):
         return False
     if all(x not in base_type.type.names for x in allowed_types):
         return False
     return True
 
 
-def build_typemap(ast: c_ast.FileAST) -> TypeMap:
+def build_typemap(ast: ca.FileAST, target_fn: ca.FuncDef) -> TypeMap:
     ret = TypeMap()
     for item in ast.ext:
-        if isinstance(item, c_ast.Typedef):
+        if isinstance(item, ca.Typedef):
             ret.typedefs[item.name] = item.type
-        if isinstance(item, c_ast.FuncDef):
-            assert item.decl.name is not None, "cannot define anonymous function"
-            assert isinstance(item.decl.type, FuncDecl)
-            ret.fn_ret_types[item.decl.name] = item.decl.type.type
-        if isinstance(item, c_ast.Decl) and isinstance(item.type, FuncDecl):
-            assert item.name is not None, "cannot define anonymous function"
-            ret.fn_ret_types[item.name] = item.type.type
-    defined_function_decls: Set[c_ast.Decl] = set()
+    within_fn: bool = False
 
-    class Visitor(c_ast.NodeVisitor):
-        def visit_Struct(self, struct: c_ast.Struct) -> None:
+    class Visitor(ca.NodeVisitor):
+        def visit_Struct(self, struct: ca.Struct) -> None:
             if struct.decls and struct.name is not None:
                 ret.struct_defs[struct.name] = struct
             # Do not visit decls of this struct
 
-        def visit_Union(self, union: c_ast.Union) -> None:
+        def visit_Union(self, union: ca.Union) -> None:
             if union.decls and union.name is not None:
                 ret.struct_defs[union.name] = union
             # Do not visit decls of this union
 
-        def visit_Decl(self, decl: c_ast.Decl) -> None:
+        def visit_FuncDecl(self, fn_decl: ca.FuncDecl) -> None:
+            self.visit(fn_decl.type)
+            # Do not visit params of this function declaration
+
+        def visit_Decl(self, decl: ca.Decl) -> None:
             if decl.name is not None:
                 ret.var_types[decl.name] = get_decl_type(decl)
-            if not isinstance(decl.type, FuncDecl) or decl in defined_function_decls:
-                # Do not visit declarations in parameter lists of functions
-                # other than our own.
-                self.visit(decl.type)
+                if within_fn:
+                    ret.local_vars.add(decl.name)
+            self.visit(decl.type)
 
-        def visit_Enumerator(self, enumerator: c_ast.Enumerator) -> None:
+        def visit_Enumerator(self, enumerator: ca.Enumerator) -> None:
             ret.var_types[enumerator.name] = basic_type("int")
 
-        def visit_FuncDef(self, fn: c_ast.FuncDef) -> None:
-            if fn.decl.name is not None:
-                ret.var_types[fn.decl.name] = get_decl_type(fn.decl)
-            defined_function_decls.add(fn.decl)
-            self.generic_visit(fn)
+        def visit_FuncDef(self, fn: ca.FuncDef) -> None:
+            assert isinstance(fn.decl.type, ca.FuncDecl)
+            if fn.decl.name is None:
+                return
+            ret.var_types[fn.decl.name] = get_decl_type(fn.decl)
+            if fn is target_fn:
+                nonlocal within_fn
+                within_fn = True
+                if fn.decl.type.args:
+                    self.visit(fn.decl.type.args)
+                self.visit(fn.body)
+                within_fn = False
 
     Visitor().visit(ast)
     return ret
 
 
-def set_decl_name(decl: c_ast.Decl) -> None:
+def set_decl_name(decl: ca.Decl) -> None:
     name = decl.name
     assert name is not None
     type = get_decl_type(decl)
-    while not isinstance(type, TypeDecl):
+    while not isinstance(type, ca.TypeDecl):
         type = type.type
     type.declname = name

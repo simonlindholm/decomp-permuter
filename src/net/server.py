@@ -16,7 +16,13 @@ if TYPE_CHECKING:
 from nacl.secret import SecretBox
 import nacl.utils
 
-from ..helpers import exception_to_string, static_assert_unreachable
+from ..helpers import (
+    exception_to_string,
+    get_default_randomization_weights,
+    json_prop,
+    merge_randomization_weights,
+    static_assert_unreachable,
+)
 from .core import (
     CancelToken,
     Config,
@@ -26,7 +32,6 @@ from .core import (
     SocketPort,
     connect,
     file_read_fixed,
-    json_prop,
     permuter_data_from_json,
     permuter_data_to_json,
 )
@@ -314,6 +319,11 @@ class NetThread:
                     reason=f"Failed to parse permuter: {exception_to_string(e)}",
                 )
 
+            base_weights = get_default_randomization_weights("base")
+            permuter.randomization_weights = merge_randomization_weights(
+                base_weights, permuter.randomization_weights
+            )
+
             return AddPermuter(
                 handle=handle,
                 time_start=time_start,
@@ -383,7 +393,7 @@ class NetThread:
             self._port.send_json({"type": "need_work"})
 
         elif isinstance(item, OutputWork):
-            overhead_us = int((time.time() - item.time_start) * 10 ** 6) - item.time_us
+            overhead_us = int((time.time() - item.time_start) * 10**6) - item.time_us
             self._port.send_json(
                 {
                     "type": "update",
@@ -825,7 +835,8 @@ def _start_evaluator(docker_image: str, options: ServerOptions) -> DockerPort:
     command = ["python3", "-m", "src.net.evaluator"]
     secret = nacl.utils.random(32)
     enc_secret = base64.b64encode(secret).decode("utf-8")
-    src_path = pathlib.Path(__file__).parent.parent.absolute()
+    root_dir = pathlib.Path(__file__).parent.parent.parent
+    src_path = (root_dir / "src").absolute()
 
     try:
         import docker
@@ -860,7 +871,7 @@ def _start_evaluator(docker_image: str, options: ServerOptions) -> DockerPort:
             volumes={src_path: {"bind": "/src", "mode": "ro"}},
             tmpfs={"/tmp": "size=1G,exec"},
             nano_cpus=int(options.num_cores * 1e9),
-            mem_limit=int(options.max_memory_gb * 2 ** 30),
+            mem_limit=int(options.max_memory_gb * 2**30),
             read_only=True,
             network_disabled=True,
         )

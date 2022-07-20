@@ -5,7 +5,7 @@ from typing import Optional, Tuple
 import zlib
 
 from ..candidate import CandidateResult
-from ..helpers import exception_to_string
+from ..helpers import exception_to_string, json_prop
 from ..permuter import (
     EvalError,
     EvalResult,
@@ -22,7 +22,6 @@ from ..profiler import Profiler
 from .core import (
     PermuterData,
     SocketPort,
-    json_prop,
     permuter_data_to_json,
 )
 
@@ -95,6 +94,7 @@ def make_portable_permuter(permuter: Permuter) -> PermuterData:
         keep_prob=permuter.keep_prob,
         need_profiler=permuter.need_profiler,
         stack_differences=permuter.scorer.stack_differences,
+        randomization_weights=permuter.randomization_weights,
         compile_script=compile_script,
         source=permuter.source,
         target_o_bin=target_o_bin,

@@ -6,9 +6,9 @@ import re
 import time
 import traceback
 from typing import (
-    Any,
     List,
     Iterator,
+    Mapping,
     Optional,
     Tuple,
     Union,
@@ -78,6 +78,7 @@ class Permuter:
         source_file: str,
         source: str,
         *,
+        randomization_weights: Mapping[str, float],
         force_seed: Optional[int],
         force_rng_seed: Optional[int],
         keep_prob: float,
@@ -94,6 +95,7 @@ class Permuter:
         self.scorer = scorer
         self.source_file = source_file
         self.source = source
+        self.randomization_weights = randomization_weights
 
         if fn_name is None:
             # Semi-legacy codepath; all functions imported through import.py have a
@@ -104,7 +106,7 @@ class Permuter:
             if len(fns) == 0:
                 raise Exception(f"{self.source_file} does not contain any function!")
             self.fn_name = fns[-1]
-            print("Selecting function: ", self.fn_name)
+            print("Defaulting to function: ", self.fn_name)
         else:
             self.fn_name = fn_name
         self.unique_name = self.fn_name
@@ -136,7 +138,11 @@ class Permuter:
     def _create_and_score_base(self) -> Tuple[int, str, str]:
         base_source, eval_state = perm_evaluate_one(self._permutations)
         base_cand = Candidate.from_source(
-            base_source, eval_state, self.fn_name, rng_seed=0
+            base_source,
+            eval_state,
+            self.fn_name,
+            self.randomization_weights,
+            rng_seed=0,
         )
 
         if self._debug_mode:
@@ -173,10 +179,14 @@ class Permuter:
         if not self._cur_cand or not keep:
             eval_state = EvalState()
             cand_c = self._permutations.evaluate(seed, eval_state)
-            rng_seed = self._force_rng_seed or random.randrange(1, 10 ** 20)
+            rng_seed = self._force_rng_seed or random.randrange(1, 10**20)
             self._cur_seed = (seed, rng_seed)
             self._cur_cand = Candidate.from_source(
-                cand_c, eval_state, self.fn_name, rng_seed=rng_seed
+                cand_c,
+                eval_state,
+                self.fn_name,
+                self.randomization_weights,
+                rng_seed=rng_seed,
             )
 
         # Randomize the candidate
@@ -264,7 +274,7 @@ class Permuter:
         base source against another source generated from this permuter."""
 
         class Line(str):
-            def __eq__(self, other: Any) -> bool:
+            def __eq__(self, other: object) -> bool:
                 return isinstance(other, str) and self.strip() == other.strip()
 
             def __hash__(self) -> int:

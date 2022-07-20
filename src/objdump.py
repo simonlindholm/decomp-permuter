@@ -40,6 +40,7 @@ class ArchSettings:
     re_reg: Pattern[str]
     re_sprel: Pattern[str]
     re_includes_sp: Pattern[str]
+    sp_ref_insns: List[str]
     reloc_str: str
     branch_instructions: Set[str]
     forbidden: Set[str] = field(default_factory=lambda: set(string.ascii_letters + "_"))
@@ -100,14 +101,43 @@ PPC_BRANCH_INSTRUCTIONS = {
 
 PPC_BRANCH_LIKELY_INSTRUCTIONS: Set[str] = set()
 
+ARM32_PREFIXES = {"b", "bl"}
+ARM32_CONDS = {
+    "",
+    "eq",
+    "ne",
+    "cs",
+    "cc",
+    "mi",
+    "pl",
+    "vs",
+    "vc",
+    "hi",
+    "ls",
+    "ge",
+    "lt",
+    "gt",
+    "le",
+    "al",
+}
+ARM32_SUFFIXES = {"", ".n", ".w"}
+ARM32_BRANCH_INSTRUCTIONS = {
+    f"{prefix}{cond}{suffix}"
+    for prefix in ARM32_PREFIXES
+    for cond in ARM32_CONDS
+    for suffix in ARM32_SUFFIXES
+}
+
+
 MIPS_SETTINGS: ArchSettings = ArchSettings(
     name="mips",
     re_comment=re.compile(r"<.*?>"),
     re_reg=re.compile(
-        r"\$?\b(a[0-3]|t[0-9]|s[0-8]|at|v[01]|f[12]?[0-9]|f3[01]|k[01]|fp|ra)\b"  # leave out $zero
+        r"\$?\b(a[0-3]|t[0-9]|s[0-8]|at|v[01]|f[12]?[0-9]|f3[01]|k[01]|fp|ra)\b"  # leave out $zero, $sp
     ),
     re_sprel=re.compile(r"(?<=,)([0-9]+|0x[0-9a-f]+)\((sp|s8)\)"),
     re_includes_sp=re.compile(r"\b(sp|s8)\b"),
+    sp_ref_insns=["addiu"],
     reloc_str="R_MIPS_",
     objdump=["mips-linux-gnu-objdump", "-drz", "-m", "mips:4300"],
     branch_likely_instructions=MIPS_BRANCH_LIKELY_INSTRUCTIONS,
@@ -118,13 +148,35 @@ MIPS_SETTINGS: ArchSettings = ArchSettings(
 PPC_SETTINGS: ArchSettings = ArchSettings(
     name="ppc",
     re_includes_sp=re.compile(r"\b(r1)\b"),
+    sp_ref_insns=[],
     re_comment=re.compile(r"(<.*>|//.*$)"),
-    re_reg=re.compile(r"\$?\b([rf][0-9]+)\b"),
+    re_reg=re.compile(r"\$?\b([rf](?:[02-9]|[1-9][0-9]+)|f1)\b"),  # leave out r1
     re_sprel=re.compile(r"(?<=,)(-?[0-9]+|-?0x[0-9a-f]+)\(r1\)"),
     reloc_str="R_PPC_",
     objdump=["powerpc-eabi-objdump", "-dr", "-EB", "-mpowerpc", "-M", "broadway"],
     branch_instructions=PPC_BRANCH_INSTRUCTIONS,
     branch_likely_instructions=PPC_BRANCH_LIKELY_INSTRUCTIONS,
+)
+
+
+ARM32_SETTINGS: ArchSettings = ArchSettings(
+    name="arm32",
+    re_includes_sp=re.compile(r"\b(sp)\b"),
+    sp_ref_insns=["add", "sub"],
+    re_comment=re.compile(r"(<.*>|//.*$)"),
+    # Includes:
+    #   - General purpose registers: r0..13
+    #   - Frame pointer registers: lr (r14), pc (r15)
+    #   - VFP/NEON registers: s0..31, d0..31, q0..15, fpscr, fpexc, fpsid
+    # SP should not be in this list.
+    re_reg=re.compile(
+        r"\$?\b([rq][0-9]|[rq]1[0-5]|pc|lr|[ds][12]?[0-9]|[ds]3[01]|fp(scr|exc|sid))\b"
+    ),
+    re_sprel=re.compile(r"sp, #-?(0x[0-9a-fA-F]+|[0-9]+)\b"),
+    reloc_str="R_ARM_",
+    objdump=["arm-none-eabi-objdump", "-drz"],
+    branch_instructions=ARM32_BRANCH_INSTRUCTIONS,
+    branch_likely_instructions=set(),
 )
 
 
@@ -140,7 +192,8 @@ def get_arch(o_file: str) -> ArchSettings:
         return MIPS_SETTINGS
     if arch == 20:
         return PPC_SETTINGS
-    # TODO: support ARM (0x28)
+    if arch == 40:
+        return ARM32_SETTINGS
     raise Exception("Bad ELF")
 
 
@@ -189,6 +242,67 @@ def pre_process(mnemonic: str, args: str, next_row: Optional[str]) -> Tuple[str,
     return mnemonic, args
 
 
+def process_mips_reloc(reloc_row: str, prev: str, repl: str, imm: str) -> str:
+    # Sometimes s8 is used as a non-framepointer, but we've already lost
+    # the immediate value by pretending it is one. This isn't too bad,
+    # since it's rare and applies consistently. But we do need to handle it
+    # here to avoid a crash, by pretending that lost imms are zero for
+    # relocations.
+    if imm != "0" and imm != "imm" and imm != "addr":
+        repl += "+" + imm if int(imm, 0) > 0 else imm
+    if any(
+        reloc in reloc_row
+        for reloc in ["R_MIPS_LO16", "R_MIPS_LITERAL", "R_MIPS_GPREL16"]
+    ):
+        repl = f"%lo({repl})"
+    elif "R_MIPS_HI16" in reloc_row:
+        # Ideally we'd pair up R_MIPS_LO16 and R_MIPS_HI16 to generate a
+        # correct addend for each, but objdump doesn't give us the order of
+        # the relocations, so we can't find the right LO16. :(
+        repl = f"%hi({repl})"
+    else:
+        assert "R_MIPS_26" in reloc_row, f"unknown relocation type '{reloc_row}'"
+    return repl
+
+
+def process_ppc_reloc(reloc_row: str, prev: str, repl: str) -> str:
+    assert any(
+        r in reloc_row for r in ["R_PPC_REL24", "R_PPC_ADDR16", "R_PPC_EMB_SDA21"]
+    ), f"unknown relocation type '{reloc_row}' for line '{prev}'"
+
+    if "R_PPC_REL24" in reloc_row:
+        # function calls
+        return repl
+    elif "R_PPC_ADDR16_HI" in reloc_row:
+        # absolute hi of addr
+        return f"{repl}@h"
+    elif "R_PPC_ADDR16_HA" in reloc_row:
+        # adjusted hi of addr
+        return f"{repl}@ha"
+    elif "R_PPC_ADDR16_LO" in reloc_row:
+        # lo of addr
+        return f"{repl}@l"
+    elif "R_PPC_ADDR16" in reloc_row:
+        # 16-bit absolute addr
+        if "+0x7" in repl:
+            # remove the very large addends as they are an artifact of (label-_SDA(2)_BASE_)
+            # computations and are unimportant in a diff setting.
+            if int(repl.split("+")[1], 16) > 0x70000000:
+                return repl.split("+")[0]
+    elif "R_PPC_EMB_SDA21" in reloc_row:
+        # sda21 relocations; r2/r13 --> 0 swaps are performed in an earlier processing step
+        return f"{repl}@sda21"
+    return repl
+
+
+def process_arm32_reloc(reloc_row: str, prev: str, repl: str) -> str:
+    assert any(
+        r in reloc_row for r in ["R_ARM_THM_CALL", "R_ARM_CALL", "R_ARM_ABS32"]
+    ), f"unknown relocation type '{reloc_row}' for line '{prev}'"
+
+    return repl
+
+
 def process_reloc(reloc_row: str, prev: str) -> Optional[str]:
     if prev == "<skipped>":
         return None
@@ -201,60 +315,16 @@ def process_reloc(reloc_row: str, prev: str) -> Optional[str]:
         assert ign_branch_targets
         return None
 
-    if "R_PPC_" in reloc_row:
-
-        assert any(
-            r in reloc_row for r in ["R_PPC_REL24", "R_PPC_ADDR16", "R_PPC_EMB_SDA21"]
-        ), f"unknown relocation type '{reloc_row}' for line '{prev}'"
-
-        if "R_PPC_REL24" in reloc_row:
-            # function calls
-            pass
-        elif "R_PPC_ADDR16_HI" in reloc_row:
-            # absolute hi of addr
-            repl = f"{repl}@h"
-        elif "R_PPC_ADDR16_HA" in reloc_row:
-            # adjusted hi of addr
-            repl = f"{repl}@ha"
-        elif "R_PPC_ADDR16_LO" in reloc_row:
-            # lo of addr
-            repl = f"{repl}@l"
-        elif "R_PPC_ADDR16" in reloc_row:
-            # 16-bit absolute addr
-            if "+0x7" in repl:
-                # remove the very large addends as they are an artifact of (label-_SDA(2)_BASE_)
-                # computations and are unimportant in a diff setting.
-                if int(repl.split("+")[1], 16) > 0x70000000:
-                    repl = repl.split("+")[0]
-        elif "R_PPC_EMB_SDA21" in reloc_row:
-            # sda21 relocations; r2/r13 --> 0 swaps are performed in an earlier processing step
-            repl = f"{repl}@sda21"
-
-        return before + repl + after
-
     if "R_MIPS_" in reloc_row:
-        # Sometimes s8 is used as a non-framepointer, but we've already lost
-        # the immediate value by pretending it is one. This isn't too bad,
-        # since it's rare and applies consistently. But we do need to handle it
-        # here to avoid a crash, by pretending that lost imms are zero for
-        # relocations.
-        if imm != "0" and imm != "imm" and imm != "addr":
-            repl += "+" + imm if int(imm, 0) > 0 else imm
-        if any(
-            reloc in reloc_row
-            for reloc in ["R_MIPS_LO16", "R_MIPS_LITERAL", "R_MIPS_GPREL16"]
-        ):
-            repl = f"%lo({repl})"
-        elif "R_MIPS_HI16" in reloc_row:
-            # Ideally we'd pair up R_MIPS_LO16 and R_MIPS_HI16 to generate a
-            # correct addend for each, but objdump doesn't give us the order of
-            # the relocations, so we can't find the right LO16. :(
-            repl = f"%hi({repl})"
-        else:
-            assert "R_MIPS_26" in reloc_row, f"unknown relocation type '{reloc_row}'"
-        return before + repl + after
+        new_repl = process_mips_reloc(reloc_row, prev, repl, imm)
+    elif "R_PPC_" in reloc_row:
+        new_repl = process_ppc_reloc(reloc_row, prev, repl)
+    elif "R_ARM_" in reloc_row:
+        new_repl = process_arm32_reloc(reloc_row, prev, repl)
+    else:
+        raise Exception(f"unknown relocation type: {reloc_row}")
 
-    raise Exception(f"unknown relocation type: {reloc_row}")
+    return before + new_repl + after
 
 
 def simplify_objdump(
@@ -305,7 +375,7 @@ def simplify_objdump(
             row = re.sub(arch.re_reg, "<reg>", row)
 
         if not stack_differences:
-            if mnemonic == "addiu" and arch.re_includes_sp.search(args):
+            if mnemonic in arch.sp_ref_insns and arch.re_includes_sp.search(args):
                 row = re.sub(re_int_full, "imm", row)
         if mnemonic in arch.branch_instructions:
             if ign_branch_targets:
