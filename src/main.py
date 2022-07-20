@@ -27,14 +27,23 @@ import platform
 
 system = platform.system().lower()
 
-isWindowsPlatform: bool = "nt" in system or "msys" in system
 
-if not isWindowsPlatform:
+try:
     from .net.client import start_client
-    from .net.core import ServerError, connect, enable_debug_mode, MAX_PRIO, MIN_PRIO
-else:
-    MAX_PRIO = 0.0
-    MIN_PRIO = 0.0
+    from .net.core import ServerError, connect, enable_debug_mode
+except ModuleNotFoundError as exception:
+    if exception.name == "nacl":
+        print(
+            "Warning: failed to load module, nacl (PyNaCl), needed for networking mode"
+        )
+        missing_nacl = True
+    else:
+        print("ModuleNotFoundError: ", exception)
+        sys.exit(1)
+
+
+MIN_PRIO = 0.01
+MAX_PRIO = 2.0
 
 from .permuter import (
     EvalError,
@@ -678,9 +687,9 @@ def main() -> None:
     if not threads and not args.use_network:
         threads = 1
 
-    if args.use_network and isWindowsPlatform:
+    if args.use_network and missing_nacl:
         print(
-            "Error: Networking features are not supported on windows platform... exiting"
+            "Error: Networking features are not available because nacl python module failed to import... exiting"
         )
         sys.exit(1)
 
