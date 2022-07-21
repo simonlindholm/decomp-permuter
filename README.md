@@ -15,7 +15,8 @@ This tool supports MIPS (compiled by IDO, possibly GCC), PowerPC, and ARM32 asse
 `./permuter.py directory/` runs the permuter; see below for the meaning of the directory.
 Pass `-h` to see possible flags. `-j` is suggested (enables multi-threaded mode).
 
-You'll first need to install a couple of prerequisites: `python3 -m pip install pycparser pynacl toml` (also `dataclasses` if on Python 3.6 or below)
+You'll first need to install a couple of prerequisites: `python3 -m pip install pycparser toml` (also `dataclasses` if on Python 3.6 or below)
+And there is an additional optional prerequisite, pynacl, required for a networking feature explained below.
 
 The permuter expects as input one or more directory containing:
   - a .c file with a single function,
@@ -67,6 +68,8 @@ is an alternative way of writing `PERM_ONCE`.
 The permuter supports a distributed mode, where people can donate processor power to your permuter runs to speed them up.
 To use this, pass `-J` when running `permuter.py` and follow the instructions.
 You will need to be granted access by someone who is already connected to a permuter network.
+Note: The distributed/networking mode of the permuter requires an additional dependency, PyNacl.
+This can be installed with pip, `python3 -m pip install pynacl`, however, it is not available on a windows platform.
 
 To allow others to use your computer for permuter runs, do the following:
 
