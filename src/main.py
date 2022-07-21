@@ -403,7 +403,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         # Connect to network and create client threads and queues.
         net_conns: "List[Tuple[threading.Thread, Queue[Task]]]" = []
         if options.use_network:
-
+            # Importing the networking modules here so dependencies don't need to be loaded when not using the network mode
             from .net.client import start_client
             from .net.core import ServerError, connect, enable_debug_mode
 
