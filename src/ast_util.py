@@ -217,59 +217,29 @@ def copy_struct(ast: ca.FileAST, typemap: TypeMap, struct: ca.Struct) -> ca.Stru
     """Adds a new struct with a definition matching `struct` to the AST.
     Returns this new struct.
     """
-    print('copying struct!')
     new_struct = copy.deepcopy(struct)
     base_name = struct.name if struct.name else struct.decls[0].name
     new_struct.name = get_noncolliding_struct_name(typemap, base_name)
-    # TODO NEXT: Add new struct to AST (wrap in a Decl)! Place it in the
-    # top-level, right before typedef/decl containing the base struct. That way,
-    # it has access to all its dependencies.
-    # 
-    # NOTE TO SELF: It can't be the final struct definition, because the parent
-    # is defined before. It can't be first, in case it depends on other structs.
-    # 
-    # CODE REVIEW NOTE: Make sure that this new definition gets deleted after the
-    # randomization pass! Honestly, I'm not sure how to do this cleanly...
-    # 
-    # It's not a big deal now. It's rare to have to add a new struct for this
-    # pass. It will be necessary for the NEST rule, otherwise you'll have a
-    # bunch of new struct defs polluting candidates down the line.
-    #
-    # Maybe, if you have to add a new struct, you should just deeply copy the
-    # entire AST for that candidate?
-    #
-    # TODO: Add the new struct definition in such a way that it doesn't persist
-    # across candidates.
-    #   Nvm, this doesn't seem to persist across candidates...
-    print('new struct name:', new_struct.name)
+
+    # Insert the new struct right above the base struct. This preserves any
+    # struct field dependencies.
     insert_idx = ast_ext_struct_idx(ast, struct)
-    print(f'inserting in ast.ext[{insert_idx}]:')
-    # decl = ca.Decl(name=None, quals=[], align=[], storage=[], funcspec=[], type=new_struct, init=None, bitsize=None)
-    decl = ca.Decl(None, [], [], [], [], new_struct, None, None)
+    decl = ca.Decl(name=None, quals=[], align=[], storage=[], funcspec=[], type=new_struct, init=None, bitsize=None)
     ast.ext = ast.ext[:insert_idx] + [decl] + ast.ext[insert_idx:]
-    # print('new ast:')
-    # ast.show()
     return new_struct
 
 
-def get_struct_fields(struct: ca.TypeDecl, typemap: TypeMap) -> List[ca.Decl]:
-    struct = resolve_struct_def(struct, typemap)
-    return struct.decls
-
-
-def struct_num_fields(struct: ca.TypeDecl, typemap: TypeMap) -> int:
-    return len(get_struct_fields(struct, typemap))
-
-
-def struct_field_idx(struct: ca.Struct, field_name: str) -> int:
-    for i, decl in enumerate(struct.decls):
-        if decl.name == field_name:
-            return i
-    return -1
+def struct_set_field_type(parent: ca.Struct, field_idx: int, new_type: ca.Struct) -> None:
+    struct_type = copy.deepcopy(new_type)
+    struct_type.decls = None
+    old_type_decl = parent.decls[field_idx].type
+    assert isinstance(old_type_decl, ca.TypeDecl), "can only modify the type of a TypeDecl field"
+    old_type_decl.type = struct_type
 
 
 def struct_substruct_idx(parent: ca.Struct, substruct: ca.Struct, typemap: TypeMap) -> int:
-    # parent.show()
+    """Returns the index of the field in `parent` of type `substruct`.
+    """
     for i, decl in enumerate(parent.decls):
         if isinstance(decl.type, ca.TypeDecl):
             decl_struct = resolve_struct_def(decl.type, typemap)
@@ -287,21 +257,8 @@ def struct_rename_field(field: ca.Decl, name: str) -> None:
     TypeDeclVisitor().visit(field)
 
 
-def struct_remove_field(struct: ca.Struct, field_name: str) -> None:
-    struct_remove_field_i(struct, struct_field_idx(struct, field_name))
-
-
-def struct_remove_field_i(struct: ca.Struct, field_idx: int) -> None:
+def struct_remove_field(struct: ca.Struct, field_idx: int) -> None:
     struct.decls = struct.decls[:field_idx] + struct.decls[field_idx+1:]
-
-
-def deduplicate_struct_field_names(fields: List[ca.Decl], dest_field_names: Set[str]) -> Dict[str, str]:
-    name_map = {}
-    for field in fields:
-        new_name = get_noncolliding_name(dest_field_names, field.name)
-        name_map[field.name] = new_name
-        struct_rename_field(field, new_name)
-    return name_map
 
 
 def count_chained_structrefs(node: ca.StructRef) -> int:
@@ -416,32 +373,13 @@ def is_effectful(expr: Expression) -> bool:
     return found
 
 
-# TODO: re-document after cleanup
-def flatten_fields(parent: ca.Struct, parent_field: str, substruct: ca.Struct, substruct_field: str, flatten_upwards: bool) -> Dict[str, str]:
-    """Flatten fields from `substruct` into `parent`. If `flatten_upwards` is
-    true, flatten `field` and all fields above upwards into `parent`. Otherwise,
-    flatten `field` and all fields below downwards into `parent`.
-
-    Returns a mapping from the original names of the moved fields to their
-    (potentially) new names in the parent.
-    """
-    parent_field_names = set([decl.name for decl in parent.decls])
-
-    parent_idx = struct_field_idx(parent, parent_field)
-    shift_idx = struct_field_idx(substruct, substruct_field)
-    if flatten_upwards:
-        moved_fields = move_fields(substruct, parent, 0, shift_idx + 1, parent_idx)
-        substruct_i = parent_idx + shift_idx + 1
-    else:
-        moved_fields = move_fields(substruct, parent, shift_idx, len(substruct.decls), parent_idx + 1)
-        substruct_i = parent_idx
-
-    # If substruct is empty, remove it from the parent
-    if not substruct.decls:
-        struct_remove_field_i(parent, substruct_i)
-        parent_field_names.remove(parent_field)
-
-    return deduplicate_struct_field_names(moved_fields, parent_field_names)
+def deduplicate_struct_field_names(fields: List[ca.Decl], dest_field_names: Set[str]) -> Dict[str, str]:
+    name_map = {}
+    for field in fields:
+        new_name = get_noncolliding_name(dest_field_names, field.name)
+        name_map[field.name] = new_name
+        struct_rename_field(field, new_name)
+    return name_map
 
 
 def move_fields(src: ca.Struct, dest: ca.Struct, src_i: int, src_j: int, dest_i: int) -> List[ca.Decl]:
@@ -453,6 +391,33 @@ def move_fields(src: ca.Struct, dest: ca.Struct, src_i: int, src_j: int, dest_i:
     src.decls = src.decls[:src_i] + src.decls[src_j:]
     dest.decls = dest.decls[:dest_i] + fields + dest.decls[dest_i:]
     return fields
+
+
+def flatten_fields(parent: ca.Struct, substruct: ca.Struct, shift_idx: int, flatten_upwards: bool, typemap: TypeMap) -> Dict[str, str]:
+    """Flatten fields from `substruct` into `parent`. If `flatten_upwards` is
+    true, flatten `field` and all fields above upwards into `parent`. Otherwise,
+    flatten `field` and all fields below downwards into `parent`.
+
+    Returns a mapping from the original names of the moved fields to their
+    (potentially) new names in the parent.
+    """
+    parent_field_names = set([decl.name for decl in parent.decls])
+
+    parent_idx = struct_substruct_idx(parent, substruct, typemap)
+    if flatten_upwards:
+        moved_fields = move_fields(substruct, parent, 0, shift_idx + 1, parent_idx)
+        substruct_i = parent_idx + shift_idx + 1
+    else:
+        moved_fields = move_fields(substruct, parent, shift_idx, len(substruct.decls), parent_idx + 1)
+        substruct_i = parent_idx
+
+    # If substruct is empty, remove it from the parent
+    if not substruct.decls:
+        parent_field = parent.decls[substruct_i].name
+        parent_field_names.remove(parent_field)
+        struct_remove_field(parent, substruct_i)
+
+    return deduplicate_struct_field_names(moved_fields, parent_field_names)
 
 
 def get_block_stmts(block: Block, force: bool) -> List[Statement]:

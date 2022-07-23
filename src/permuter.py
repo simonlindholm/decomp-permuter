@@ -193,8 +193,6 @@ class Permuter:
                 rng_seed=rng_seed,
             )
 
-        print('mesprit -- randomization pass')
-        print('candidate seed:', self._cur_cand.rng_seed)
         # Randomize the candidate, until we find a source we haven't seen before
         if self._permutations.is_random():
             while True:
