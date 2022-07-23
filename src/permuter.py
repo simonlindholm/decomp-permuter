@@ -210,7 +210,9 @@ class Permuter:
                     break
                 t_end = time.time()
                 t_stringify_sum += t_end - t_start
-            self._seen_sources.add(hash)
+
+            if len(self._seen_sources) < 100000:  # prevent massive memory usage
+                self._seen_sources.add(hash)
 
         t0 = time.time()
 
