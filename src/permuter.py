@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 import difflib
+import hashlib
 import itertools
 import random
 import re
@@ -12,6 +13,7 @@ from typing import (
     Optional,
     Tuple,
     Union,
+    Set,
 )
 
 from .candidate import Candidate, CandidateResult
@@ -134,6 +136,7 @@ class Permuter:
         self.hashes = {self.base_hash}
         self._cur_cand: Optional[Candidate] = None
         self._last_score: Optional[int] = None
+        self._seen_sources: Set[bytes] = set()
 
     def _create_and_score_base(self) -> Tuple[int, str, str]:
         base_source, eval_state = perm_evaluate_one(self._permutations)
@@ -159,7 +162,6 @@ class Permuter:
         return self._need_all_sources or self.should_output(result)
 
     def _eval_candidate(self, seed: int) -> CandidateResult:
-        t0 = time.time()
 
         # Determine if we should keep the last candidate.
         # Don't keep 0-score candidates; we'll only create new, worse, zeroes.
@@ -189,32 +191,46 @@ class Permuter:
                 rng_seed=rng_seed,
             )
 
+        t_randomization_sum = 0.0
+        t_stringify_sum = 0.0
+
         # Randomize the candidate
         if self._permutations.is_random():
-            self._cur_cand.randomize_ast()
+            while True:
+                # Continue randomizing until we find a new unique source code
+                t_start = time.time()
+                self._cur_cand.randomize_ast()
+                t_end = time.time()
+                t_randomization_sum += t_end - t_start
+                t_start = t_end
+                cand_source = self._cur_cand.get_source()
+                hash = hashlib.sha256(cand_source.encode()).digest()
+                if hash not in self._seen_sources:
+                    break
+                t_end = time.time()
+                t_stringify_sum += t_end - t_start
 
-        t1 = time.time()
+            if len(self._seen_sources) < 100000:  # prevent massive memory usage
+                self._seen_sources.add(hash)
 
-        self._cur_cand.get_source()
-
-        t2 = time.time()
+        t0 = time.time()
 
         o_file = self._cur_cand.compile(self.compiler)
         if not o_file and self._show_errors:
             raise _CompileFailure()
 
-        t3 = time.time()
+        t1 = time.time()
 
         result = self._cur_cand.score(self.scorer, o_file)
 
-        t4 = time.time()
+        t2 = time.time()
 
         if self.need_profiler:
             profiler = Profiler()
-            profiler.add_stat(Profiler.StatType.perm, t1 - t0)
-            profiler.add_stat(Profiler.StatType.stringify, t2 - t1)
-            profiler.add_stat(Profiler.StatType.compile, t3 - t2)
-            profiler.add_stat(Profiler.StatType.score, t4 - t3)
+            profiler.add_stat(Profiler.StatType.perm, t_randomization_sum)
+            profiler.add_stat(Profiler.StatType.stringify, t_stringify_sum)
+            profiler.add_stat(Profiler.StatType.compile, t1 - t0)
+            profiler.add_stat(Profiler.StatType.score, t2 - t1)
             result.profiler = profiler
 
         self._last_score = result.score
