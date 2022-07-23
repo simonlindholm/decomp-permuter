@@ -176,6 +176,15 @@ def get_noncolliding_fn_name(ast: ca.FileAST, name: str) -> str:
     return get_noncolliding_name(used_names, name)
 
 
+def get_noncolliding_struct_name(typemap: TypeMap, name: str) -> str:
+    used_names: Set[str] = set()
+    for struct_name in typemap.struct_defs.keys():
+        used_names.add(struct_name)
+    for type_name in typemap.typedefs.keys():
+        used_names.add(type_name)
+    return get_noncolliding_name(used_names, name)
+
+
 def get_noncolliding_name(used_names: Set[str], name: str) -> str:
     new_name = name
     counter = 1
@@ -183,6 +192,64 @@ def get_noncolliding_name(used_names: Set[str], name: str) -> str:
         counter += 1
         new_name = f"{new_name}{counter}"
     return new_name
+
+
+def ast_ext_struct_idx(ast: ca.FileAST, struct: ca.Struct) -> int:
+    """Returns the index of the node in `ast.ext` that contains the definition
+    of `struct`.
+    """
+    found = False
+    class StructVisitor(ca.NodeVisitor):
+        def visit_Struct(self, node: ca.Struct) -> None:
+            nonlocal found
+            if node is struct:
+                found = True
+            self.generic_visit(node)
+
+    for i, node in enumerate(ast.ext):
+        StructVisitor().visit(node)
+        if found:
+            return i
+    return -1
+
+
+def copy_struct(ast: ca.FileAST, typemap: TypeMap, struct: ca.Struct) -> ca.Struct:
+    """Adds a new struct with a definition matching `struct` to the AST.
+    Returns this new struct.
+    """
+    print('copying struct!')
+    new_struct = copy.deepcopy(struct)
+    base_name = struct.name if struct.name else struct.decls[0].name
+    new_struct.name = get_noncolliding_struct_name(typemap, base_name)
+    # TODO NEXT: Add new struct to AST (wrap in a Decl)! Place it in the
+    # top-level, right before typedef/decl containing the base struct. That way,
+    # it has access to all its dependencies.
+    # 
+    # NOTE TO SELF: It can't be the final struct definition, because the parent
+    # is defined before. It can't be first, in case it depends on other structs.
+    # 
+    # CODE REVIEW NOTE: Make sure that this new definition gets deleted after the
+    # randomization pass! Honestly, I'm not sure how to do this cleanly...
+    # 
+    # It's not a big deal now. It's rare to have to add a new struct for this
+    # pass. It will be necessary for the NEST rule, otherwise you'll have a
+    # bunch of new struct defs polluting candidates down the line.
+    #
+    # Maybe, if you have to add a new struct, you should just deeply copy the
+    # entire AST for that candidate?
+    #
+    # TODO: Add the new struct definition in such a way that it doesn't persist
+    # across candidates.
+    #   Nvm, this doesn't seem to persist across candidates...
+    print('new struct name:', new_struct.name)
+    insert_idx = ast_ext_struct_idx(ast, struct)
+    print(f'inserting in ast.ext[{insert_idx}]:')
+    # decl = ca.Decl(name=None, quals=[], align=[], storage=[], funcspec=[], type=new_struct, init=None, bitsize=None)
+    decl = ca.Decl(None, [], [], [], [], new_struct, None, None)
+    ast.ext = ast.ext[:insert_idx] + [decl] + ast.ext[insert_idx:]
+    # print('new ast:')
+    # ast.show()
+    return new_struct
 
 
 def get_struct_fields(struct: ca.TypeDecl, typemap: TypeMap) -> List[ca.Decl]:
@@ -202,13 +269,22 @@ def struct_field_idx(struct: ca.Struct, field_name: str) -> int:
 
 
 def struct_substruct_idx(parent: ca.Struct, substruct: ca.Struct, typemap: TypeMap) -> int:
-    parent.show()
+    # parent.show()
     for i, decl in enumerate(parent.decls):
         if isinstance(decl.type, ca.TypeDecl):
             decl_struct = resolve_struct_def(decl.type, typemap)
             if decl_struct is substruct:
                 return i
     return -1
+
+
+def struct_rename_field(field: ca.Decl, name: str) -> None:
+    field.name = name
+    class TypeDeclVisitor(ca.NodeVisitor):
+        def visit_TypeDecl(self, node: ca.TypeDecl) -> None:
+            node.declname = name
+
+    TypeDeclVisitor().visit(field)
 
 
 def struct_remove_field(struct: ca.Struct, field_name: str) -> None:
@@ -224,7 +300,7 @@ def deduplicate_struct_field_names(fields: List[ca.Decl], dest_field_names: Set[
     for field in fields:
         new_name = get_noncolliding_name(dest_field_names, field.name)
         name_map[field.name] = new_name
-        field.name = new_name
+        struct_rename_field(field, new_name)
     return name_map
 
 
@@ -236,6 +312,7 @@ def count_chained_structrefs(node: ca.StructRef) -> int:
       - foo            --> 0
       - bar.foo        --> 1
       - baz.bar.foo    --> 2
+      - bar->foo       --> 0
       - baz.bar[i].foo --> 0
     """
     chain = 0
