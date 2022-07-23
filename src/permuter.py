@@ -22,7 +22,7 @@ from .error import CandidateConstructionFailure
 from .perm.perm import EvalState
 from .perm.eval import perm_evaluate_one, perm_gen_all_seeds
 from .perm.parse import perm_parse
-from .profiler import Profiler
+from .profiler import Profiler, Timer
 from .scorer import Scorer
 from .helpers import trim_source
 
@@ -162,6 +162,8 @@ class Permuter:
         return self._need_all_sources or self.should_output(result)
 
     def _eval_candidate(self, seed: int) -> CandidateResult:
+        profiler = Profiler()
+        timer = Timer()
 
         # Determine if we should keep the last candidate.
         # Don't keep 0-score candidates; we'll only create new, worse, zeroes.
@@ -191,46 +193,33 @@ class Permuter:
                 rng_seed=rng_seed,
             )
 
-        t_randomization_sum = 0.0
-        t_stringify_sum = 0.0
-
-        # Randomize the candidate
+        # Randomize the candidate, until we find a source we haven't seen before
         if self._permutations.is_random():
             while True:
-                # Continue randomizing until we find a new unique source code
-                t_start = time.time()
                 self._cur_cand.randomize_ast()
-                t_end = time.time()
-                t_randomization_sum += t_end - t_start
-                t_start = t_end
+                profiler.add_stat(Profiler.StatType.perm, timer.tick())
                 cand_source = self._cur_cand.get_source()
                 hash = hashlib.sha256(cand_source.encode()).digest()
+                profiler.add_stat(Profiler.StatType.stringify, timer.tick())
                 if hash not in self._seen_sources:
                     break
-                t_end = time.time()
-                t_stringify_sum += t_end - t_start
 
             if len(self._seen_sources) < 100000:  # prevent massive memory usage
                 self._seen_sources.add(hash)
-
-        t0 = time.time()
+        else:
+            profiler.add_stat(Profiler.StatType.perm, timer.tick())
+            self._cur_cand.get_source()
+            profiler.add_stat(Profiler.StatType.stringify, timer.tick())
 
         o_file = self._cur_cand.compile(self.compiler)
         if not o_file and self._show_errors:
             raise _CompileFailure()
-
-        t1 = time.time()
+        profiler.add_stat(Profiler.StatType.compile, timer.tick())
 
         result = self._cur_cand.score(self.scorer, o_file)
-
-        t2 = time.time()
+        profiler.add_stat(Profiler.StatType.score, timer.tick())
 
         if self.need_profiler:
-            profiler = Profiler()
-            profiler.add_stat(Profiler.StatType.perm, t_randomization_sum)
-            profiler.add_stat(Profiler.StatType.stringify, t_stringify_sum)
-            profiler.add_stat(Profiler.StatType.compile, t1 - t0)
-            profiler.add_stat(Profiler.StatType.score, t2 - t1)
             result.profiler = profiler
 
         self._last_score = result.score

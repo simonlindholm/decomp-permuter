@@ -1,4 +1,5 @@
 from enum import Enum
+import time
 
 
 class Profiler:
@@ -21,3 +22,14 @@ class Profiler:
             for e in self.time_stats
         )
         return timings
+
+
+class Timer:
+    def __init__(self) -> None:
+        self._time = time.monotonic()
+
+    def tick(self) -> float:
+        """Return time elapsed since construction or last call to `tick`."""
+        last = self._time
+        self._time = time.monotonic()
+        return self._time - last
