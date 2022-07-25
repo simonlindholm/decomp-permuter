@@ -166,22 +166,43 @@ def compute_node_indices(top_node: ca.Node) -> Indices:
     return Indices(starts, ends)
 
 
-def get_noncolliding_fn_name(ast: ca.FileAST, name: str) -> str:
+def get_noncolliding_toplevel_name(ast: ca.FileAST, name: str) -> str:
+    """Returns a unique name for an ordinary identifier at the top-level scope.
+    This includes:
+     - Function names
+     - Variable names
+     - Typedef names
+    """
     used_names: Set[str] = set()
     for item in ast.ext:
         if isinstance(item, ca.Decl) and item.name:
+            used_names.add(item.name)
+        if isinstance(item, ca.Typedef) and item.name:
             used_names.add(item.name)
         if isinstance(item, ca.FuncDef) and item.decl.name:
             used_names.add(item.decl.name)
     return get_noncolliding_name(used_names, name)
 
 
-def get_noncolliding_struct_name(typemap: TypeMap, name: str) -> str:
+def get_noncolliding_tag_name(ast: ca.FileAST, name: str) -> str:
+    """Returns a unique name for a `struct`, `union`, or `enum` tag.
+    """
     used_names: Set[str] = set()
-    for struct_name in typemap.struct_defs.keys():
-        used_names.add(struct_name)
-    for type_name in typemap.typedefs.keys():
-        used_names.add(type_name)
+    class TagVisitor(ca.NodeVisitor):
+        def visit_Struct(self, node: ca.Struct) -> None:
+            used_names.add(node.name)
+            self.generic_visit(node)
+
+        def visit_Union(self, node: ca.Union) -> None:
+            used_names.add(node.name)
+            self.generic_visit(node)
+
+        def visit_Enum(self, node: ca.Enum) -> None:
+            used_names.add(node.name)
+            self.generic_visit(node)
+
+    TagVisitor().visit(ast)
+
     return get_noncolliding_name(used_names, name)
 
 
@@ -213,13 +234,13 @@ def ast_ext_struct_idx(ast: ca.FileAST, struct: ca.Struct) -> int:
     return -1
 
 
-def copy_struct(ast: ca.FileAST, typemap: TypeMap, struct: ca.Struct) -> ca.Struct:
+def copy_struct(ast: ca.FileAST, struct: ca.Struct) -> ca.Struct:
     """Adds a new struct with a definition matching `struct` to the AST.
     Returns this new struct.
     """
     new_struct = copy.deepcopy(struct)
     base_name = struct.name if struct.name else struct.decls[0].name
-    new_struct.name = get_noncolliding_struct_name(typemap, base_name)
+    new_struct.name = get_noncolliding_tag_name(ast, base_name)
 
     # Insert the new struct right above the base struct. This preserves any
     # struct field dependencies.
@@ -248,41 +269,29 @@ def struct_substruct_idx(parent: ca.Struct, substruct: ca.Struct, typemap: TypeM
     return -1
 
 
-def struct_rename_field(field: ca.Decl, name: str) -> None:
+def struct_name_field(field: ca.Decl, name: str) -> None:
     field.name = name
-    class TypeDeclVisitor(ca.NodeVisitor):
-        def visit_TypeDecl(self, node: ca.TypeDecl) -> None:
-            node.declname = name
-
-    TypeDeclVisitor().visit(field)
+    set_decl_name(field)
 
 
 def struct_remove_field(struct: ca.Struct, field_idx: int) -> None:
     struct.decls = struct.decls[:field_idx] + struct.decls[field_idx+1:]
 
 
-def count_chained_structrefs(node: ca.StructRef) -> int:
-    """Count the number of chained StructRef's that are required to reach the
-    field in `node`.
+def count_chained_structrefs(expr: Expression) -> int:
+    """Count the chain of StructRef's that result in `expr`.
 
     Examples:
       - foo            --> 0
       - bar.foo        --> 1
       - baz.bar.foo    --> 2
       - bar->foo       --> 0
-      - baz.bar[i].foo --> 0
+      - baz.bar[i].foo --> 1
     """
     chain = 0
-    class StructRefVisitor(ca.NodeVisitor):
-        def visit_StructRef(self, node: ca.StructRef) -> None:
-            nonlocal chain
-            if not isinstance(node.name, ca.StructRef) or node.type != ".":
-                chain = 0
-                return
-            self.generic_visit(node)
-            chain += 1
-
-    StructRefVisitor().visit(node)
+    while isinstance(expr, ca.StructRef) and expr.type == ".":
+        chain += 1
+        expr = expr.name
     return chain
 
 
@@ -378,7 +387,7 @@ def deduplicate_struct_field_names(fields: List[ca.Decl], dest_field_names: Set[
     for field in fields:
         new_name = get_noncolliding_name(dest_field_names, field.name)
         name_map[field.name] = new_name
-        struct_rename_field(field, new_name)
+        struct_name_field(field, new_name)
     return name_map
 
 

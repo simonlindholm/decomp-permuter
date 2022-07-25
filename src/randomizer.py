@@ -2232,7 +2232,7 @@ def perm_inline(
     chosen_cand = random_weighted(random, cands)
 
     ret_type = decayed_expr_type(chosen_cand, typemap)
-    new_fn_name = ast_util.get_noncolliding_fn_name(ast, "inline_fn")
+    new_fn_name = ast_util.get_noncolliding_toplevel_name(ast, "inline_fn")
 
     cut_prob = random.uniform(0, 1) * random.uniform(0, 1)
     cut_expr, cut_types = cut_ast(chosen_cand, cut_prob, typemap, random)
@@ -2303,7 +2303,7 @@ def perm_flatten_struct(
     # must be accessed from a parent struct.
     class StructRefVisitor(ca.NodeVisitor):
         def visit_StructRef(self, node: ca.StructRef) -> None:
-            if region.contains_node(node) and ast_util.count_chained_structrefs(node) >= 1:
+            if region.contains_node(node) and ast_util.count_chained_structrefs(node) >= 2:
                 substruct = resolve_struct_def(decayed_expr_type(node.name, typemap), typemap)
                 parent = resolve_struct_def(decayed_expr_type(node.name.name, typemap), typemap)
                 substructs[substruct][parent].append(node)
@@ -2311,7 +2311,6 @@ def perm_flatten_struct(
 
     StructRefVisitor().visit(fn)
     ensure(substructs)
-
     substruct = random.choice(list(substructs.keys()))
     parent = random.choice(list(substructs[substruct].keys()))
 
@@ -2321,7 +2320,7 @@ def perm_flatten_struct(
     old_substruct = substruct
     if len(substructs[substruct].keys()) > 1:
         substruct_idx = ast_util.struct_substruct_idx(parent, substruct, typemap)
-        substruct = ast_util.copy_struct(ast, typemap, substruct)
+        substruct = ast_util.copy_struct(ast, substruct)
         ast_util.struct_set_field_type(parent, substruct_idx, substruct)
         typemap = build_typemap(ast, fn)
 
