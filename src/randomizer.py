@@ -2304,9 +2304,11 @@ def perm_flatten_struct(
     class StructRefVisitor(ca.NodeVisitor):
         def visit_StructRef(self, node: ca.StructRef) -> None:
             if region.contains_node(node) and ast_util.count_chained_structrefs(node) >= 2:
+                assert isinstance(node.name, ca.StructRef)
                 substruct = resolve_struct_def(decayed_expr_type(node.name, typemap), typemap)
                 parent = resolve_struct_def(decayed_expr_type(node.name.name, typemap), typemap)
-                substructs[substruct][parent].append(node)
+                if substruct is not None and parent is not None:
+                    substructs[substruct][parent].append(node)
                 self.generic_visit(node)
 
     StructRefVisitor().visit(fn)
@@ -2325,6 +2327,7 @@ def perm_flatten_struct(
         typemap = build_typemap(ast, fn)
 
     ensure(substruct.decls)
+    assert substruct.decls
     shift_idx = random.randint(0, len(substruct.decls)-1)
     flatten_upwards = random_bool(random, PROB_FLATTEN_UPWARDS)
 
@@ -2336,6 +2339,7 @@ def perm_flatten_struct(
     # update references to fields that were moved.
     for structRef in substructs[old_substruct][parent]:
         if structRef.field.name in moved_names:
+            assert isinstance(structRef.name, ca.StructRef)
             structRef.name = structRef.name.name
             structRef.field.name = moved_names[structRef.field.name]
 

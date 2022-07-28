@@ -196,18 +196,18 @@ def decayed_expr_type(expr: ca.Node, typemap: TypeMap) -> SimpleType:
     return pointer_decay(expr_type(expr, typemap), typemap)
 
 
-def resolve_struct_def(struct: ca.TypeDecl, typemap: TypeMap) -> Optional[ca.Struct]:
+def resolve_struct_def(struct: SimpleType, typemap: TypeMap) -> Optional[ca.Struct]:
     """Resolve struct definition for a given type.
     """
-    if isinstance(struct.type, ca.IdentifierType):
-        idType = struct.type.names[0]
-        if idType in typemap.typedefs:
-            return resolve_struct_def(typemap.typedefs[idType], typemap)
+    type_decl = resolve_typedefs(struct, typemap)
+    if not isinstance(type_decl, ca.TypeDecl) or not isinstance(type_decl.type, ca.Struct):
         return None
-    if struct.type.decls is not None:
-        return struct.type
-    if struct.type.name in typemap.struct_defs:
-        return typemap.struct_defs[struct.type.name]
+    if type_decl.type.decls is not None:
+        return type_decl.type
+    if type_decl.type.name in typemap.struct_defs:
+        struct_def = typemap.struct_defs[type_decl.type.name]
+        if isinstance(struct_def, ca.Struct):
+            return struct_def
     return None
 
 def same_type(
