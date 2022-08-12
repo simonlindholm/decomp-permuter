@@ -24,9 +24,6 @@ PERMUTER_VERSION = 2
 
 CONFIG_FILENAME = "pah.conf"
 
-MIN_PRIO = 0.01
-MAX_PRIO = 2.0
-
 DEBUG_MODE = False
 
 

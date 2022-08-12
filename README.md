@@ -16,6 +16,7 @@ This tool supports MIPS (compiled by IDO, possibly GCC), PowerPC, and ARM32 asse
 Pass `-h` to see possible flags. `-j` is suggested (enables multi-threaded mode).
 
 You'll first need to install a couple of prerequisites: `python3 -m pip install pycparser pynacl toml` (also `dataclasses` if on Python 3.6 or below)
+`pynacl` is optional and only necessary for the "permuter@home" networking feature.
 
 The permuter expects as input one or more directory containing:
   - a .c file with a single function,
@@ -66,7 +67,10 @@ is an alternative way of writing `PERM_ONCE`.
 
 The permuter supports a distributed mode, where people can donate processor power to your permuter runs to speed them up.
 To use this, pass `-J` when running `permuter.py` and follow the instructions.
+(This can be combined with regular `-j` flags.)
 You will need to be granted access by someone who is already connected to a permuter network.
+
+permuter@home is only available for a limited number of compilers (see [the list](https://github.com/decompals/pah-docker) for the main permuter network), and currently does not work on native Windows (but WSL does work).
 
 To allow others to use your computer for permuter runs, do the following:
 
