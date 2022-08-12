@@ -70,7 +70,9 @@ To use this, pass `-J` when running `permuter.py` and follow the instructions.
 (This can be combined with regular `-j` flags.)
 You will need to be granted access by someone who is already connected to a permuter network.
 
-permuter@home is only available for a limited number of compilers (see [the list](https://github.com/decompals/pah-docker) for the main permuter network), and currently does not work on native Windows (but WSL does work).
+permuter@home is only available for a limited number of compilers
+(see [the list](https://github.com/decompals/pah-docker) for the main permuter network),
+and currently does not work on native Windows (but WSL does work).
 
 To allow others to use your computer for permuter runs, do the following:
 
@@ -78,10 +80,10 @@ To allow others to use your computer for permuter runs, do the following:
 - if on Linux, add yourself to the Docker group: `sudo usermod -aG docker $USER`
   or set up [rootless Docker](https://docs.docker.com/engine/security/rootless/)
 - install required packages: `python3 -m pip install docker`
-- open a terminal, and run `./pah.py run-server` to start the server.
+- open a terminal, and run `./pah.py run-server` to start the worker server.
   There are a few required arguments (e.g. how many cores to use), see `--help` for more details.
 
-Anyone who is granted access to permuter@home can run a server.
+Anyone who is granted access to permuter@home can run a worker.
 
 To set up a new permuter network, see [src/net/controller/README.md](./src/net/controller/README.md).
 

@@ -40,8 +40,9 @@ from .util import ask
 
 class RunServerCommand(Command):
     command = "run-server"
-    help = """Run a permuter server, allowing anyone with access to the central
-        server to run sandboxed permuter jobs on your machine. Requires docker."""
+    help = """Run a permuter worker server, allowing anyone with access to the
+        central controller server to run sandboxed permuter jobs on your machine.
+        Requires docker."""
 
     @staticmethod
     def add_arguments(parser: ArgumentParser) -> None:

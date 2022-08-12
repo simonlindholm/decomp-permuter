@@ -12,7 +12,7 @@ def main() -> None:
     try:
         # We currently sometimes log stuff to stdout, so it's preferable if it's
         # line-buffered even when redirected to a non-tty (e.g. when running a
-        # permuter server as a systemd service). This is supported by Python 3.7
+        # permuter worker as a systemd service). This is supported by Python 3.7
         # and up.
         sys.stdout.reconfigure(line_buffering=True)  # type: ignore
     except Exception:
@@ -21,7 +21,8 @@ def main() -> None:
     parser = ArgumentParser(
         description="permuter@home - run the permuter across the Internet!\n\n"
         "To use p@h as a client, just pass -J when running the permuter. "
-        "This script is\nonly necessary for configuration or when running a server.",
+        "This script is\nonly necessary for configuration or when running a "
+        "worker server.",
         formatter_class=RawDescriptionHelpFormatter,
     )
 
