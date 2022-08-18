@@ -1,10 +1,35 @@
 import difflib
 import hashlib
 import re
-from typing import Tuple, List, Optional
+from typing import Dict, Tuple, List, Optional
 from collections import Counter
 
 from .objdump import ArchSettings, Line, objdump, get_arch
+
+
+def levenshtein_diff(
+    seq1: List[str], seq2: List[str]
+) -> List[Tuple[str, int, int, int, int]]:
+    # The Levenshtein library assumes that we compare strings, not lists. Convert.
+    # (Per the check above we know we have fewer than 0x110000 unique elements, so chr() works.)
+    remapping: Dict[str, str] = {}
+
+    def remap(seq: List[str]) -> str:
+        seq = seq[:]
+        for i in range(len(seq)):
+            val = remapping.get(seq[i])
+            if val is None:
+                val = chr(len(remapping))
+                remapping[seq[i]] = val
+            seq[i] = val
+        return "".join(seq)
+
+    rem1 = remap(seq1)
+    rem2 = remap(seq2)
+    import Levenshtein
+
+    ret: List[Tuple[str, int, int, int, int]] = Levenshtein.opcodes(rem1, rem2)
+    return ret
 
 
 class Scorer:
@@ -22,10 +47,6 @@ class Scorer:
         self.stack_differences = stack_differences
         self.debug_mode = debug_mode
         _, self.target_seq = self._objdump(target_o)
-        self.differ: difflib.SequenceMatcher[str] = difflib.SequenceMatcher(
-            autojunk=False
-        )
-        self.differ.set_seq2([line.mnemonic for line in self.target_seq])
 
     def _objdump(self, o_file: str) -> Tuple[str, List[Line]]:
         lines = objdump(o_file, self.arch, stack_differences=self.stack_differences)
@@ -119,8 +140,10 @@ class Scorer:
         def diff_delete(line: str) -> None:
             deletions.append(line)
 
-        self.differ.set_seq1([line.mnemonic for line in cand_seq])
-        result_diff = self.differ.get_opcodes()
+        result_diff = levenshtein_diff(
+            [line.mnemonic for line in cand_seq],
+            [line.mnemonic for line in self.target_seq],
+        )
 
         for (tag, i1, i2, j1, j2) in result_diff:
             if tag == "equal":
