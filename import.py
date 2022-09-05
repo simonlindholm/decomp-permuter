@@ -10,7 +10,6 @@ import shlex
 import shutil
 import subprocess
 import sys
-from xmlrpc.client import TRANSPORT_ERROR
 import toml
 from typing import Callable, Dict, List, Match, Mapping, Optional, Pattern, Tuple
 import urllib.request
