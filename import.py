@@ -65,15 +65,34 @@ def parse_asm(asm_file: str) -> Tuple[str, str]:
     func_name = None
     asm_lines = []
     try:
+        late_rodata = []
         with open(asm_file, encoding="utf-8") as f:
+            cur_section = ".text"
             for line in f:
-                # .late_rodata is non-standard asm, so change it to .rodata
-                if line.strip() == ".section .late_rodata":
-                    line = ".section .rodata"
+                if line.strip().startswith(".section"):
+                    cur_section = line.split()[1]
+                elif line.strip() in [
+                    ".text",
+                    ".rdata",
+                    ".rodata",
+                    ".late_rodata",
+                    ".bss",
+                    ".data",
+                ]:
+                    cur_section = line.strip()
 
-                if func_name is None and line.strip().startswith("glabel "):
+                if cur_section == ".late_rodata":
+                    late_rodata.append(line)
+                    continue
+
+                if func_name is None and cur_section == ".text" and line.strip().startswith("glabel "):
                     func_name = line.split()[1]
                 asm_lines.append(line)
+
+        # ".late_rodata" is non-standard asm, so we add it to the end of the file as ".rodata"
+        if late_rodata:
+            asm_lines.extend([".section .rodata"] + late_rodata)
+
     except OSError as e:
         print("Could not open assembly file:", e, file=sys.stderr)
         sys.exit(1)
