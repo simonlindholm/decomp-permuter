@@ -91,7 +91,7 @@ def parse_asm(asm_file: str) -> Tuple[str, str]:
 
         # ".late_rodata" is non-standard asm, so we add it to the end of the file as ".rodata"
         if late_rodata:
-            asm_lines.extend([".section .rodata"] + late_rodata)
+            asm_lines.extend([".section .rodata\n"] + late_rodata[1:])
 
     except OSError as e:
         print("Could not open assembly file:", e, file=sys.stderr)
