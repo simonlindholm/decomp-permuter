@@ -10,6 +10,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+from xmlrpc.client import TRANSPORT_ERROR
 import toml
 from typing import Callable, Dict, List, Match, Mapping, Optional, Pattern, Tuple
 import urllib.request
@@ -69,8 +70,11 @@ def parse_asm(asm_file: str) -> Tuple[str, str]:
         with open(asm_file, encoding="utf-8") as f:
             cur_section = ".text"
             for line in f:
+                changed_section = False
+
                 if line.strip().startswith(".section"):
                     cur_section = line.split()[1]
+                    changed_section = True
                 elif line.strip() in [
                     ".text",
                     ".rdata",
@@ -80,8 +84,9 @@ def parse_asm(asm_file: str) -> Tuple[str, str]:
                     ".data",
                 ]:
                     cur_section = line.strip()
+                    changed_section = True
 
-                if cur_section == ".late_rodata":
+                if not changed_section and cur_section == ".late_rodata":
                     late_rodata.append(line)
                     continue
 
@@ -91,7 +96,7 @@ def parse_asm(asm_file: str) -> Tuple[str, str]:
 
         # ".late_rodata" is non-standard asm, so we add it to the end of the file as ".rodata"
         if late_rodata:
-            asm_lines.extend([".section .rodata\n"] + late_rodata[1:])
+            asm_lines.extend([".section .rodata\n"] + late_rodata)
 
     except OSError as e:
         print("Could not open assembly file:", e, file=sys.stderr)
