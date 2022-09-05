@@ -7,6 +7,10 @@
     \label:
 .endm
 
+.macro dlabel label
+    .global \label
+    \label:
+.endm
 
 # Float register aliases (o32 ABI)
 
