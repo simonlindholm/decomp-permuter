@@ -21,7 +21,7 @@ from typing import (
 from pycparser import c_ast as ca
 
 from . import ast_util
-from .ast_util import Block, Indices, Statement, Expression
+from .ast_util import Block, Indices, Statement, Expression, to_c_raw
 from .ast_types import (
     SimpleType,
     Type,
@@ -1302,24 +1302,27 @@ def perm_add_self_assignment(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> None:
     """Introduce a "x = x;" or "x += 0;" somewhere."""
-    cands = get_insertion_points(fn, region)
-    vars: List[str] = []
-
-    class Visitor(ca.NodeVisitor):
-        def visit_Decl(self, decl: ca.Decl) -> None:
-            if decl.name:
-                vars.append(decl.name)
-            self.generic_visit(decl)
-
-    Visitor().visit(fn.body)
-    ensure(vars)
+    cands: List[Expression] = []
+    seen_keys = set()
+    for expr in get_block_expressions(fn.body, region):
+        if not isinstance(expr, (ca.ID, ca.StructRef)):
+            continue
+        key = to_c_raw(expr)
+        if key not in seen_keys:
+            seen_keys.add(key)
+            cands.append(expr)
     ensure(cands)
-    var = random.choice(vars)
-    where = random.choice(cands)
+
+    expr = random.choice(cands)
+    ensure(not ast_util.is_effectful(expr))
+
+    ins_cands = get_insertion_points(fn, region)
+    ensure(ins_cands)
+    where = random.choice(ins_cands)
     if random_bool(random, 0.5):
-        assignment = ca.Assignment("=", ca.ID(var), ca.ID(var))
+        assignment = ca.Assignment("=", copy.deepcopy(expr), copy.deepcopy(expr))
     else:
-        assignment = ca.Assignment("+=", ca.ID(var), ca.Constant("int", "0"))
+        assignment = ca.Assignment("+=", copy.deepcopy(expr), ca.Constant("int", "0"))
     ast_util.insert_statement(where[0], where[1], assignment)
 
 
