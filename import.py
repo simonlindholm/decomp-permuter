@@ -46,6 +46,8 @@ prelude_file = os.path.join(dir_path, "prelude.inc")
 
 DEFAULT_AS_CMDLINE: List[str] = ["mips-linux-gnu-as", "-march=vr4300", "-mabi=32"]
 
+RE_FUNC_NAME = r"[a-zA-Z0-9_$]+"
+
 CPP: List[str] = [cpp_cmd, "-P", "-undef"]
 
 STUB_FN_MACROS: List[str] = [
@@ -61,46 +63,44 @@ def formatcmd(cmdline: List[str]) -> str:
     return " ".join(shlex.quote(arg) for arg in cmdline)
 
 
-def parse_asm(asm_file: str) -> Tuple[str, str]:
+def prune_asm(asm_cont: str) -> Tuple[str, str]:
     func_name = None
     asm_lines = []
-    try:
-        late_rodata = []
-        with open(asm_file, encoding="utf-8") as f:
-            cur_section = ".text"
-            for line in f:
-                changed_section = False
+    late_rodata = []
+    cur_section = ".text"
+    for line in asm_cont.splitlines(keepends=True):
+        changed_section = False
 
-                if line.strip().startswith(".section"):
-                    cur_section = line.split()[1]
-                    changed_section = True
-                elif line.strip() in [
-                    ".text",
-                    ".rdata",
-                    ".rodata",
-                    ".late_rodata",
-                    ".bss",
-                    ".data",
-                ]:
-                    cur_section = line.strip()
-                    changed_section = True
+        if line.strip().startswith(".section"):
+            cur_section = line.split()[1]
+            changed_section = True
+        elif line.strip() in [
+            ".text",
+            ".rdata",
+            ".rodata",
+            ".late_rodata",
+            ".bss",
+            ".data",
+        ]:
+            cur_section = line.strip()
+            changed_section = True
 
-                if cur_section == ".late_rodata":
-                    if not changed_section:
-                        late_rodata.append(line)
-                    continue
+        if cur_section == ".late_rodata":
+            if not changed_section:
+                late_rodata.append(line)
+            continue
 
-                if func_name is None and cur_section == ".text" and line.strip().startswith("glabel "):
-                    func_name = line.split()[1]
-                asm_lines.append(line)
+        if (
+            func_name is None
+            and cur_section == ".text"
+            and line.strip().startswith("glabel ")
+        ):
+            func_name = line.split()[1]
+        asm_lines.append(line)
 
-        # ".late_rodata" is non-standard asm, so we add it to the end of the file as ".rodata"
-        if late_rodata:
-            asm_lines.extend(["\n.section .rodata\n"] + late_rodata)
-
-    except OSError as e:
-        print("Could not open assembly file:", e, file=sys.stderr)
-        sys.exit(1)
+    # ".late_rodata" is non-standard asm, so we add it to the end of the file as ".rodata"
+    if late_rodata:
+        asm_lines.extend(["\n.section .rodata\n"] + late_rodata)
 
     if func_name is None:
         print(
@@ -109,11 +109,81 @@ def parse_asm(asm_file: str) -> Tuple[str, str]:
         )
         sys.exit(1)
 
-    if not re.fullmatch(r"[a-zA-Z0-9_$]+", func_name):
+    if not re.fullmatch(RE_FUNC_NAME, func_name):
         print(f"Bad function name: {func_name}", file=sys.stderr)
         sys.exit(1)
 
     return func_name, "".join(asm_lines)
+
+
+def find_global_asm_func(root_dir: str, c_file: str, func_name: str) -> str:
+    try:
+        with open(c_file) as f:
+            source = f.read()
+    except OSError as e:
+        print("Could not open C file:", e, file=sys.stderr)
+        sys.exit(1)
+
+    global_asm: Optional[List[str]] = None
+    for line in source.splitlines(keepends=True):
+        stop_global_asm = False
+        if global_asm is not None:
+            if line.startswith(")"):
+                stop_global_asm = True
+            else:
+                global_asm.append(line)
+        else:
+            if not line.startswith("GLOBAL_ASM(") and not line.startswith(
+                "#pragma GLOBAL_ASM("
+            ):
+                continue
+            global_asm = []
+            if ")" in line:
+                ind = line.index("(")
+                ind2 = line.index(")", ind)
+                fname = os.path.join(root_dir, line[ind + 2 : ind2 - 1])
+                try:
+                    with open(fname) as f2:
+                        for line2 in f2:
+                            global_asm.append(line2)
+                except OSError as e:
+                    print(
+                        f"Failed to open GLOBAL_ASM file {fname}:", e, file=sys.stderr
+                    )
+                    sys.exit(1)
+                stop_global_asm = True
+        if stop_global_asm:
+            for line2 in global_asm:
+                if "glabel " + func_name in line2:
+                    return "".join(global_asm)
+            global_asm = None
+    print(f"Failed to find GLOBAL_ASM for function {func_name}.", file=sys.stderr)
+    sys.exit(1)
+
+
+def parse_asm(
+    root_dir: str, c_file: str, asm_file_or_func_name: str
+) -> Tuple[str, str]:
+    require_matching_func_name = False
+    try:
+        with open(asm_file_or_func_name, encoding="utf-8") as f:
+            asm_cont = f.read()
+    except OSError as e:
+        if re.fullmatch(RE_FUNC_NAME, asm_file_or_func_name):
+            asm_cont = find_global_asm_func(root_dir, c_file, asm_file_or_func_name)
+            require_matching_func_name = True
+        else:
+            print("Could not open assembly file:", e, file=sys.stderr)
+            sys.exit(1)
+
+    ret = prune_asm(asm_cont)
+    if require_matching_func_name and ret[0] != asm_file_or_func_name:
+        # Safe-guard, since we currently only support one function per .s file.
+        # Once that restriction is lifted it would be fine to return
+        # asm_file_or_func_name as the function name here.
+        print("GLOBAL_ASM file contains multiple functions.", file=sys.stderr)
+        sys.exit(1)
+    return ret
 
 
 def create_directory(func_name: str) -> str:
@@ -693,9 +763,12 @@ def main() -> None:
         Assumes that the file can be built with 'make' to create an .o file.""",
     )
     parser.add_argument(
-        "asm_file",
+        "asm_file_or_func_name",
+        metavar="{asm_file|func_name}",
         help="""File containing assembly for the function.
-        Must start with 'glabel <function_name>' and contain no other functions.""",
+        Must start with 'glabel <function_name>' and contain no other functions.
+        Alternatively, a function name can be given, which will be looked for in
+        all GLOBAL_ASM blocks in the C file.""",
     )
     parser.add_argument(
         "make_flags",
@@ -768,7 +841,7 @@ def main() -> None:
             "please set 'compiler_type' in this project's permuter_settings.toml."
         )
 
-    func_name, asm_cont = parse_asm(args.asm_file)
+    func_name, asm_cont = parse_asm(root_dir, args.c_file, args.asm_file_or_func_name)
     print(f"Function name: {func_name}")
 
     if compiler or assembler:
