@@ -279,7 +279,7 @@ def find_build_command_line(
     )
 
     output = []
-    close_match = False
+    close_match = ""
 
     assembler = DEFAULT_AS_CMDLINE
     for line in debug_output:
@@ -290,7 +290,7 @@ def find_build_command_line(
         if rel_c_file not in line:
             continue
 
-        close_match = True
+        close_match = line
         parts = shlex.split(line)
 
         # extract actual command from 'bash -c "..."'
@@ -313,8 +313,9 @@ def find_build_command_line(
 
     if not output:
         close_extra = (
-            "\n(Found one possible candidate, but didn't match due to "
-            "either spaces in paths, having -fsyntax-only, or missing an -o flag.)"
+            "\nFound one possible candidate, but didn't match due to "
+            "either spaces in paths, having -fsyntax-only, or missing an -o flag:\n"
+            + close_match
             if close_match
             else ""
         )
