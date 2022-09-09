@@ -510,7 +510,13 @@ def import_c_file(
     Returns source for base.c and compilable (macro-expanded) source."""
     in_file = os.path.relpath(in_file, cwd)
     include_next = 0
-    cpp_command = CPP + [in_file, "-D__sgi", "-D_LANGUAGE_C", "-DNON_MATCHING"]
+    cpp_command = CPP + [
+        in_file,
+        "-D__sgi",
+        "-D_LANGUAGE_C",
+        "-DNON_MATCHING",
+        "-DNONMATCHING",
+    ]
 
     for arg in compiler:
         if include_next > 0:
