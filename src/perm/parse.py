@@ -3,6 +3,7 @@ import re
 
 from .perm import (
     CombinePerm,
+    ForceSamelinePerm,
     GeneralPerm,
     IgnorePerm,
     IntPerm,
@@ -78,6 +79,7 @@ PERM_FACTORIES: Dict[str, Callable[[str], Perm]] = {
     "PERM_GENERAL": lambda text: GeneralPerm(_split_args(text)),
     "PERM_ONCE": lambda text: _make_once_perm(text),
     "PERM_RANDOMIZE": lambda text: RandomizerPerm(_rec_perm_parse(text)),
+    "PERM_FORCE_SAMELINE": lambda text: ForceSamelinePerm(_rec_perm_parse(text)),
     "PERM_VAR": lambda text: _make_var_perm(text),
     "PERM_LINESWAP_TEXT": lambda text: LineSwapPerm(_split_args_newline(text)),
     "PERM_LINESWAP": lambda text: LineSwapAstPerm(_split_args_newline(text)),
