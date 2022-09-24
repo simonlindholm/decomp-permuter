@@ -185,7 +185,7 @@ def get_noncolliding_toplevel_name(ast: ca.FileAST, name: str) -> str:
 
 
 def get_noncolliding_tag_name(ast: ca.FileAST, name: str) -> str:
-    """Returns a unique name for a `struct`, `union`, or `enum` tag.
+    """Returns a unique name for a struct, union, or enum tag.
     """
     used_names: Set[str] = set()
     class TagVisitor(ca.NodeVisitor):
@@ -218,21 +218,27 @@ def get_noncolliding_name(used_names: Set[str], name: str) -> str:
     return new_name
 
 
+def contains_node(a: ca.Node, b: ca.Node) -> bool:
+    """Returns true if node B is an descendant of node A.
+    """
+    found = False
+    class DescendantVisitor(ca.NodeVisitor):
+        def generic_visit(self, node: ca.Node) -> None:
+            nonlocal found
+            if node is b:
+                found = True
+            super().generic_visit(node)
+
+    DescendantVisitor().visit(a)
+    return found
+
+
 def ast_ext_struct_idx(ast: ca.FileAST, struct: ca.Struct) -> int:
     """Returns the index of the node in `ast.ext` that contains the definition
     of `struct`.
     """
-    found = False
-    class StructVisitor(ca.NodeVisitor):
-        def visit_Struct(self, node: ca.Struct) -> None:
-            nonlocal found
-            if node is struct:
-                found = True
-            self.generic_visit(node)
-
     for i, node in enumerate(ast.ext):
-        StructVisitor().visit(node)
-        if found:
+        if contains_node(node, struct):
             return i
     return -1
 
@@ -456,7 +462,7 @@ def flatten_fields(parent: ca.Struct, substruct: ca.Struct, shift_idx: int, flat
     (potentially) new names in the parent.
     """
     parent_fields = struct_get_fields(parent)
-    parent_field_names = set([field.name for field in parent_fields if field.name])
+    parent_field_names = {field.name for field in parent_fields if field.name}
 
     parent_idx = struct_substruct_idx(parent, substruct, typemap)
     if flatten_upwards:

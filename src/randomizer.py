@@ -2286,24 +2286,27 @@ def perm_inline(
     ast.ext.insert(ast.ext.index(fn), fn_def)
 
 
-# A map of all the parents this substruct is referenced from to the list of
-# references via that parent.
-ParentRefs = Dict[ca.Struct, List[ca.StructRef]]
-
 def perm_flatten_struct(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> None:
     """Moves fields from a nested struct into its parent struct. Only types used
     within the given region are affected."""
+
+    # SubstructRefTree is a tree mapping each substruct to the parent structs it is
+    # referenced from. Under each parent struct is a list of the references via that
+    # parent.
+    ParentRefs = Dict[ca.Struct, List[ca.StructRef]]
+    SubstructRefTree = Dict[ca.Struct, ParentRefs]
+
     ast_util.deepcopy_struct_defs(ast)
     typemap = build_typemap(ast, fn)
-    substructs: Dict[ca.Struct, ParentRefs] = defaultdict(lambda: defaultdict(list))
+    substructs: SubstructRefTree = defaultdict(lambda: defaultdict(list))
 
-    # Get all StructRef's in the region that are within a substruct. The fields
+    # Get all StructRef's in the function that are within a substruct. The fields
     # must be accessed from a parent struct.
     class StructRefVisitor(ca.NodeVisitor):
         def visit_StructRef(self, node: ca.StructRef) -> None:
-            if region.contains_node(node) and ast_util.count_chained_structrefs(node) >= 2:
+            if ast_util.count_chained_structrefs(node) >= 2:
                 assert isinstance(node.name, ca.StructRef)
                 substruct = resolve_struct_def(decayed_expr_type(node.name, typemap), typemap)
                 parent = resolve_struct_def(decayed_expr_type(node.name.name, typemap), typemap)
@@ -2312,9 +2315,14 @@ def perm_flatten_struct(
                 self.generic_visit(node)
 
     StructRefVisitor().visit(fn)
+
     ensure(substructs)
     substruct = random.choice(list(substructs.keys()))
     parent = random.choice(list(substructs[substruct].keys()))
+
+    # Ensure that at least one of StructRef's under the selected parent occurs
+    # in the randomization region.
+    ensure(any([region.contains_node(struct_ref) for struct_ref in substructs[substruct][parent]]))
 
     # We only want to flatten fields from the substruct into the selected
     # parent. If the substruct is referenced from other parents, we'll make a
@@ -2328,7 +2336,7 @@ def perm_flatten_struct(
 
     ensure(substruct.decls)
     assert substruct.decls
-    shift_idx = random.randint(0, len(substruct.decls)-1)
+    shift_idx = random.randrange(len(substruct.decls))
     flatten_upwards = random_bool(random, PROB_FLATTEN_UPWARDS)
 
     # Move fields out of substruct's struct definition and into the parent's
@@ -2337,11 +2345,11 @@ def perm_flatten_struct(
 
     # Commit the changes to all StructRefs under this parent. We should only
     # update references to fields that were moved.
-    for structRef in substructs[old_substruct][parent]:
-        if structRef.field.name in moved_names:
-            assert isinstance(structRef.name, ca.StructRef)
-            structRef.name = structRef.name.name
-            structRef.field.name = moved_names[structRef.field.name]
+    for struct_ref in substructs[old_substruct][parent]:
+        if struct_ref.field.name in moved_names:
+            assert isinstance(struct_ref.name, ca.StructRef)
+            struct_ref.name = struct_ref.name.name
+            struct_ref.field.name = moved_names[struct_ref.field.name]
 
 
 RandomizationPass = Callable[[ca.FuncDef, ca.FileAST, Indices, Region, Random], None]
