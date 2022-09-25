@@ -200,6 +200,24 @@ class RandomizerPerm(Perm):
         return True
 
 
+class ForceSamelinePerm(Perm):
+    def __init__(self, inner: Perm) -> None:
+        self.children = [inner]
+        self.perm_count = inner.perm_count
+
+    def evaluate(self, seed: int, state: EvalState) -> str:
+        text = self.children[0].evaluate(seed, state)
+        return "\n".join(
+            [
+                "",
+                "#pragma _permuter sameline start",
+                text,
+                "#pragma _permuter sameline end",
+                "",
+            ]
+        )
+
+
 class GeneralPerm(Perm):
     def __init__(self, candidates: List[Perm]) -> None:
         self.perm_count = _count_either(candidates)

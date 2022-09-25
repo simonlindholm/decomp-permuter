@@ -16,6 +16,7 @@ This tool supports MIPS (compiled by IDO, possibly GCC), PowerPC, and ARM32 asse
 Pass `-h` to see possible flags. `-j` is suggested (enables multi-threaded mode).
 
 You'll first need to install a couple of prerequisites: `python3 -m pip install pycparser pynacl toml` (also `dataclasses` if on Python 3.6 or below)
+`pynacl` is optional and only necessary for the "permuter@home" networking feature.
 
 The permuter expects as input one or more directory containing:
   - a .c file with a single function,
@@ -44,7 +45,8 @@ The .c file may be modified with any of the following macros which affect manual
 
 - `PERM_GENERAL(a, b, ...)` expands to any of `a`, `b`, ...
 - `PERM_VAR(a, b)` sets the meta-variable `a` to `b`, `PERM_VAR(a)` expands to the meta-variable `a`.
-- `PERM_RANDOMIZE(code)` expands to `code`, but allows randomization within that region. Multiple regions may be specified.
+- `PERM_RANDOMIZE(code)` expands to `code`, but allows randomization within that region. Multiple regions may be specified. A `PERM_RANDOMIZE` block is automatically added when there are no PERM macros.
+- `PERM_FORCE_SAMELINE(code)` expands to `code`, but joined to a single line after round-tripping through the C parser library (which normally puts statements on separate lines). Can be useful for IDO where same-lineness affects codegen.
 - `PERM_LINESWAP(lines)` expands to a permutation of the ordered set of non-whitespace lines (split by `\n`). Each line must contain zero or more complete C statements. (For incomplete statements use `PERM_LINESWAP_TEXT`, which is slower because it has to repeatedly parse C code.)
 - `PERM_INT(lo, hi)` expands to an integer between `lo` and `hi` (which must be constants).
 - `PERM_IGNORE(code)` expands to `code`, without passing it through the C parser library (pycparser)/randomizer. This can be used to avoid parse errors for non-standard C, e.g. `asm` blocks.
@@ -62,11 +64,18 @@ PERM_VAR(delayed)
 ```
 is an alternative way of writing `PERM_ONCE`.
 
+If any PERM macros are provided, automatic randomization will be disabled; to enable it you need to surround the function (or the relevant parts of it) with `PERM_RANDOMIZE`.
+
 ## permuter@home
 
 The permuter supports a distributed mode, where people can donate processor power to your permuter runs to speed them up.
 To use this, pass `-J` when running `permuter.py` and follow the instructions.
+(This can be combined with regular `-j` flags.)
 You will need to be granted access by someone who is already connected to a permuter network.
+
+permuter@home is only available for a limited number of compilers
+(see [the list](https://github.com/decompals/pah-docker) for the main permuter network),
+and currently does not work on native Windows (but WSL does work).
 
 To allow others to use your computer for permuter runs, do the following:
 
@@ -74,10 +83,10 @@ To allow others to use your computer for permuter runs, do the following:
 - if on Linux, add yourself to the Docker group: `sudo usermod -aG docker $USER`
   or set up [rootless Docker](https://docs.docker.com/engine/security/rootless/)
 - install required packages: `python3 -m pip install docker`
-- open a terminal, and run `./pah.py run-server` to start the server.
+- open a terminal, and run `./pah.py run-server` to start the worker server.
   There are a few required arguments (e.g. how many cores to use), see `--help` for more details.
 
-Anyone who is granted access to permuter@home can run a server.
+Anyone who is granted access to permuter@home can run a worker.
 
 To set up a new permuter network, see [src/net/controller/README.md](./src/net/controller/README.md).
 
