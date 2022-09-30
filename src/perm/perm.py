@@ -148,7 +148,7 @@ class IgnorePerm(Perm):
         if not text:
             return ""
         encoded = b64encode(text.encode("utf-8")).decode("ascii")
-        return "#pragma _permuter b64literal " + encoded
+        return f"\n#pragma _permuter b64literal {encoded}\n"
 
 
 class PretendPerm(Perm):
