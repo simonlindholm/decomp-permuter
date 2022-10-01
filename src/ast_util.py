@@ -40,6 +40,9 @@ def to_c(node: ca.Node, *, from_import: bool = False) -> str:
 
 
 def process_pragmas(source: str) -> str:
+    # Support MWCC-specific "u32 var : 0x1234;" syntax encoded as standard C
+    # "u32 var = FIXEDADDR(0x1234)".
+    source = source.replace(" = FIXEDADDR(", " : (")
     if "#pragma" not in source:
         return source
     lines = source.split("\n")
