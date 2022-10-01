@@ -135,7 +135,7 @@ def _rec_perm_parse(text: str) -> Perm:
 
 def perm_parse(text: str) -> Perm:
     ret = _rec_perm_parse(text)
-    if isinstance(ret, TextPerm):
+    if RootPerm(ret).perm_count <= 1 and not ret.is_random():
         ret = RandomizerPerm(ret)
         print("No perm macros found. Defaulting to randomization.")
     ret = RootPerm(ret)

@@ -64,7 +64,7 @@ PERM_VAR(delayed)
 ```
 is an alternative way of writing `PERM_ONCE`.
 
-If any PERM macros are provided, automatic randomization will be disabled; to enable it you need to surround the function (or the relevant parts of it) with `PERM_RANDOMIZE`.
+If any multi-choice PERM macros are provided, automatic randomization will be disabled; to enable it you need to surround the function (or the relevant parts of it) with `PERM_RANDOMIZE`.
 
 ## permuter@home
 
