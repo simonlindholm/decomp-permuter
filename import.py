@@ -93,7 +93,7 @@ def prune_asm(asm_cont: str) -> Tuple[str, str]:
         if (
             func_name is None
             and cur_section == ".text"
-            and line.strip().startswith("glabel ")
+            and (line.strip().startswith("glabel ") or line.strip().startswith(".globl "))
         ):
             func_name = line.split()[1]
         asm_lines.append(line)
