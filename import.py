@@ -57,7 +57,11 @@ STUB_FN_MACROS: List[str] = [
     "-D__asm__(...)=",
 ]
 
-SETTINGS_FILES = ["permuter_settings.toml", "tools/permuter_settings.toml"]
+SETTINGS_FILES = [
+    "permuter_settings.toml",
+    "tools/permuter_settings.toml",
+    "config/permuter_settings.toml",
+]
 
 
 def formatcmd(cmdline: List[str]) -> str:
@@ -671,7 +675,7 @@ def get_decompme_compiler_name(
         )
     else:
         print(
-            "Please add an section:\n\n"
+            "Please add a section:\n\n"
             "[decompme.compilers]\n"
             f'"{compiler_path}" = "..."\n\n'
             f"to {trail}"
