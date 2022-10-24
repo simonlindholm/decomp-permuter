@@ -524,6 +524,7 @@ def import_c_file(
         "-D_LANGUAGE_C",
         "-DNON_MATCHING",
         "-DNONMATCHING",
+        "-DPERMUTER",
     ]
 
     for arg in compiler:
