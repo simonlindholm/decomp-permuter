@@ -7,13 +7,13 @@ import re
 import time
 import traceback
 from typing import (
-    List,
+    Dict,
     Iterator,
+    List,
     Mapping,
     Optional,
     Tuple,
     Union,
-    Set,
 )
 
 from .candidate import Candidate, CandidateResult
@@ -136,7 +136,7 @@ class Permuter:
         self.hashes = {self.base_hash}
         self._cur_cand: Optional[Candidate] = None
         self._last_score: Optional[int] = None
-        self._seen_sources: Set[bytes] = set()
+        self._score_for_source: Dict[bytes, int] = {}
 
     def _create_and_score_base(self) -> Tuple[int, str, str]:
         base_source, eval_state = perm_evaluate_one(self._permutations)
@@ -193,31 +193,29 @@ class Permuter:
                 rng_seed=rng_seed,
             )
 
-        # Randomize the candidate, until we find a source we haven't seen before
         if self._permutations.is_random():
-            while True:
-                self._cur_cand.randomize_ast()
-                profiler.add_stat(Profiler.StatType.perm, timer.tick())
-                cand_source = self._cur_cand.get_source()
-                hash = hashlib.sha256(cand_source.encode()).digest()
-                profiler.add_stat(Profiler.StatType.stringify, timer.tick())
-                if hash not in self._seen_sources:
-                    break
+            self._cur_cand.randomize_ast()
 
-            if len(self._seen_sources) < 100000:  # prevent massive memory usage
-                self._seen_sources.add(hash)
+        profiler.add_stat(Profiler.StatType.perm, timer.tick())
+
+        cand_source = self._cur_cand.get_source()
+        source_hash = hashlib.sha256(cand_source.encode()).digest()
+        profiler.add_stat(Profiler.StatType.stringify, timer.tick())
+
+        old_score = self._score_for_source.get(source_hash)
+        if old_score is not None:
+            result = CandidateResult(score=old_score, hash=None, source=cand_source)
         else:
-            profiler.add_stat(Profiler.StatType.perm, timer.tick())
-            self._cur_cand.get_source()
-            profiler.add_stat(Profiler.StatType.stringify, timer.tick())
+            o_file = self._cur_cand.compile(self.compiler)
+            if not o_file and self._show_errors:
+                raise _CompileFailure()
+            profiler.add_stat(Profiler.StatType.compile, timer.tick())
 
-        o_file = self._cur_cand.compile(self.compiler)
-        if not o_file and self._show_errors:
-            raise _CompileFailure()
-        profiler.add_stat(Profiler.StatType.compile, timer.tick())
+            result = self._cur_cand.score(self.scorer, o_file)
+            profiler.add_stat(Profiler.StatType.score, timer.tick())
 
-        result = self._cur_cand.score(self.scorer, o_file)
-        profiler.add_stat(Profiler.StatType.score, timer.tick())
+            if len(self._score_for_source) < 100000:  # prevent unbounded memory usage
+                self._score_for_source[source_hash] = result.score
 
         if self.need_profiler:
             result.profiler = profiler
