@@ -36,7 +36,7 @@ def basic_type(name: Union[str, List[str]]) -> ca.TypeDecl:
     return ca.TypeDecl(declname=None, quals=[], align=[], type=idtype)
 
 
-def pointer(type: Type) -> Type:
+def pointer(type: Type) -> ca.PtrDecl:
     return ca.PtrDecl(quals=[], type=type)
 
 
@@ -54,9 +54,9 @@ def resolve_typedefs(type: Type, typemap: TypeMap) -> Type:
 def pointer_decay(type: Type, typemap: TypeMap) -> SimpleType:
     real_type = resolve_typedefs(type, typemap)
     if isinstance(real_type, ca.ArrayDecl):
-        return ca.PtrDecl(quals=[], type=real_type.type)
+        return pointer(real_type.type)
     if isinstance(real_type, ca.FuncDecl):
-        return ca.PtrDecl(quals=[], type=type)
+        return pointer(type)
     if isinstance(real_type, ca.TypeDecl) and isinstance(real_type.type, ca.Enum):
         return basic_type("int")
     assert not isinstance(

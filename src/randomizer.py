@@ -1225,7 +1225,6 @@ def perm_add_sub(
     Visitor().visit(fn.body)
     ensure(cands)
     node = random.choice(cands)
-    node.op = "+" if node.op == "-" else "-"
     if isinstance(node.right, ca.Constant):
         val = node.right.value
         node.right.value = val[1:] if val.startswith("-") else "-" + val
@@ -1233,7 +1232,11 @@ def perm_add_sub(
         assert not isinstance(node.right.expr, ca.Typename)
         node.right = node.right.expr
     else:
+        typemap = build_typemap(ast, fn)
+        type = resolve_typedefs(decayed_expr_type(node, typemap), typemap)
+        ensure(not isinstance(type, ca.TypeDecl))
         node.right = ca.UnaryOp("-", node.right)
+    node.op = "+" if node.op == "-" else "-"
 
 
 def perm_condition(
