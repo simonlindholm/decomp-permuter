@@ -1225,7 +1225,6 @@ def perm_add_sub(
     Visitor().visit(fn.body)
     ensure(cands)
     node = random.choice(cands)
-    node.left, node.right = node.right, node.left
     node.op = "+" if node.op == "-" else "-"
     if isinstance(node.right, ca.Constant):
         val = node.right.value
