@@ -255,6 +255,10 @@ def process_mips_reloc(reloc_row: str, prev: str, repl: str, imm: str) -> str:
         for reloc in ["R_MIPS_LO16", "R_MIPS_LITERAL", "R_MIPS_GPREL16"]
     ):
         repl = f"%lo({repl})"
+    elif "R_MIPS_GOT16" in reloc_row:
+        repl = f"%got({repl})"
+    elif "R_MIPS_CALL16" in reloc_row:
+        repl = f"%call16({repl})"
     elif "R_MIPS_HI16" in reloc_row:
         # Ideally we'd pair up R_MIPS_LO16 and R_MIPS_HI16 to generate a
         # correct addend for each, but objdump doesn't give us the order of

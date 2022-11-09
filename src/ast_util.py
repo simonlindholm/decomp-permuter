@@ -298,7 +298,8 @@ def insert_decl(
     fn: ca.FuncDef, var: str, type: SimpleType, random: Optional[Random] = None
 ) -> None:
     decl = make_decl(var, type)
-    assert fn.body.block_items, "Non-empty function"
+    if not fn.body.block_items:
+        fn.body.block_items = []
     for index, stmt in enumerate(fn.body.block_items):
         if not isinstance(stmt, ca.Decl):
             break
