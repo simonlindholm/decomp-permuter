@@ -6,7 +6,8 @@ from random import Random
 import re
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, TYPE_CHECKING, Union
 
-from pycparser import CParser, c_ast as ca, c_generator
+from pycparser import c_ast as ca, c_generator
+from pycparser.c_parser import CParser
 from pycparser.plyparser import ParseError
 
 from .error import CandidateConstructionFailure
