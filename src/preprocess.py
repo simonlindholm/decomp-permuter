@@ -4,7 +4,7 @@ import subprocess
 
 def preprocess(filename: str, cpp_args: List[str] = []) -> str:
     return subprocess.check_output(
-        ["cpp"] + cpp_args + ["-P", "-nostdinc", filename],
+        ["cpp"] + cpp_args + ["-P", "-nostdinc", "-DPERMUTER", filename],
         universal_newlines=True,
         encoding="utf-8",
     )
