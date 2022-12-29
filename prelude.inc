@@ -12,6 +12,10 @@
     \label:
 .endm
 
+.macro jlabel label
+    \label:
+.endm
+
 # Float register aliases (o32 ABI)
 
 .set $fv0,          $f0
