@@ -42,9 +42,18 @@ The default set of weights is specified in `default_weights.toml` and vary based
 These weights can be overridden by modifying `settings.toml` in the input directory.
 
 ## Using import.py with decomp.me
-import.py has an additional feature where it can prepare a directory for the permuter by downloading what it needs from a decomp.me scratch. 
-To use this feature all you must setup a TOML file, decompme_mappings.toml in the current working directory (root of this repository). This TOML file must contain a key that matches the decompme compiler identifier for each compiler you intend to use, and for each of those you must set the properties: PATH, EXE_NAME, and USE_WINE. (See example_decompme_mappings.toml)
-Then run: `python3 import.py https://decomp.me/scratch/AbC12`
+
+`import.py` has some features for integration with [decomp.me](https://decomp.me/).
+
+First, you can run `./import.py` with the `--decompme` to upload a function to decomp.me, instead of importing it as a permuter non-matching.
+This requires the project you are importing from to have a `decompme` section in its `permuter_settings.toml` with metadata about which compiler to use for decomp.me.
+Note that the import process involves automatic pruning of the context to include only referenced symbols/types/macros, and an automatic reformatting step.
+This may make this option inferior to other ways of uploading functions to decomp.me.
+
+Second, you can run `./import.py https://decomp.me/scratch/<id>` to download a scratch for use with the permuter.
+To use this feature, you must first set up a .toml file `decompme_mappings.toml` in the directory you are importing from (usually the root of this repository),
+which tells the permuter how to find the scratch's compiler locally.
+For an example, see `example_configs/decompme_mappings.toml`.
 
 ## Permutation macros
 

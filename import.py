@@ -22,7 +22,12 @@ import urllib.parse
 from src import ast_util
 from src.compiler import Compiler
 from src.error import CandidateConstructionFailure
-from src.helpers import get_default_randomization_weights, find_fns
+from src.helpers import (
+    get_default_randomization_weights,
+    find_fns,
+    json_dict,
+    json_prop,
+)
 
 is_macos = platform.system() == "Darwin"
 
@@ -56,6 +61,14 @@ DEFAULT_AS_CMDLINE: List[str] = ["mips-linux-gnu-as", "-march=vr4300", "-mabi=32
 RE_FUNC_NAME = r"[a-zA-Z0-9_$]+"
 
 CPP: List[str] = [cpp_cmd, "-P", "-undef"]
+
+DEFAULT_CPP_DEFINES: List[str] = [
+    "-D__sgi",
+    "-D_LANGUAGE_C",
+    "-DNON_MATCHING",
+    "-DNONMATCHING",
+    "-DPERMUTER",
+]
 
 STUB_FN_MACROS: List[str] = [
     "-D_Static_assert(x, y)=",
@@ -525,14 +538,7 @@ def import_c_file(
     Returns source for base.c and compilable (macro-expanded) source."""
     in_file = os.path.relpath(in_file, cwd)
     include_next = 0
-    cpp_command = CPP + [
-        in_file,
-        "-D__sgi",
-        "-D_LANGUAGE_C",
-        "-DNON_MATCHING",
-        "-DNONMATCHING",
-        "-DPERMUTER",
-    ]
+    cpp_command = CPP + [in_file] + DEFAULT_CPP_DEFINES
 
     for arg in compiler:
         if include_next > 0:
@@ -752,10 +758,7 @@ def compile_base(compile_script: str, source: str, c_file: str, out_file: str) -
         print("Warning: failed to compile .c file.")
 
 
-def create_write_settings_toml(
-    func_name: str, compiler_type: str, filename: str
-) -> None:
-
+def write_settings_toml(func_name: str, compiler_type: str, filename: str) -> None:
     rand_weights = get_default_randomization_weights(compiler_type)
 
     with open(filename, "w", encoding="utf-8") as f:
@@ -774,7 +777,32 @@ def write_to_file(cont: str, filename: str) -> None:
         f.write(cont)
 
 
-def download_decompme(url_str: str) -> None:
+def add_common_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--keep", action="store_true", help="Keep the directory on error."
+    )
+    parser.add_argument(
+        "--no-prune",
+        dest="prune",
+        action="store_false",
+        help="""Don't minimize the source to keep only the imported function and
+        functions/struct/variables that it uses. Normally this behavior is
+        useful to make the permuter faster, but in cases where unrelated code
+        affects the generated assembly asm it can be necessary to turn off.
+        Note that regardless of this setting the permuter always removes all
+        other functions by replacing them with declarations.""",
+    )
+
+
+def download_decompme() -> None:
+    parser = argparse.ArgumentParser(
+        description="""Import a decomp.me scratch for use with the permuter.
+        Will create a new directory nonmatchings/<funcname>-<id>/.""",
+    )
+    parser.add_argument("scratch_url", help="URL for the scratch")
+    add_common_arguments(parser)
+    args = parser.parse_args()
+    url_str: str = args.scratch_url
 
     try:
         parsed_url = urllib.parse.urlparse(url_str)
@@ -786,28 +814,30 @@ def download_decompme(url_str: str) -> None:
         )
         sys.exit(1)
 
+    print(f"Downloading scratch with ID {slug}...")
     try:
         response_str = urllib.request.urlopen(f"{DECOMPME_API_BASE}/api/scratch/{slug}")
         response_json = json.load(response_str)
 
-        decompme_name = response_json["name"]
-        dirname = create_directory(decompme_name)
-
-        compile_script = f"{dirname}/compile.sh"
-        settings_file = f"{dirname}/settings.toml"
+        decompme_name = json_prop(response_json, "name", str)
+        compiler_id = json_prop(response_json, "compiler", str).replace(".", "_")
+        compiler_flags = json_prop(response_json, "compiler_flags", str)
 
         content = urllib.request.urlopen(
             f"{DECOMPME_API_BASE}/api/scratch/{slug}/export"
         )
         zip = zipfile.ZipFile(BytesIO(content.read()))
+
+        dirname = create_directory(decompme_name)
+
         zip.extractall(dirname)
     except Exception:
         print(traceback.format_exc())
-        print("Failed to download function information from decomp.me")
+        print("Failed to download scratch from decomp.me")
         sys.exit(1)
 
+    print("Setting up permuter directory...")
     try:
-
         # Read the original files from decompme
         with open(f"{dirname}/ctx.c", "r") as f:
             original_ctx = f.read()
@@ -819,101 +849,92 @@ def download_decompme(url_str: str) -> None:
         os.rename(f"{dirname}/code.c", f"{dirname}/original_code.c")
         os.rename(f"{dirname}/ctx.c", f"{dirname}/original_ctx.c")
 
-        # Find the function name (assume last/only function)
+        # Find the function name (either decomp.me title or the last function)
         fns = find_fns(original_source)
         if len(fns) == 0:
-            raise Exception(f"original_code.c does not contain any function!")
-        fn_name = fns[-1]
-        print(f"Assuming {fn_name} is the target function!")
+            raise Exception(f"no function found in the scratch!")
+        func_name = decompme_name if decompme_name in fns else fns[-1]
+        print(f"Function name: {func_name}")
 
-        # Prune to only context the target function needs
+        # Prune to only include the context the target function needs
+        # TODO: it would be good to do macro preservation here, but it's unclear
+        # which macros to preserve...
         temp_source = original_ctx + "\n\n" + original_source
         write_to_file(temp_source, f"{dirname}/temp.c")
-        cpp_command = CPP + ["temp.c", "-D__sgi", "-D_LANGUAGE_C", "-DNON_MATCHING"]
+        cpp_command = CPP + ["temp.c"] + DEFAULT_CPP_DEFINES
         no_macros_source = subprocess.check_output(
             cpp_command + STUB_FN_MACROS,
             cwd=dirname,
             encoding="utf-8",
             stderr=subprocess.DEVNULL,
         )
-        source, context = prune_and_separate_context(no_macros_source, True, fn_name)
+        source, context = prune_and_separate_context(
+            no_macros_source, args.prune, func_name
+        )
 
         # Write out our base.c and ctx.h
         write_to_file(context, f"{dirname}/ctx.h")
         write_to_file('#include "ctx.h"\n' + source, f"{dirname}/base.c")
 
-    except Exception:
-        print(traceback.format_exc())
-        print("Exception occured while setting up base.c and ctx.h for the permuter")
-        sys.exit(1)
+        try:
+            with open("decompme_mappings.toml") as f:
+                mappings = toml.load(f)
 
-    try:
-
-        compiler_id = response_json["compiler"].replace(".", "_")
-
-        if not os.path.exists("decompme_mappings.toml"):
+        except FileNotFoundError:
             print("decompme_mappings.toml not found")
             print("See example_decompme_mappings.toml")
-            print("cp example_decompme_mappings.toml decompme_mappings.toml")
+            print("$ cp example_configs/decompme_mappings.toml decompme_mappings.toml")
             print("Then set specific properties for your compiler")
             sys.exit(1)
 
-        with open("decompme_mappings.toml") as f:
-            all_settings = toml.load(f)
-
-        if compiler_id not in all_settings:
+        if compiler_id not in mappings:
             print(
                 f"Compiler {compiler_id} not found in decompme_compiler_mappings.toml"
             )
             print(
                 f"Add a new entry to this toml file, for this compiler: {compiler_id}"
             )
-            print("See example_decompme_mappings.toml")
+            print("See example_configs/decompme_mappings.toml")
             sys.exit(1)
 
-        compiler_settings = all_settings[compiler_id]
+        compiler_settings = json_dict(json_prop(mappings, compiler_id, dict), object)
+        path = json_prop(compiler_settings, "path", str)
+        cmdline = json_prop(compiler_settings, "cmdline", str)
+        compiler_type = json_prop(compiler_settings, "compiler_type", str, "base")
+
+        compile_script = f"{dirname}/compile.sh"
+        settings_file = f"{dirname}/settings.toml"
+
         with open(compile_script, "w") as f:
             f.write("#!/usr/bin/env bash\n")
-            f.write(f"cd {compiler_settings['PATH']}\n")
+            f.write(f"cd {shlex.quote(path)}\n")
+            f.write(f'{cmdline} {compiler_flags} -c "$1" -o "$3"')
+        os.chmod(compile_script, 0o755)
 
-            compile_line = "wine " if compiler_settings["USE_WINE"] else ""
-            compile_line += compiler_settings["EXE_NAME"] + " "
-            compile_line += response_json["compiler_flags"]
-            compile_line += " -c -o $3 $1"
-            f.write(compile_line)
+        write_settings_toml(func_name, compiler_type, settings_file)
+    except:
+        if not args.keep:
+            print(f"\nDeleting directory {dirname} (run with --keep to preserve it).")
+            shutil.rmtree(dirname)
+        raise
 
-        os.chmod(compile_script, os.stat(compile_script).st_mode | stat.S_IEXEC)
-
-        compiler_type = compiler_settings.get("compiler_type", "base")
-
-        create_write_settings_toml(fn_name, compiler_type, settings_file)
-
-        print(
-            f"Success!! Prepared new folder, {dirname}, that is ready for the permuter script! Run with 'python3 permuter.py {dirname} [additional_flags]'"
-        )
-
-    except Exception:
-        print(traceback.format_exc())
-        print(
-            "Exception occured while creating a compile.sh for the permuter from decompme_mappings.toml and scratch settings"
-        )
-        sys.exit(1)
+    print("\nDone. Imported into {dirname}")
 
 
 def main() -> None:
-
-    if len(sys.argv) > 1 and sys.argv[1].startswith(DECOMPME_BASE):
-        download_decompme(sys.argv[1])
+    named_args = [arg for arg in sys.argv[1:] if not arg.startswith("-")]
+    if named_args and named_args[0].startswith(DECOMPME_BASE):
+        download_decompme()
         return
 
     parser = argparse.ArgumentParser(
         description="""Import a function for use with the permuter.
         Will create a new directory nonmatchings/<funcname>-<id>/.""",
-        epilog="""There is an alternative usage of this script where you 
-        provide a URL to a decompme scratch as the only argument. 
+        epilog=f"""There is an alternative usage of this script where you 
+        provide a URL to a decomp.me scratch as the only argument. 
         The script will download and prepare a new directory for the 
         permuter using the data downloaded from that scratch.
-        Alternate usage:  import.py https://decomp.me/scratch/<id>""",
+        Alternative usage: {sys.argv[0]} https://decomp.me/scratch/<id>""",
     )
     parser.add_argument(
         "c_file",
@@ -933,9 +954,7 @@ def main() -> None:
         nargs="*",
         help="Arguments to pass to 'make'. PERMUTER=1 will always be passed.",
     )
-    parser.add_argument(
-        "--keep", action="store_true", help="Keep the directory on error."
-    )
+    add_common_arguments(parser)
     settings_files = ", ".join(SETTINGS_FILES[:-1]) + " or " + SETTINGS_FILES[-1]
     parser.add_argument(
         "--preserve-macros",
@@ -944,17 +963,6 @@ def main() -> None:
         help=f"""Regex for which macros to preserve, or empty string for no macros.
         By default, this is read from {settings_files} in a parent directory of
         the imported file. Type information is also read from this file.""",
-    )
-    parser.add_argument(
-        "--no-prune",
-        dest="prune",
-        action="store_false",
-        help="""Don't minimize the source to keep only the imported function and
-        functions/struct/variables that it uses. Normally this behavior is
-        useful to make the permuter faster, but in cases where unrelated code
-        affects the generated assembly asm it can be necessary to turn off.
-        Note that regardless of this setting the permuter always removes all
-        other functions by replacing them with declarations.""",
     )
     parser.add_argument(
         "--decompme",
@@ -1067,7 +1075,7 @@ def main() -> None:
 
     try:
         write_to_file(source, base_c_file)
-        create_write_settings_toml(func_name, compiler_type, settings_file)
+        write_settings_toml(func_name, compiler_type, settings_file)
         write_compile_command(compiler, root_dir, compile_script)
         write_asm(asm_cont, target_s_file)
         compile_asm(assembler, root_dir, target_s_file, target_o_file)
