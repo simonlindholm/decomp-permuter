@@ -633,8 +633,8 @@ def prune_and_separate_context(
     except CandidateConstructionFailure as e:
         print(e.message)
         print("Unable to split context from source.")
-        print("Proceeding anyway, but expect compile errors!")
-        return ast_util.process_pragmas(source), ""
+        print("Using the entire source as context.")
+        return "", ast_util.process_pragmas(source)
 
 
 def get_decompme_compiler_name(
