@@ -894,6 +894,7 @@ def main() -> None:
                     "source_code": source,
                     "compiler": compiler_name,
                     "compiler_flags": get_compiler_flags(compiler),
+                    "diff_label": func_name,
                 }
             ).encode("ascii")
             with urllib.request.urlopen(f"{api_base}/api/scratch", post_data) as f:
