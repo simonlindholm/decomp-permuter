@@ -416,6 +416,10 @@ def simplify_objdump(
             nops = 0
             output_lines.append(Line(row=row, has_symbol=False, mnemonic=mnemonic))
 
+    # Remove trailing nops
+    while output_lines and output_lines[-1].mnemonic == "nop":
+        output_lines.pop()
+
     return output_lines
 
 
