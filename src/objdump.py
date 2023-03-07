@@ -335,7 +335,6 @@ def simplify_objdump(
     input_lines: List[str], arch: ArchSettings, *, stack_differences: bool
 ) -> List[Line]:
     output_lines: List[Line] = []
-    nops = 0
     skip_next = False
     for index, row in enumerate(input_lines):
         if index < skip_lines:
@@ -406,15 +405,12 @@ def simplify_objdump(
             skip_next = True
         if not stack_differences:
             row = re.sub(arch.re_sprel, "addr(sp)", row)
-        # row = row.replace(',', ', ')
-        if row == "nop":
-            # strip trailing nops; padding is irrelevant to us
-            nops += 1
-        else:
-            for _ in range(nops):
-                output_lines.append(Line(row="nop", has_symbol=False, mnemonic="nop"))
-            nops = 0
-            output_lines.append(Line(row=row, has_symbol=False, mnemonic=mnemonic))
+
+        output_lines.append(Line(row=row, has_symbol=False, mnemonic=mnemonic))
+
+    # Remove trailing nops
+    while output_lines and output_lines[-1].mnemonic == "nop":
+        output_lines.pop()
 
     return output_lines
 
