@@ -171,7 +171,6 @@ def post_score(
         timings = "  \t" + context.overall_profiler.get_str_stats()
     status_line = f"iteration {context.iteration}, {context.errors} errors, score = {disp_score}{timings}"
 
-    spawn_new = False
     new_permuter: Optional[Permuter] = None
 
     if permuter.should_output(result):
@@ -182,7 +181,31 @@ def post_score(
             msg = f"found new best score! ({score_value} vs {permuter.base_score})"
             if score_value < former_best * 0.99:
                 msg += f" - over 1% improvement! spawning new Permuter..."
-                spawn_new = True
+                assert result.source is not None, "Permuter._need_to_send_source is wrong"
+                new_source = result.source.replace("#define", "#pragma _permuter define")
+                new_source = "#pragma _permuter latedefine start \n" + new_source
+                first_typedef = new_source.find("typedef")
+                new_source = new_source[:first_typedef] + "#pragma _permuter latedefine end \n" + new_source[first_typedef:]
+
+                new_permuter = Permuter(
+                    permuter.dir,
+                    permuter.fn_name,
+                    permuter.compiler,
+                    permuter.scorer,
+                    permuter.source_file,
+                    new_source,
+                    randomization_weights=permuter.randomization_weights,
+                    force_seed=permuter._force_seed,
+                    force_rng_seed=permuter._force_rng_seed,
+                    keep_prob=permuter.keep_prob,
+                    need_profiler=permuter.need_profiler,
+                    need_all_sources=permuter._need_all_sources,
+                    show_errors=permuter._show_errors,
+                    best_only=permuter._best_only,
+                    better_only=permuter._better_only,
+                    score_threshold=permuter._score_threshold,
+                    debug_mode=permuter._debug_mode,
+                )
         elif score_value == former_best:
             color = "\u001b[32;1m"
             msg = f"tied best score! ({score_value} vs {permuter.base_score})"
@@ -194,32 +217,6 @@ def post_score(
             msg = f"found different asm with same score ({score_value})"
         context.printer.print(msg, permuter, who, color=color)
         write_candidate(permuter, result, context.options.no_context_output)
-        if spawn_new:
-            assert result.source is not None, "Permuter._need_to_send_source is wrong"
-            new_source = result.source.replace("#define", "#pragma _permuter define")
-            new_source = "#pragma _permuter latedefine start \n" + new_source
-            first_typedef = new_source.find("typedef")
-            new_source = new_source[:first_typedef] + "#pragma _permuter latedefine end \n" + new_source[first_typedef:]
-
-            new_permuter = Permuter(
-                permuter.dir,
-                permuter.fn_name,
-                permuter.compiler,
-                permuter.scorer,
-                permuter.source_file,
-                new_source,
-                randomization_weights=permuter.randomization_weights,
-                force_seed=permuter._force_seed,
-                force_rng_seed=permuter._force_rng_seed,
-                keep_prob=permuter.keep_prob,
-                need_profiler=permuter.need_profiler,
-                need_all_sources=permuter._need_all_sources,
-                show_errors=permuter._show_errors,
-                best_only=permuter._best_only,
-                better_only=permuter._better_only,
-                score_threshold=permuter._score_threshold,
-                debug_mode=permuter._debug_mode,
-            )
     if not context.options.quiet:
         context.printer.progress(status_line)
     return new_permuter, score_value == 0
