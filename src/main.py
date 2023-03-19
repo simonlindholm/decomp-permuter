@@ -414,9 +414,8 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             permuter = context.permuters[permuter_index]
             result = permuter.try_eval_candidate(seed)
             new_permuter, found_zero = post_score(context, permuter, result, None)
-            if found_zero:
-                if options.stop_on_zero:
-                    break
+            if found_zero and options.stop_on_zero:
+                break
             if new_permuter:
                 print("Adding new permuter")
                 context.permuters.append(new_permuter)
