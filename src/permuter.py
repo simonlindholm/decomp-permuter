@@ -111,7 +111,6 @@ class Permuter:
             print("Defaulting to function: ", self.fn_name)
         else:
             self.fn_name = fn_name
-        self.unique_name = self.fn_name
 
         self._permutations = perm_parse(source)
 
@@ -132,6 +131,7 @@ class Permuter:
             self.base_hash,
             self.base_source,
         ) = self._create_and_score_base()
+        self.unique_name = f"{self.fn_name} ({self.base_score})"
         self.best_score = self.base_score
         self.hashes = {self.base_hash}
         self._cur_cand: Optional[Candidate] = None

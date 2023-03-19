@@ -130,7 +130,7 @@ def write_candidate(
 
 def post_score(
     context: EvalContext, permuter: Permuter, result: EvalResult, who: Optional[str]
-) -> bool:
+) -> Tuple[Optional[Permuter], bool]:
     if isinstance(result, EvalError):
         if result.exc_str is not None:
             context.printer.print(
@@ -145,7 +145,7 @@ def post_score(
         if context.options.abort_exceptions:
             sys.exit(1)
         else:
-            return False
+            return None, False
 
     if context.options.print_diffs:
         assert result.source is not None, "Permuter._need_to_send_source is wrong"
@@ -171,12 +171,18 @@ def post_score(
         timings = "  \t" + context.overall_profiler.get_str_stats()
     status_line = f"iteration {context.iteration}, {context.errors} errors, score = {disp_score}{timings}"
 
+    spawn_new = False
+    new_permuter: Optional[Permuter] = None
+
     if permuter.should_output(result):
         former_best = permuter.best_score
         permuter.record_result(result)
         if score_value < former_best:
             color = "\u001b[32;1m"
             msg = f"found new best score! ({score_value} vs {permuter.base_score})"
+            if score_value < former_best * 0.99:
+                msg += f" - over 1% improvement! spawning new Permuter..."
+                spawn_new = True
         elif score_value == former_best:
             color = "\u001b[32;1m"
             msg = f"tied best score! ({score_value} vs {permuter.base_score})"
@@ -188,9 +194,35 @@ def post_score(
             msg = f"found different asm with same score ({score_value})"
         context.printer.print(msg, permuter, who, color=color)
         write_candidate(permuter, result, context.options.no_context_output)
+        if spawn_new:
+            assert result.source is not None, "Permuter._need_to_send_source is wrong"
+            new_source = result.source.replace("#define", "#pragma _permuter define")
+            new_source = "#pragma _permuter latedefine start \n" + new_source
+            first_typedef = new_source.find("typedef")
+            new_source = new_source[:first_typedef] + "#pragma _permuter latedefine end \n" + new_source[first_typedef:]
+
+            new_permuter = Permuter(
+                permuter.dir,
+                permuter.fn_name,
+                permuter.compiler,
+                permuter.scorer,
+                permuter.source_file,
+                new_source,
+                randomization_weights=permuter.randomization_weights,
+                force_seed=permuter._force_seed,
+                force_rng_seed=permuter._force_rng_seed,
+                keep_prob=permuter.keep_prob,
+                need_profiler=permuter.need_profiler,
+                need_all_sources=permuter._need_all_sources,
+                show_errors=permuter._show_errors,
+                best_only=permuter._best_only,
+                better_only=permuter._better_only,
+                score_threshold=permuter._score_threshold,
+                debug_mode=permuter._debug_mode,
+            )
     if not context.options.quiet:
         context.printer.progress(status_line)
-    return score_value == 0
+    return new_permuter, score_value == 0
 
 
 def cycle_seeds(permuters: List[Permuter]) -> Iterable[Tuple[int, int]]:
@@ -384,10 +416,13 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             heartbeat()
             permuter = context.permuters[permuter_index]
             result = permuter.try_eval_candidate(seed)
-            if post_score(context, permuter, result, None):
-                found_zero = True
+            new_permuter, found_zero = post_score(context, permuter, result, None)
+            if found_zero:
                 if options.stop_on_zero:
                     break
+            if new_permuter:
+                print("Adding new permuter")
+                context.permuters.append(new_permuter)
     else:
         seed_iterators: List[Optional[Iterator[int]]] = [
             permuter.seed_iterator()
@@ -461,7 +496,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             if source == -1:
                 active_workers -= 1
 
-        def process_result(work: WorkDone, who: Optional[str]) -> bool:
+        def process_result(work: WorkDone, who: Optional[str]) -> Tuple[Optional[Permuter], bool]:
             permuter = context.permuters[work.perm_index]
             return post_score(context, permuter, work.result, who)
 
@@ -498,11 +533,11 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             elif isinstance(feedback, Message):
                 context.printer.print(feedback.text, None, who, keep_progress=True)
             elif isinstance(feedback, WorkDone):
-                if process_result(feedback, who):
-                    # Found score 0!
-                    found_zero = True
-                    if options.stop_on_zero:
-                        break
+                new_permuter, found_zero = process_result(feedback, who)
+                if found_zero and options.stop_on_zero:
+                    break
+                if new_permuter:
+                    context.permuters.append(new_permuter)
             elif isinstance(feedback, NeedMoreWork):
                 task = get_task(source)
                 if task is not None:
@@ -530,8 +565,10 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
                 context.printer.print(feedback.text, None, who, keep_progress=True)
             elif isinstance(feedback, WorkDone):
                 if not (options.stop_on_zero and found_zero):
-                    if process_result(feedback, who):
-                        found_zero = True
+                    new_permuter, found_zero = process_result(feedback, who)
+                    if new_permuter:
+                        print("Adding new permuter")
+                        context.permuters.append(new_permuter)
             elif isinstance(feedback, NeedMoreWork):
                 pass
             else:
