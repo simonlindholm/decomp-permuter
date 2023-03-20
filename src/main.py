@@ -98,6 +98,14 @@ class EvalContext:
     errors: int = 0
     overall_profiler: Profiler = field(default_factory=Profiler)
     permuters: List[Permuter] = field(default_factory=list)
+    seed_iterators: List[Optional[Iterator[int]]] = field(default_factory=list)
+    new_permuter_queues: List["Queue[Permuter]"] = field(default_factory=list)
+
+    def add_permuter(self, permuter: Permuter) -> None:
+        self.permuters.append(permuter)
+        self.seed_iterators.append(permuter.seed_iterator())
+        for q in self.new_permuter_queues:
+            q.put(permuter)
 
 
 def write_candidate(
@@ -248,9 +256,14 @@ def multiprocess_worker(
     permuters: List[Permuter],
     input_queue: "Queue[Task]",
     output_queue: "Queue[Feedback]",
+    new_permuter_queue: "Queue[Permuter]",
 ) -> None:
     try:
         while True:
+            # Add new permuter(s) to the worker
+            while new_permuter_queue.qsize() > 0:
+                permuters.append(new_permuter_queue.get())
+
             # Read a work item from the queue. If none is immediately available,
             # tell the main thread to fill the queues more, and then block on
             # the queue.
@@ -265,6 +278,9 @@ def multiprocess_worker(
                 output_queue.close()
                 break
             permuter_index, seed = queue_item
+            if permuter_index > len(permuters) - 1:
+                # TODO why does this happen?
+                continue
             permuter = permuters[permuter_index]
             result = permuter.try_eval_candidate(seed)
             if isinstance(result, CandidateResult) and permuter.should_output(result):
@@ -388,7 +404,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             print(e.message, file=sys.stderr)
             sys.exit(1)
 
-        context.permuters.append(permuter)
+        context.add_permuter(permuter)
         name_counts[permuter.fn_name] = name_counts.get(permuter.fn_name, 0) + 1
     print()
 
@@ -417,14 +433,12 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             if found_zero and options.stop_on_zero:
                 break
             if new_permuter:
-                print("Adding new permuter")
-                context.permuters.append(new_permuter)
+                context.add_permuter(new_permuter)
     else:
-        seed_iterators: List[Optional[Iterator[int]]] = [
-            permuter.seed_iterator()
-            for perm_ind, permuter in enumerate(context.permuters)
+        context.seed_iterators = [
+            permuter.seed_iterator() for permuter in context.permuters
         ]
-        seed_iterators_remaining = len(seed_iterators)
+        seed_iterators_remaining = len(context.seed_iterators)
         next_iterator_index = 0
 
         # Create queues.
@@ -466,10 +480,13 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
 
         # Start local worker threads
         processes: List[multiprocessing.Process] = []
+
         for i in range(options.threads):
+            context.new_permuter_queues.append(Queue())
+
             p = multiprocessing.Process(
                 target=multiprocess_worker,
-                args=(context.permuters, worker_task_queue, feedback_queue),
+                args=(context.permuters, worker_task_queue, feedback_queue, context.new_permuter_queues[i]),
             )
             p.start()
             processes.append(p)
@@ -502,15 +519,15 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
                 while seed_iterators_remaining > 0:
                     task = get_task(next_iterator_index)
                     next_iterator_index += 1
-                    next_iterator_index %= len(seed_iterators)
+                    next_iterator_index %= len(context.seed_iterators)
                     if task is not None:
                         return task
             else:
-                it = seed_iterators[perm_index]
+                it = context.seed_iterators[perm_index]
                 if it is not None:
                     seed = next(it, None)
                     if seed is None:
-                        seed_iterators[perm_index] = None
+                        context.seed_iterators[perm_index] = None
                         seed_iterators_remaining -= 1
                     else:
                         return (perm_index, seed)
@@ -533,7 +550,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
                 if found_zero and options.stop_on_zero:
                     break
                 if new_permuter:
-                    context.permuters.append(new_permuter)
+                    context.add_permuter(new_permuter)
             elif isinstance(feedback, NeedMoreWork):
                 task = get_task(source)
                 if task is not None:
@@ -563,8 +580,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
                 if not (options.stop_on_zero and found_zero):
                     new_permuter, found_zero = process_result(feedback, who)
                     if new_permuter:
-                        print("Adding new permuter")
-                        context.permuters.append(new_permuter)
+                        context.add_permuter(new_permuter)
             elif isinstance(feedback, NeedMoreWork):
                 pass
             else:
