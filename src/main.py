@@ -279,13 +279,16 @@ def multiprocess_worker(
                 break
             permuter_index, seed = queue_item
             if permuter_index > len(permuters) - 1:
-                # TODO why does this happen?
-                continue
-            permuter = permuters[permuter_index]
-            result = permuter.try_eval_candidate(seed)
-            if isinstance(result, CandidateResult) and permuter.should_output(result):
-                permuter.record_result(result)
-            output_queue.put((WorkDone(permuter_index, result), -1, None))
+                # TODO: why does this happen?
+                # also I haven't benchmarked this branch yet, but I suspect this is related to the slowdown
+                print("ERR")
+                pass
+            else:
+                permuter = permuters[permuter_index]
+                result = permuter.try_eval_candidate(seed)
+                if isinstance(result, CandidateResult) and permuter.should_output(result):
+                    permuter.record_result(result)
+                output_queue.put((WorkDone(permuter_index, result), -1, None))
             output_queue.put((NeedMoreWork(), -1, None))
     except KeyboardInterrupt:
         # Don't clutter the output with stack traces; Ctrl+C is the expected
