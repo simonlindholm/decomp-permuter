@@ -189,31 +189,7 @@ def post_score(
             msg = f"found new best score! ({score_value} vs {permuter.base_score})"
             if score_value < former_best * 0.99:
                 msg += f" - over 1% improvement! spawning new Permuter..."
-                assert result.source is not None, "Permuter._need_to_send_source is wrong"
-                new_source = result.source.replace("#define", "#pragma _permuter define")
-                new_source = "#pragma _permuter latedefine start \n" + new_source
-                first_typedef = new_source.find("typedef")
-                new_source = new_source[:first_typedef] + "#pragma _permuter latedefine end \n" + new_source[first_typedef:]
-
-                new_permuter = Permuter(
-                    permuter.dir,
-                    permuter.fn_name,
-                    permuter.compiler,
-                    permuter.scorer,
-                    permuter.source_file,
-                    new_source,
-                    randomization_weights=permuter.randomization_weights,
-                    force_seed=permuter._force_seed,
-                    force_rng_seed=permuter._force_rng_seed,
-                    keep_prob=permuter.keep_prob,
-                    need_profiler=permuter.need_profiler,
-                    need_all_sources=permuter._need_all_sources,
-                    show_errors=permuter._show_errors,
-                    best_only=permuter._best_only,
-                    better_only=permuter._better_only,
-                    score_threshold=permuter._score_threshold,
-                    debug_mode=permuter._debug_mode,
-                )
+                new_permuter = permuter.create_fork(result)
         elif score_value == former_best:
             color = "\u001b[32;1m"
             msg = f"tied best score! ({score_value} vs {permuter.base_score})"

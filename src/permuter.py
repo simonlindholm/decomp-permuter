@@ -91,6 +91,9 @@ class Permuter:
         better_only: bool,
         score_threshold: Optional[int],
         debug_mode: bool,
+        base_score: Optional[int] = None,
+        base_hash: Optional[str] = None,
+        base_source: Optional[str] = None,
     ) -> None:
         self.dir = dir
         self.compiler = compiler
@@ -126,17 +129,55 @@ class Permuter:
         self._better_only = better_only
         self._score_threshold = score_threshold
         self._debug_mode = debug_mode
-        (
-            self.base_score,
-            self.base_hash,
-            self.base_source,
-        ) = self._create_and_score_base()
+        self.base_score = base_score
+        self.base_hash = base_hash
+        self.base_source = base_source
+        if self.base_score == None or self.base_hash == None or self.base_source == None:
+            (
+                self.base_score,
+                self.base_hash,
+                self.base_source,
+            ) = self._create_and_score_base()
         self.unique_name = f"{self.fn_name} ({self.base_score})"
         self.best_score = self.base_score
         self.hashes = {self.base_hash}
         self._cur_cand: Optional[Candidate] = None
         self._last_score: Optional[int] = None
         self._score_for_source: Dict[bytes, int] = {}
+
+    def create_fork(self, result: CandidateResult) -> "Permuter":
+        # Return a copy of this permuter based on an existing permutation result
+
+        assert result.source is not None, "Permuter._need_to_send_source is wrong"
+        new_source = result.source.replace("#define", "#pragma _permuter define")
+        new_source = "#pragma _permuter latedefine start \n" + new_source
+        first_typedef = new_source.find("typedef")
+        new_source = new_source[:first_typedef] + "#pragma _permuter latedefine end \n" + new_source[first_typedef:]
+
+        ret = Permuter(
+            self.dir,
+            self.fn_name,
+            self.compiler,
+            self.scorer,
+            self.source_file,
+            new_source,
+            randomization_weights=self.randomization_weights,
+            force_seed=self._force_seed,
+            force_rng_seed=self._force_rng_seed,
+            keep_prob=self.keep_prob,
+            need_profiler=self.need_profiler,
+            need_all_sources=self._need_all_sources,
+            show_errors=self._show_errors,
+            best_only=self._best_only,
+            better_only=self._better_only,
+            score_threshold=self._score_threshold,
+            debug_mode=self._debug_mode,
+            base_score=result.score,
+            base_hash=result.hash,
+            base_source=self.base_source,
+        )
+
+        return ret
 
     def _create_and_score_base(self) -> Tuple[int, str, str]:
         base_source, eval_state = perm_evaluate_one(self._permutations)
