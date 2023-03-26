@@ -129,10 +129,12 @@ class Permuter:
         self._better_only = better_only
         self._score_threshold = score_threshold
         self._debug_mode = debug_mode
-        self.base_score = base_score
-        self.base_hash = base_hash
-        self.base_source = base_source
-        if self.base_score == None or self.base_hash == None or self.base_source == None:
+
+        if base_score is not None and base_hash != None and base_source != None:
+            self.base_score = base_score
+            self.base_hash = base_hash
+            self.base_source = base_source
+        else:
             (
                 self.base_score,
                 self.base_hash,
