@@ -33,6 +33,7 @@ perm_chain_assignment = 5
 perm_long_chain_assignment = 3
 perm_pad_var_decl = 1
 perm_inline = 10
+perm_var_cond_block = 10
 
 [ido]
 perm_float_literal = 10
