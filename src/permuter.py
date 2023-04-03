@@ -94,6 +94,7 @@ class Permuter:
         base_score: Optional[int] = None,
         base_hash: Optional[str] = None,
         base_source: Optional[str] = None,
+        cur_cand: Optional[Candidate] = None,
     ) -> None:
         self.dir = dir
         self.compiler = compiler
@@ -143,7 +144,7 @@ class Permuter:
         self.unique_name = f"{self.fn_name} ({self.base_score})"
         self.best_score = self.base_score
         self.hashes = {self.base_hash}
-        self._cur_cand: Optional[Candidate] = None
+        self._cur_cand: Optional[Candidate] = cur_cand
         self._last_score: Optional[int] = None
         self._score_for_source: Dict[bytes, int] = {}
 
@@ -152,9 +153,9 @@ class Permuter:
 
         assert result.source is not None, "Permuter._need_to_send_source is wrong"
         new_source = result.source.replace("#define", "#pragma _permuter define")
-        new_source = "#pragma _permuter latedefine start \n" + new_source
+        new_source = "#pragma _permuter latedefine start\n" + new_source
         first_typedef = new_source.find("typedef")
-        new_source = new_source[:first_typedef] + "#pragma _permuter latedefine end \n" + new_source[first_typedef:]
+        new_source = new_source[:first_typedef] + "#pragma _permuter latedefine end\n" + new_source[first_typedef:]
 
         ret = Permuter(
             self.dir,
@@ -177,6 +178,7 @@ class Permuter:
             base_score=result.score,
             base_hash=result.hash,
             base_source=self.base_source,
+            cur_cand=self._cur_cand,
         )
 
         return ret
