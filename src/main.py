@@ -71,6 +71,7 @@ class Options:
     network_debug: bool = False
     network_priority: float = 1.0
     no_context_output: bool = False
+    spawn_new: bool = False
     debug_mode: bool = False
 
 
@@ -187,8 +188,9 @@ def post_score(
         if score_value < former_best:
             color = "\u001b[32;1m"
             msg = f"found new best score! ({score_value} vs {permuter.base_score})"
-            if score_value < former_best * 0.99:
-                msg += f" - over 1% improvement! spawning new Permuter..."
+            pct_threshold = 0.01
+            if score_value < (1 - pct_threshold) * former_best and context.options.spawn_new:
+                msg += f" - over {pct_threshold * 100}% improvement! spawning new Permuter..."
                 new_permuter = permuter.create_fork(result)
         elif score_value == former_best:
             color = "\u001b[32;1m"
@@ -733,6 +735,12 @@ def main() -> None:
         help="Only report scores better (lower) than this value",
     )
     parser.add_argument(
+        "--spawn-new",
+        dest="spawn_new",
+        action="store_true",
+        help="Begin permuting improvements if found",
+    )
+    parser.add_argument(
         "--debug",
         dest="debug_mode",
         action="store_true",
@@ -764,6 +772,7 @@ def main() -> None:
         network_debug=args.network_debug,
         network_priority=args.network_priority,
         no_context_output=args.no_context_output,
+        spawn_new=args.spawn_new,
         debug_mode=args.debug_mode,
     )
 
