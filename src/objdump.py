@@ -18,7 +18,10 @@ ign_regs = False
 ign_branch_targets = True
 
 # Skip branch-likely delay slots. (They aren't interesting on IDO.)
-skip_bl_delay_slots = True
+# Set to false for now to help non-IDO compilers and to match diff.py;
+# eventually we'll probably want to mirror
+# https://github.com/simonlindholm/asm-differ/issues/105.
+skip_bl_delay_slots = False
 
 skip_lines = 1
 re_int = re.compile(r"[0-9]+")
@@ -374,6 +377,7 @@ def simplify_objdump(
         if skip_next:
             skip_next = False
             row = "<skipped>"
+            mnemonic = "<skipped>"
         if ign_regs:
             row = re.sub(arch.re_reg, "<reg>", row)
 
