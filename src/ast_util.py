@@ -114,7 +114,7 @@ def extract_fn(ast: ca.FileAST, fn_name: str) -> Tuple[ca.FuncDef, int]:
                 node = node.decl
                 ast.ext[i] = node
         if isinstance(node, ca.Decl) and isinstance(node.type, ca.FuncDecl):
-            node.funcspec = [spec for spec in node.funcspec if spec != "static"]
+            node.storage = [st for st in node.storage if st != "static"]
     if len(ret) == 0:
         raise CandidateConstructionFailure(f"Function {fn_name} not found in base.c.")
     if len(ret) > 1:
