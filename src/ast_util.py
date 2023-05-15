@@ -125,6 +125,7 @@ def extract_fn(ast: ca.FileAST, fn_name: str) -> Tuple[ca.FuncDef, int]:
 
 
 def parse_c(source: str, *, from_import: bool = False) -> ca.FileAST:
+    source = re.sub(r"^#ident.*", "", source, flags=re.MULTILINE)
     try:
         parser = CParser()
         return parser.parse(source, "<source>")
