@@ -246,6 +246,8 @@ def pre_process(mnemonic: str, args: str, next_row: Optional[str]) -> Tuple[str,
 
 
 def process_mips_reloc(reloc_row: str, prev: str, repl: str, imm: str) -> str:
+    if "R_MIPS_JALR" in reloc_row or "R_MIPS_NONE" in reloc_row:
+        return repl
     # Sometimes s8 is used as a non-framepointer, but we've already lost
     # the immediate value by pretending it is one. This isn't too bad,
     # since it's rare and applies consistently. But we do need to handle it
