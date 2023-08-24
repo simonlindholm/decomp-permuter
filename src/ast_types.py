@@ -8,7 +8,7 @@ They make a number of simplifying assumptions:
 For the purposes of the randomizer these restrictions are acceptable."""
 
 from dataclasses import dataclass, field
-from typing import Union, Dict, Set, List
+from typing import Union, Dict, Set, List, Optional
 
 from pycparser import c_ast as ca
 
@@ -195,6 +195,20 @@ def expr_type(node: ca.Node, typemap: TypeMap) -> Type:
 def decayed_expr_type(expr: ca.Node, typemap: TypeMap) -> SimpleType:
     return pointer_decay(expr_type(expr, typemap), typemap)
 
+
+def resolve_struct_def(struct: SimpleType, typemap: TypeMap) -> Optional[ca.Struct]:
+    """Resolve struct definition for a given type.
+    """
+    type_decl = resolve_typedefs(struct, typemap)
+    if not isinstance(type_decl, ca.TypeDecl) or not isinstance(type_decl.type, ca.Struct):
+        return None
+    if type_decl.type.decls is not None:
+        return type_decl.type
+    if type_decl.type.name in typemap.struct_defs:
+        struct_def = typemap.struct_defs[type_decl.type.name]
+        if isinstance(struct_def, ca.Struct):
+            return struct_def
+    return None
 
 def same_type(
     type1: Type, type2: Type, typemap: TypeMap, allow_similar: bool = False

@@ -61,7 +61,7 @@ class Candidate:
         rng_seed: int,
     ) -> "Candidate":
         # Use the same AST for all instances of the same original source, but
-        # with the target function deeply copied. Since we never change the
+        # with the target function deeply copied. Since we rarely change the
         # AST outside of the target function, this is fine, and it saves us
         # performance (deepcopy is really slow).
         orig_fn, fn_index, ast = Candidate._cached_shared_ast(source, fn_name)

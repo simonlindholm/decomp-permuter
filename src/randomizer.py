@@ -1,4 +1,5 @@
 import bisect
+from collections import defaultdict
 import copy
 import sys
 from dataclasses import dataclass, field
@@ -32,6 +33,7 @@ from .ast_types import (
     decayed_expr_type,
     get_decl_type,
     resolve_typedefs,
+    resolve_struct_def,
     same_type,
     set_decl_name,
     pointer_decay,
@@ -79,6 +81,10 @@ PROB_KEEP_REPLACED_VAR = 0.2
 
 # Change the return type of an external function to void with this probability.
 PROB_RET_VOID = 0.2
+
+# When flattening fields from a substruct, flatten the fields upwards with this
+# probability.
+PROB_FLATTEN_UPWARDS = 0.5
 
 # Number larger than any node index. (If you're trying to compile a 1 GB large
 # C file to matching asm, you have bigger problems than this limit.)
@@ -500,24 +506,6 @@ def get_insertion_points(
     if not allow_within_decl:
         cands = [c for c in cands if not isinstance(c[3], ca.Decl)]
     return cands
-
-
-def get_noncolliding_name(ast: ca.FileAST, name: str) -> str:
-    used_names: Set[str] = set()
-
-    for item in ast.ext:
-        if isinstance(item, ca.Decl) and item.name:
-            used_names.add(item.name)
-        if isinstance(item, ca.FuncDef) and item.decl.name:
-            used_names.add(item.decl.name)
-
-    new_name = name
-    counter = 1
-    while new_name in used_names:
-        counter += 1
-        new_name = f"{new_name}{counter}"
-
-    return new_name
 
 
 def maybe_reuse_var(
@@ -2249,7 +2237,7 @@ def perm_inline(
     chosen_cand = random_weighted(random, cands)
 
     ret_type = decayed_expr_type(chosen_cand, typemap)
-    new_fn_name = get_noncolliding_name(ast, "inline_fn")
+    new_fn_name = ast_util.get_noncolliding_toplevel_name(ast, "inline_fn")
 
     cut_prob = random.uniform(0, 1) * random.uniform(0, 1)
     cut_expr, cut_types = cut_ast(chosen_cand, cut_prob, typemap, random)
@@ -2303,6 +2291,72 @@ def perm_inline(
     ast.ext.insert(ast.ext.index(fn), fn_def)
 
 
+def perm_flatten_struct(
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
+) -> None:
+    """Moves fields from a nested struct into its parent struct. Only types used
+    within the given region are affected."""
+
+    # SubstructRefTree is a tree mapping each substruct to the parent structs it is
+    # referenced from. Under each parent struct is a list of the references via that
+    # parent.
+    ParentRefs = Dict[ca.Struct, List[ca.StructRef]]
+    SubstructRefTree = Dict[ca.Struct, ParentRefs]
+
+    ast_util.deepcopy_struct_defs(ast)
+    typemap = build_typemap(ast, fn)
+    substructs: SubstructRefTree = defaultdict(lambda: defaultdict(list))
+
+    # Get all StructRef's in the function that are within a substruct. The fields
+    # must be accessed from a parent struct.
+    class StructRefVisitor(ca.NodeVisitor):
+        def visit_StructRef(self, node: ca.StructRef) -> None:
+            if ast_util.count_chained_structrefs(node) >= 2:
+                assert isinstance(node.name, ca.StructRef)
+                substruct = resolve_struct_def(decayed_expr_type(node.name, typemap), typemap)
+                parent = resolve_struct_def(decayed_expr_type(node.name.name, typemap), typemap)
+                if substruct is not None and parent is not None:
+                    substructs[substruct][parent].append(node)
+                self.generic_visit(node)
+
+    StructRefVisitor().visit(fn)
+
+    ensure(substructs)
+    substruct = random.choice(list(substructs.keys()))
+    parent = random.choice(list(substructs[substruct].keys()))
+
+    # Ensure that at least one of StructRef's under the selected parent occurs
+    # in the randomization region.
+    ensure(any([region.contains_node(struct_ref) for struct_ref in substructs[substruct][parent]]))
+
+    # We only want to flatten fields from the substruct into the selected
+    # parent. If the substruct is referenced from other parents, we'll make a
+    # copy of `substruct` in order to leave the other parents unaffected.
+    old_substruct = substruct
+    if len(substructs[substruct].keys()) > 1:
+        substruct_idx = ast_util.struct_substruct_idx(parent, substruct, typemap)
+        substruct = ast_util.copy_struct(ast, substruct)
+        ast_util.struct_set_field_type(parent, substruct_idx, substruct)
+        typemap = build_typemap(ast, fn)
+
+    ensure(substruct.decls)
+    assert substruct.decls
+    shift_idx = random.randrange(len(substruct.decls))
+    flatten_upwards = random_bool(random, PROB_FLATTEN_UPWARDS)
+
+    # Move fields out of substruct's struct definition and into the parent's
+    # struct definition.
+    moved_names = ast_util.flatten_fields(parent, substruct, shift_idx, flatten_upwards, typemap)
+
+    # Commit the changes to all StructRefs under this parent. We should only
+    # update references to fields that were moved.
+    for struct_ref in substructs[old_substruct][parent]:
+        if struct_ref.field.name in moved_names:
+            assert isinstance(struct_ref.name, ca.StructRef)
+            struct_ref.name = struct_ref.name.name
+            struct_ref.field.name = moved_names[struct_ref.field.name]
+
+
 RandomizationPass = Callable[[ca.FuncDef, ca.FileAST, Indices, Region, Random], None]
 
 RANDOMIZATION_PASSES: List[RandomizationPass] = [
@@ -2337,6 +2391,7 @@ RANDOMIZATION_PASSES: List[RandomizationPass] = [
     perm_long_chain_assignment,
     perm_pad_var_decl,
     perm_inline,
+    perm_flatten_struct,
 ]
 
 

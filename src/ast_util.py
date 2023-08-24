@@ -11,7 +11,7 @@ from pycparser.c_parser import CParser
 from pycparser.plyparser import ParseError
 
 from .error import CandidateConstructionFailure
-from .ast_types import SimpleType, set_decl_name
+from .ast_types import SimpleType, TypeMap, resolve_struct_def, same_type, set_decl_name
 
 
 @dataclass
@@ -171,6 +171,175 @@ def compute_node_indices(top_node: ca.Node) -> Indices:
     return Indices(starts, ends)
 
 
+def get_noncolliding_toplevel_name(ast: ca.FileAST, name: str) -> str:
+    """Returns a unique name for an ordinary identifier at the top-level scope.
+    This includes:
+     - Function names
+     - Variable names
+     - Typedef names
+    """
+    used_names: Set[str] = set()
+    for item in ast.ext:
+        if isinstance(item, ca.Decl) and item.name:
+            used_names.add(item.name)
+        if isinstance(item, ca.Typedef) and item.name:
+            used_names.add(item.name)
+        if isinstance(item, ca.FuncDef) and item.decl.name:
+            used_names.add(item.decl.name)
+    return get_noncolliding_name(used_names, name)
+
+
+def get_noncolliding_tag_name(ast: ca.FileAST, name: str) -> str:
+    """Returns a unique name for a struct, union, or enum tag.
+    """
+    used_names: Set[str] = set()
+    class TagVisitor(ca.NodeVisitor):
+        def visit_Struct(self, node: ca.Struct) -> None:
+            if node.name:
+                used_names.add(node.name)
+            self.generic_visit(node)
+
+        def visit_Union(self, node: ca.Union) -> None:
+            if node.name:
+                used_names.add(node.name)
+            self.generic_visit(node)
+
+        def visit_Enum(self, node: ca.Enum) -> None:
+            if node.name:
+                used_names.add(node.name)
+            self.generic_visit(node)
+
+    TagVisitor().visit(ast)
+
+    return get_noncolliding_name(used_names, name)
+
+
+def get_noncolliding_name(used_names: Set[str], name: str) -> str:
+    new_name = name
+    counter = 1
+    while new_name in used_names:
+        counter += 1
+        new_name = f"{new_name}{counter}"
+    return new_name
+
+
+def contains_node(a: ca.Node, b: ca.Node) -> bool:
+    """Returns true if node B is an descendant of node A.
+    """
+    found = False
+    class DescendantVisitor(ca.NodeVisitor):
+        def generic_visit(self, node: ca.Node) -> None:
+            nonlocal found
+            if node is b:
+                found = True
+            super().generic_visit(node)
+
+    DescendantVisitor().visit(a)
+    return found
+
+
+def ast_ext_struct_idx(ast: ca.FileAST, struct: ca.Struct) -> int:
+    """Returns the index of the node in `ast.ext` that contains the definition
+    of `struct`.
+    """
+    for i, node in enumerate(ast.ext):
+        if contains_node(node, struct):
+            return i
+    return -1
+
+
+def copy_struct(ast: ca.FileAST, struct: ca.Struct) -> ca.Struct:
+    """Adds a new struct with a definition matching `struct` to the AST.
+    Returns this new struct.
+    """
+    new_struct = copy.deepcopy(struct)
+    base_name = struct.name if struct.name else 'NewStruct'
+    new_struct.name = get_noncolliding_tag_name(ast, base_name)
+
+    # Insert the new struct right above the base struct. This preserves any
+    # struct field dependencies.
+    insert_idx = ast_ext_struct_idx(ast, struct)
+    decl = ca.Decl(name=None, quals=[], align=[], storage=[], funcspec=[], type=new_struct, init=None, bitsize=None)
+    ast.ext = ast.ext[:insert_idx] + [decl] + ast.ext[insert_idx:]
+    return new_struct
+
+
+def struct_set_field_type(parent: ca.Struct, field_idx: int, new_type: ca.Struct) -> None:
+    struct_type = copy.deepcopy(new_type)
+    struct_type.decls = None
+    parent_fields = struct_get_fields(parent)
+    old_type_decl = parent_fields[field_idx].type
+    assert isinstance(old_type_decl, ca.TypeDecl), "can only modify the type of a TypeDecl field"
+    old_type_decl.type = struct_type
+
+
+def struct_substruct_idx(parent: ca.Struct, substruct: ca.Struct, typemap: TypeMap) -> int:
+    """Returns the index of the field in `parent` of type `substruct`.
+    """
+    for i, decl in enumerate(struct_get_fields(parent)):
+        if isinstance(decl.type, ca.TypeDecl):
+            decl_struct = resolve_struct_def(decl.type, typemap)
+            if decl_struct is substruct:
+                return i
+    return -1
+
+
+def struct_decl_idx(struct: ca.Struct, field_idx: int) -> int:
+    """Return the index of the `field_idx`-th field in `struct.decls`.
+    """
+    if not struct.decls:
+        return -1
+
+    fields = -1
+    for i, decl in enumerate(struct.decls):
+        if isinstance(decl, ca.Decl):
+            fields += 1
+            if fields == field_idx:
+                return i
+    return len(struct.decls)
+
+
+def struct_get_fields(struct: ca.Struct) -> List[ca.Decl]:
+    if struct.decls is None:
+        return []
+
+    decls: List[ca.Decl] = []
+    for decl in struct.decls:
+        if isinstance(decl, ca.Decl):
+            decls.append(decl)
+    return decls
+
+
+def struct_name_field(field: ca.Decl, name: str) -> None:
+    field.name = name
+    set_decl_name(field)
+
+
+def struct_remove_field(struct: ca.Struct, field_idx: int) -> None:
+    if struct.decls is None:
+        return
+
+    idx = struct_decl_idx(struct, field_idx)
+    struct.decls = struct.decls[:idx] + struct.decls[idx+1:]
+
+
+def count_chained_structrefs(expr: Expression) -> int:
+    """Count the chain of StructRef's that result in `expr`.
+
+    Examples:
+      - foo            --> 0
+      - bar.foo        --> 1
+      - baz.bar.foo    --> 2
+      - bar->foo       --> 0
+      - baz.bar[i].foo --> 1
+    """
+    chain = 0
+    while isinstance(expr, ca.StructRef) and expr.type == ".":
+        chain += 1
+        expr = expr.name
+    return chain
+
+
 def equal_ast(
     a: ca.Node,
     b: ca.Node,
@@ -256,6 +425,69 @@ def is_effectful(expr: Expression) -> bool:
 
     Visitor().visit(expr)
     return found
+
+
+def deduplicate_struct_field_names(fields: List[ca.Decl], dest_field_names: Set[str]) -> Dict[str, str]:
+    name_map = {}
+    for field in fields:
+        if field.name:
+            new_name = get_noncolliding_name(dest_field_names, field.name)
+            name_map[field.name] = new_name
+            struct_name_field(field, new_name)
+    return name_map
+
+
+def move_fields(src: ca.Struct, dest: ca.Struct, src_i: int, src_j: int, dest_i: int) -> List[ca.Decl]:
+    """Move fields from `src` into `dest`. Remove fields in the range
+    [src_i, src_j) from `src`. Insert the fields at index `dest_i`. Return a
+    list of the fields that got moved.
+    """
+    if not src.decls or not dest.decls:
+        return []
+
+    src_field_i = struct_decl_idx(src, src_i)
+    src_field_j = struct_decl_idx(src, src_j)
+    fields = struct_get_fields(src)
+
+    moved_decls = src.decls[src_field_i:src_field_j]
+    src.decls = src.decls[:src_field_i] + src.decls[src_field_j:]
+
+    dest_field_i = struct_decl_idx(dest, dest_i)
+    dest.decls = dest.decls[:dest_field_i] + moved_decls + dest.decls[dest_field_i:]
+
+    return fields[src_i:src_j]
+
+
+def flatten_fields(parent: ca.Struct, substruct: ca.Struct, shift_idx: int, flatten_upwards: bool, typemap: TypeMap) -> Dict[str, str]:
+    """Flatten fields from `substruct` into `parent`. If `flatten_upwards` is
+    true, flatten `field` and all fields above upwards into `parent`. Otherwise,
+    flatten `field` and all fields below downwards into `parent`.
+
+    Returns a mapping from the original names of the moved fields to their
+    (potentially) new names in the parent.
+    """
+    parent_fields = struct_get_fields(parent)
+    parent_field_names = {field.name for field in parent_fields if field.name}
+
+    parent_idx = struct_substruct_idx(parent, substruct, typemap)
+    if flatten_upwards:
+        moved_fields = move_fields(substruct, parent, 0, shift_idx + 1, parent_idx)
+        substruct_i = parent_idx + shift_idx + 1
+    else:
+        substruct_fields = struct_get_fields(substruct)
+        moved_fields = move_fields(substruct, parent, shift_idx, len(substruct_fields), parent_idx + 1)
+        substruct_i = parent_idx
+
+    # If substruct is empty, remove it from the parent
+    substruct_fields = struct_get_fields(substruct)
+    parent_fields = struct_get_fields(parent)
+    if not substruct_fields:
+        parent_field = parent_fields[substruct_i].name
+        if parent_field:
+            parent_field_names.remove(parent_field)
+        struct_remove_field(parent, substruct_i)
+
+    return deduplicate_struct_field_names(moved_fields, parent_field_names)
 
 
 def get_block_stmts(block: Block, force: bool) -> List[Statement]:
@@ -565,3 +797,15 @@ def prune_ast(fn: ca.FuncDef, ast: ca.FileAST) -> int:
 
     ast.ext = new_ext
     return ast.ext.index(fn)
+
+
+# Deep-copy all the top-level typedefs and structs.
+def deepcopy_struct_defs(ast: ca.FileAST) -> None:
+    for i in range(len(ast.ext)):
+        item = ast.ext[i]
+        if (
+            (isinstance(item, ca.Decl) and isinstance(item.type, ca.Struct)) or  # struct definition
+            (isinstance(item, ca.Typedef) and isinstance(item.type, ca.TypeDecl) and isinstance(item.type.type, ca.Struct))  # typedef
+        ):
+            new_item = copy.deepcopy(item)
+            ast.ext[i] = new_item
