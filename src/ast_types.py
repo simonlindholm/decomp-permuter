@@ -196,6 +196,26 @@ def decayed_expr_type(expr: ca.Node, typemap: TypeMap) -> SimpleType:
     return pointer_decay(expr_type(expr, typemap), typemap)
 
 
+def _same_param_type(
+    p1: Union[ca.Decl, ca.ID, ca.Typename, ca.EllipsisParam],
+    p2: Union[ca.Decl, ca.ID, ca.Typename, ca.EllipsisParam],
+    typemap: TypeMap,
+) -> bool:
+    if isinstance(p1, ca.EllipsisParam) and isinstance(p2, ca.EllipsisParam):
+        return True
+    if isinstance(p1, ca.ID) and isinstance(p2, ca.ID):
+        return p1.name == p2.name
+    if (
+        isinstance(p1, (ca.Typename, ca.Decl))
+        and isinstance(p2, (ca.Typename, ca.Decl))
+        and isinstance(p1.type, (ca.PtrDecl, ca.ArrayDecl, ca.TypeDecl, ca.FuncDecl))
+        and isinstance(p2.type, (ca.PtrDecl, ca.ArrayDecl, ca.TypeDecl, ca.FuncDecl))
+        and same_type(p1.type, p2.type, typemap)
+    ):
+        return True
+    return False
+
+
 def same_type(
     type1: Type, type2: Type, typemap: TypeMap, allow_similar: bool = False
 ) -> bool:
@@ -230,6 +250,18 @@ def same_type(
                 sub2, ca.IdentifierType
             ):
                 return sorted(sub1.names) == sorted(sub2.names)
+        if isinstance(type1, ca.FuncDecl) and isinstance(type2, ca.FuncDecl):
+            params1 = type1.args.params if type1.args else []
+            params2 = type2.args.params if type2.args else []
+            if len(params1) != len(params2):
+                return False
+            for param1, param2 in zip(params1, params2):
+                if not _same_param_type(param1, param2, typemap):
+                    return False
+            type1 = type1.type
+            type2 = type2.type
+            allow_similar = False
+            continue
         return False
 
 
