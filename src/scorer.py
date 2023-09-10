@@ -88,7 +88,9 @@ class Scorer:
             # Probably regalloc difference, or signed vs unsigned
 
             # Compare each field in order
-            newfields, oldfields = new.split(","), old.split(",")
+            new_parts, old_parts = new.split(None, 1), old.split(None, 1)
+            newfields = new_parts[1].split(",") if len(new_parts) > 1 else []
+            oldfields = old_parts[1].split(",") if len(old_parts) > 1 else []
             if ignore_last_field:
                 newfields = newfields[:-1]
                 oldfields = oldfields[:-1]
@@ -97,8 +99,12 @@ class Scorer:
                 # we split that part out to make it a separate field
                 # however, we don't split if it has a proceeding %hi/%lo  e.g."%lo(.data)" or "%hi(.rodata + 0x10)"
                 re_paren = re.compile(r"(?<!%hi)(?<!%lo)\(")
-                oldfields = oldfields[:-1] + re_paren.split(oldfields[-1])
-                newfields = newfields[:-1] + re_paren.split(newfields[-1])
+                oldfields = oldfields[:-1] + (
+                    re_paren.split(oldfields[-1]) if len(oldfields) > 0 else []
+                )
+                newfields = newfields[:-1] + (
+                    re_paren.split(newfields[-1]) if len(newfields) > 0 else []
+                )
 
             for nf, of in zip(newfields, oldfields):
                 if nf != of:
