@@ -769,7 +769,7 @@ def write_to_file(cont: str, filename: str) -> None:
         f.write(cont)
 
 
-def main(arg_list) -> None:
+def main(arg_list: List[str]) -> None:
     parser = argparse.ArgumentParser(
         description="""Import a function for use with the permuter.
         Will create a new directory nonmatchings/<funcname>-<id>/."""
