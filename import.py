@@ -769,7 +769,7 @@ def write_to_file(cont: str, filename: str) -> None:
         f.write(cont)
 
 
-def main() -> None:
+def main(arg_list: List[str]) -> None:
     parser = argparse.ArgumentParser(
         description="""Import a function for use with the permuter.
         Will create a new directory nonmatchings/<funcname>-<id>/."""
@@ -822,7 +822,7 @@ def main() -> None:
         help="""Upload the function to decomp.me to share with other people,
         instead of importing.""",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(arg_list)
 
     root_dir = find_root_dir(
         args.c_file, SETTINGS_FILES + ["Makefile", "makefile", "build.ninja"]
@@ -940,4 +940,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    #Default: Call main with passed args. [1:] to leave off `./import.py` itself.
+    main(sys.argv[1:])
