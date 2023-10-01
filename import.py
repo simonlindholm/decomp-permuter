@@ -769,60 +769,7 @@ def write_to_file(cont: str, filename: str) -> None:
         f.write(cont)
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="""Import a function for use with the permuter.
-        Will create a new directory nonmatchings/<funcname>-<id>/."""
-    )
-    parser.add_argument(
-        "c_file",
-        help="""File containing the function.
-        Assumes that the file can be built with 'make' to create an .o file.""",
-    )
-    parser.add_argument(
-        "asm_file_or_func_name",
-        metavar="{asm_file|func_name}",
-        help="""File containing assembly for the function.
-        Must start with 'glabel <function_name>' and contain no other functions.
-        Alternatively, a function name can be given, which will be looked for in
-        all GLOBAL_ASM blocks in the C file.""",
-    )
-    parser.add_argument(
-        "make_flags",
-        nargs="*",
-        help="Arguments to pass to 'make'. PERMUTER=1 will always be passed.",
-    )
-    parser.add_argument(
-        "--keep", action="store_true", help="Keep the directory on error."
-    )
-    settings_files = ", ".join(SETTINGS_FILES[:-1]) + " or " + SETTINGS_FILES[-1]
-    parser.add_argument(
-        "--preserve-macros",
-        metavar="REGEX",
-        dest="preserve_macros_regex",
-        help=f"""Regex for which macros to preserve, or empty string for no macros.
-        By default, this is read from {settings_files} in a parent directory of
-        the imported file. Type information is also read from this file.""",
-    )
-    parser.add_argument(
-        "--no-prune",
-        dest="prune",
-        action="store_false",
-        help="""Don't minimize the source to keep only the imported function and
-        functions/struct/variables that it uses. Normally this behavior is
-        useful to make the permuter faster, but in cases where unrelated code
-        affects the generated assembly asm it can be necessary to turn off.
-        Note that regardless of this setting the permuter always removes all
-        other functions by replacing them with declarations.""",
-    )
-    parser.add_argument(
-        "--decompme",
-        dest="decompme",
-        action="store_true",
-        help="""Upload the function to decomp.me to share with other people,
-        instead of importing.""",
-    )
-    args = parser.parse_args()
+def main(args) -> None:
 
     root_dir = find_root_dir(
         args.c_file, SETTINGS_FILES + ["Makefile", "makefile", "build.ninja"]
@@ -940,4 +887,57 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(
+        description="""Import a function for use with the permuter.
+        Will create a new directory nonmatchings/<funcname>-<id>/."""
+    )
+    parser.add_argument(
+        "c_file",
+        help="""File containing the function.
+        Assumes that the file can be built with 'make' to create an .o file.""",
+    )
+    parser.add_argument(
+        "asm_file_or_func_name",
+        metavar="{asm_file|func_name}",
+        help="""File containing assembly for the function.
+        Must start with 'glabel <function_name>' and contain no other functions.
+        Alternatively, a function name can be given, which will be looked for in
+        all GLOBAL_ASM blocks in the C file.""",
+    )
+    parser.add_argument(
+        "make_flags",
+        nargs="*",
+        help="Arguments to pass to 'make'. PERMUTER=1 will always be passed.",
+    )
+    parser.add_argument(
+        "--keep", action="store_true", help="Keep the directory on error."
+    )
+    settings_files = ", ".join(SETTINGS_FILES[:-1]) + " or " + SETTINGS_FILES[-1]
+    parser.add_argument(
+        "--preserve-macros",
+        metavar="REGEX",
+        dest="preserve_macros_regex",
+        help=f"""Regex for which macros to preserve, or empty string for no macros.
+        By default, this is read from {settings_files} in a parent directory of
+        the imported file. Type information is also read from this file.""",
+    )
+    parser.add_argument(
+        "--no-prune",
+        dest="prune",
+        action="store_false",
+        help="""Don't minimize the source to keep only the imported function and
+        functions/struct/variables that it uses. Normally this behavior is
+        useful to make the permuter faster, but in cases where unrelated code
+        affects the generated assembly asm it can be necessary to turn off.
+        Note that regardless of this setting the permuter always removes all
+        other functions by replacing them with declarations.""",
+    )
+    parser.add_argument(
+        "--decompme",
+        dest="decompme",
+        action="store_true",
+        help="""Upload the function to decomp.me to share with other people,
+        instead of importing.""",
+    )
+    args = parser.parse_args()
+    main(args)
