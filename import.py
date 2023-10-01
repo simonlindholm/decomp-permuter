@@ -823,7 +823,6 @@ def main(arg_list) -> None:
         instead of importing.""",
     )
     args = parser.parse_args(arg_list)
-    print(args)
     root_dir = find_root_dir(
         args.c_file, SETTINGS_FILES + ["Makefile", "makefile", "build.ninja"]
     )
