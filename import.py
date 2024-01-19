@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import toml
+import fnmatch
 from typing import Callable, Dict, List, Match, Mapping, Optional, Pattern, Tuple
 import urllib.request
 import urllib.parse
@@ -651,9 +652,8 @@ def get_decompme_compiler_name(
 
     for path, compiler_name in compiler_mappings.items():
         assert isinstance(compiler_name, str)
-        # This is an annoying hack because decompme doesnt seem to know about macos
-        compiler_path = compiler_path.replace("macos", "linux")
-        if path == compiler_path:
+
+        if fnmatch.fnmatch(compiler_path, path):
             return compiler_name
 
     try:

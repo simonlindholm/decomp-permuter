@@ -39,7 +39,8 @@ class Line:
 @dataclass
 class ArchSettings:
     name: str
-    objdump: List[str]
+    executable: List[str]
+    arguments: List[str]
     re_comment: Pattern[str]
     re_reg: Pattern[str]
     re_sprel: Pattern[str]
@@ -132,16 +133,6 @@ ARM32_BRANCH_INSTRUCTIONS = {
     for suffix in ARM32_SUFFIXES
 }
 
-def get_prefix() -> str:
-    if shutil.which("mips-linux-gnu-ld"):
-        return "mips-linux-gnu"
-    elif shutil.which("mips64-linux-gnu-ld"):
-        return "mips64-linux-gnu"
-    elif shutil.which("mips64-elf-ld"):
-        return "mips64-elf"
-    else:
-        raise Exception("Unable to detect a suitable MIPS toolchain installed")
-
 MIPS_SETTINGS: ArchSettings = ArchSettings(
     name="mips",
     re_comment=re.compile(r"<.*?>"),
@@ -152,7 +143,8 @@ MIPS_SETTINGS: ArchSettings = ArchSettings(
     re_includes_sp=re.compile(r"\b(sp|s8)\b"),
     sp_ref_insns=["addiu"],
     reloc_str="R_MIPS_",
-    objdump=[f"{get_prefix()}-objdump", "-drz", "-m", "mips:4300"],
+    executable=["mips-linux-gnu-objdump", "mips64-linux-gnu-objdump", "mips64-elf-objdump"],
+    arguments=["-drz", "-m", "mips:4300"],
     branch_likely_instructions=MIPS_BRANCH_LIKELY_INSTRUCTIONS,
     branch_instructions=MIPS_BRANCH_INSTRUCTIONS,
 )
@@ -166,7 +158,8 @@ PPC_SETTINGS: ArchSettings = ArchSettings(
     re_reg=re.compile(r"\$?\b([rf](?:[02-9]|[1-9][0-9]+)|f1)\b"),  # leave out r1
     re_sprel=re.compile(r"(?<=,)(-?[0-9]+|-?0x[0-9a-f]+)\(r1\)"),
     reloc_str="R_PPC_",
-    objdump=["powerpc-eabi-objdump", "-dr", "-EB", "-mpowerpc", "-M", "broadway"],
+    executable=["powerpc-eabi-objdump"],
+    arguments=["-dr", "-EB", "-mpowerpc", "-M", "broadway"],
     branch_instructions=PPC_BRANCH_INSTRUCTIONS,
     branch_likely_instructions=PPC_BRANCH_LIKELY_INSTRUCTIONS,
 )
@@ -187,7 +180,8 @@ ARM32_SETTINGS: ArchSettings = ArchSettings(
     ),
     re_sprel=re.compile(r"sp, #-?(0x[0-9a-fA-F]+|[0-9]+)\b"),
     reloc_str="R_ARM_",
-    objdump=["arm-none-eabi-objdump", "-drz"],
+    executable=["arm-none-eabi-objdump"],
+    arguments=["-drz"],
     branch_instructions=ARM32_BRANCH_INSTRUCTIONS,
     branch_likely_instructions=set(),
 )
@@ -434,7 +428,13 @@ def simplify_objdump(
 def objdump(
     o_filename: str, arch: ArchSettings, *, stack_differences: bool = False
 ) -> List[Line]:
-    output = subprocess.check_output(arch.objdump + [o_filename])
+    executable = None
+    for cand in arch.executable:
+        if shutil.which(cand):
+            executable = cand
+            break
+
+    output = subprocess.check_output([executable] + arch.arguments + [o_filename])
     lines = output.decode("utf-8").splitlines()
     return simplify_objdump(lines, arch, stack_differences=stack_differences)
 
