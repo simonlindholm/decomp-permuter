@@ -651,6 +651,8 @@ def get_decompme_compiler_name(
 
     for path, compiler_name in compiler_mappings.items():
         assert isinstance(compiler_name, str)
+        # This is an annoying hack because decompme doesnt seem to know about macos
+        compiler_path = compiler_path.replace("macos", "linux")
         if path == compiler_path:
             return compiler_name
 

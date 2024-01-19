@@ -5,6 +5,7 @@ import re
 import string
 import subprocess
 import sys
+import shutil
 from typing import List, Match, Pattern, Set, Tuple, Optional
 
 
@@ -131,6 +132,15 @@ ARM32_BRANCH_INSTRUCTIONS = {
     for suffix in ARM32_SUFFIXES
 }
 
+def get_prefix() -> str:
+    if shutil.which("mips-linux-gnu-ld"):
+        return "mips-linux-gnu"
+    elif shutil.which("mips64-linux-gnu-ld"):
+        return "mips64-linux-gnu"
+    elif shutil.which("mips64-elf-ld"):
+        return "mips64-elf"
+    else:
+        raise Exception("Unable to detect a suitable MIPS toolchain installed")
 
 MIPS_SETTINGS: ArchSettings = ArchSettings(
     name="mips",
@@ -142,7 +152,7 @@ MIPS_SETTINGS: ArchSettings = ArchSettings(
     re_includes_sp=re.compile(r"\b(sp|s8)\b"),
     sp_ref_insns=["addiu"],
     reloc_str="R_MIPS_",
-    objdump=["mips-linux-gnu-objdump", "-drz", "-m", "mips:4300"],
+    objdump=[f"{get_prefix()}-objdump", "-drz", "-m", "mips:4300"],
     branch_likely_instructions=MIPS_BRANCH_LIKELY_INSTRUCTIONS,
     branch_instructions=MIPS_BRANCH_INSTRUCTIONS,
 )
