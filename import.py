@@ -904,7 +904,11 @@ def main(arg_list: List[str]) -> None:
                 json_data: Dict[str, str] = json.loads(resp)
                 if "slug" in json_data:
                     slug = json_data["slug"]
-                    print(f"https://decomp.me/scratch/{slug}")
+                    token = json_data.get("claim_token")
+                    if token:
+                        print(f"https://decomp.me/scratch/{slug}/claim?token={token}")
+                    else:
+                        print(f"https://decomp.me/scratch/{slug}")
                 else:
                     error = json_data.get("error", resp)
                     print(f"Server error: {error}")
