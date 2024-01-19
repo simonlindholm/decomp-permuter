@@ -674,7 +674,7 @@ def get_decompme_compiler_name(
     trail = "permuter_settings.toml, where ... is one of: " + ", ".join(available_ids)
     if compiler_mappings:
         print(
-            "Please add an entry:\n\n"
+            "Please add an entry: (wildcards allowed!)\n\n"
             f'"{compiler_path}" = "..."\n\n'
             f"to the [decompme.compilers] section of {trail}"
         )

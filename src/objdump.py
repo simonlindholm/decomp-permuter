@@ -433,6 +433,8 @@ def objdump(
         if shutil.which(cand):
             executable = cand
             break
+    if executable is None:
+        raise Exception(f"Could not find objdump executable for {arch.name}.")
 
     output = subprocess.check_output([executable] + arch.arguments + [o_filename])
     lines = output.decode("utf-8").splitlines()
