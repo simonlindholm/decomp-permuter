@@ -680,7 +680,7 @@ def get_decompme_compiler_name(
         )
     else:
         print(
-            "Please add a section:\n\n"
+            "Please add a section: (wildcards allowed!)\n\n"
             "[decompme.compilers]\n"
             f'"{compiler_path}" = "..."\n\n'
             f"to {trail}"

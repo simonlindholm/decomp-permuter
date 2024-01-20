@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from dataclasses import dataclass, field
+from functools import lru_cache
 import os
 import re
 import string
@@ -424,18 +425,21 @@ def simplify_objdump(
 
     return output_lines
 
-
-def objdump(
-    o_filename: str, arch: ArchSettings, *, stack_differences: bool = False
-) -> List[Line]:
+@lru_cache
+def find_executable(arch_executable, arch_name) -> str:
     executable = None
-    for cand in arch.executable:
+    for cand in arch_executable:
         if shutil.which(cand):
             executable = cand
             break
     if executable is None:
-        raise Exception(f"Could not find objdump executable for {arch.name}.")
+        raise Exception(f"Could not find any objdump executables: [{', '.join(arch_executable)}] for {arch_name}, make sure you have installed the toolchain for the target architecture.")
+    return executable
 
+def objdump(
+    o_filename: str, arch: ArchSettings, *, stack_differences: bool = False
+) -> List[Line]:
+    executable = find_executable(tuple(arch.executable), arch.name)
     output = subprocess.check_output([executable] + arch.arguments + [o_filename])
     lines = output.decode("utf-8").splitlines()
     return simplify_objdump(lines, arch, stack_differences=stack_differences)
