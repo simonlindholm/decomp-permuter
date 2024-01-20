@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import toml
+import fnmatch
 from typing import Callable, Dict, List, Match, Mapping, Optional, Pattern, Tuple
 import urllib.request
 import urllib.parse
@@ -651,7 +652,8 @@ def get_decompme_compiler_name(
 
     for path, compiler_name in compiler_mappings.items():
         assert isinstance(compiler_name, str)
-        if path == compiler_path:
+
+        if fnmatch.fnmatch(compiler_path, path):
             return compiler_name
 
     try:
@@ -672,13 +674,13 @@ def get_decompme_compiler_name(
     trail = "permuter_settings.toml, where ... is one of: " + ", ".join(available_ids)
     if compiler_mappings:
         print(
-            "Please add an entry:\n\n"
+            "Please add an entry: (wildcards allowed!)\n\n"
             f'"{compiler_path}" = "..."\n\n'
             f"to the [decompme.compilers] section of {trail}"
         )
     else:
         print(
-            "Please add a section:\n\n"
+            "Please add a section: (wildcards allowed!)\n\n"
             "[decompme.compilers]\n"
             f'"{compiler_path}" = "..."\n\n'
             f"to {trail}"
