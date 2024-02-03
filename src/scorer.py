@@ -1,4 +1,3 @@
-import difflib
 import hashlib
 import re
 from typing import Tuple, List, Optional
@@ -16,16 +15,19 @@ class Scorer:
     PENALTY_INSERTION = 100
     PENALTY_DELETION = 100
 
-    def __init__(self, target_o: str, *, stack_differences: bool, debug_mode: bool):
+    def __init__(
+        self,
+        target_o: str,
+        *,
+        stack_differences: bool,
+        algorithm: str,
+        debug_mode: bool,
+    ):
         self.target_o = target_o
         self.arch = get_arch(target_o)
         self.stack_differences = stack_differences
+        self.algorithm = algorithm
         self.debug_mode = debug_mode
-        _, self.target_seq = self._objdump(target_o)
-        self.differ: difflib.SequenceMatcher[str] = difflib.SequenceMatcher(
-            autojunk=False
-        )
-        self.differ.set_seq2([line.mnemonic for line in self.target_seq])
 
     def _objdump(self, o_file: str) -> Tuple[str, List[Line]]:
         lines = objdump(o_file, self.arch, stack_differences=self.stack_differences)
@@ -35,6 +37,7 @@ class Scorer:
         if not cand_o:
             return Scorer.PENALTY_INF, ""
 
+        _, target_seq = self._objdump(self.target_o)
         objdump_output, cand_seq = self._objdump(cand_o)
 
         num_stack_penalties = 0
@@ -125,13 +128,45 @@ class Scorer:
         def diff_delete(line: str) -> None:
             deletions.append(line)
 
-        self.differ.set_seq1([line.mnemonic for line in cand_seq])
-        result_diff = self.differ.get_opcodes()
+        if self.algorithm == "levenshtein":
+            import Levenshtein
+
+            # I wish I understood what this function actually did
+            # My loose understanding is thus:
+            #     The function converts a list of mnemonics into a single string,
+            #     but the "characters" of the string are not ascii values?
+            # Copied verbatim from:
+            # https://github.com/simonlindholm/asm-differ/commit/846a069840a20e099f4b7fb7f1d2b06ea5580b95
+            remapping = dict()
+
+            def remap(seq: List[str]) -> str:
+                seq = seq[:]
+                for i in range(len(seq)):
+                    val = remapping.get(seq[i])
+                    if val is None:
+                        val = chr(len(remapping))
+                        remapping[seq[i]] = val
+                    seq[i] = val
+                return "".join(seq)
+
+            result_diff = Levenshtein.opcodes(
+                remap([line.mnemonic for line in cand_seq]),
+                remap([line.mnemonic for line in target_seq]),
+            )
+        else:
+            import difflib
+
+            result_diff = difflib.SequenceMatcher(
+                isjunk=None,
+                a=[line.mnemonic for line in cand_seq],
+                b=[line.mnemonic for line in target_seq],
+                autojunk=False,
+            ).get_opcodes()
 
         for (tag, i1, i2, j1, j2) in result_diff:
             if tag == "equal":
                 for k in range(i2 - i1):
-                    old_line = self.target_seq[j1 + k]
+                    old_line = target_seq[j1 + k]
                     new_line = cand_seq[i1 + k]
                     diff_sameline(old_line, new_line)
             if tag == "replace" or tag == "delete":
@@ -139,14 +174,14 @@ class Scorer:
                     diff_insert(cand_seq[k].row)
             if tag == "replace" or tag == "insert":
                 for k in range(j1, j2):
-                    diff_delete(self.target_seq[k].row)
+                    diff_delete(target_seq[k].row)
 
         if self.debug_mode:
             # Print simple asm diff
             for (tag, i1, i2, j1, j2) in result_diff:
                 if tag == "equal":
                     for k in range(i2 - i1):
-                        old = self.target_seq[j1 + k].row
+                        old = target_seq[j1 + k].row
                         new = cand_seq[i1 + k].row
                         color = "\u001b[0m" if old == new else "\u001b[94m"
                         print(color, old[:40].ljust(40), "\t", new)
@@ -155,7 +190,7 @@ class Scorer:
                         print("\u001b[32;1m", "".ljust(40), "\t", cand_seq[k].row)
                 if tag == "replace" or tag == "insert":
                     for k in range(j1, j2):
-                        print("\u001b[91;1m", self.target_seq[k].row)
+                        print("\u001b[91;1m", target_seq[k].row)
 
             print("\u001b[0m")
 

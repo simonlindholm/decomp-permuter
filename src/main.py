@@ -68,6 +68,7 @@ class Options:
     show_timings: bool = False
     print_diffs: bool = False
     stack_differences: bool = False
+    algorithm: str = "difflib"
     abort_exceptions: bool = False
     better_only: bool = False
     best_only: bool = False
@@ -350,6 +351,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         scorer = Scorer(
             target_o,
             stack_differences=options.stack_differences,
+            algorithm=options.algorithm,
             debug_mode=options.debug_mode,
         )
         c_source = preprocess(base_c)
@@ -670,6 +672,13 @@ def main() -> None:
         help="Take stack differences into account when computing the score.",
     )
     parser.add_argument(
+        "--algorithm",
+        dest="algorithm",
+        default="difflib",
+        choices=["difflib", "levenshtein"],
+        help="Diff algorithm to use",
+    )
+    parser.add_argument(
         "--keep-prob",
         dest="keep_prob",
         metavar="PROB",
@@ -747,6 +756,7 @@ def main() -> None:
         best_only=args.best_only,
         quiet=args.quiet,
         stack_differences=args.stack_differences,
+        algorithm=args.algorithm,
         stop_on_zero=args.stop_on_zero,
         keep_prob=args.keep_prob,
         force_seed=args.force_seed,

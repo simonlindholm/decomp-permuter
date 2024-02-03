@@ -73,7 +73,10 @@ def _create_permuter(data: PermuterData) -> Permuter:
         with os.fdopen(fd, "wb") as f:
             f.write(data.target_o_bin)
         scorer = Scorer(
-            target_o=path, stack_differences=data.stack_differences, debug_mode=False
+            target_o=path,
+            stack_differences=data.stack_differences,
+            algorithm=data.algorithm,
+            debug_mode=False,
         )
     finally:
         os.unlink(path)
