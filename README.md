@@ -15,8 +15,9 @@ This tool supports MIPS (compiled by IDO, possibly GCC), PowerPC, and ARM32 asse
 `./permuter.py directory/` runs the permuter; see below for the meaning of the directory.
 Pass `-h` to see possible flags. `-j` is suggested (enables multi-threaded mode).
 
-You'll first need to install a couple of prerequisites: `python3 -m pip install pycparser pynacl toml` (also `dataclasses` if on Python 3.6 or below)
+You'll first need to install a couple of prerequisites: `python3 -m pip install pycparser pynacl toml Levenshtein` (also `dataclasses` if on Python 3.6 or below)
 `pynacl` is optional and only necessary for the "permuter@home" networking feature.
+`Levenshtein` is optional and only necessary for using the Levenshtein diff algorithm (difflib is used by default).
 
 The permuter expects as input one or more directory containing:
   - a .c file with a single function,

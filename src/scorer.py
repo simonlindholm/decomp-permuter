@@ -16,16 +16,24 @@ class Scorer:
     PENALTY_INSERTION = 100
     PENALTY_DELETION = 100
 
-    def __init__(self, target_o: str, *, stack_differences: bool, debug_mode: bool):
+    def __init__(
+        self,
+        target_o: str,
+        *,
+        stack_differences: bool,
+        algorithm: str,
+        debug_mode: bool,
+    ):
         self.target_o = target_o
         self.arch = get_arch(target_o)
         self.stack_differences = stack_differences
+        self.algorithm = algorithm
         self.debug_mode = debug_mode
         _, self.target_seq = self._objdump(target_o)
-        self.differ: difflib.SequenceMatcher[str] = difflib.SequenceMatcher(
+        self.difflib_differ: difflib.SequenceMatcher[str] = difflib.SequenceMatcher(
             autojunk=False
         )
-        self.differ.set_seq2([line.mnemonic for line in self.target_seq])
+        self.difflib_differ.set_seq2([line.mnemonic for line in self.target_seq])
 
     def _objdump(self, o_file: str) -> Tuple[str, List[Line]]:
         lines = objdump(o_file, self.arch, stack_differences=self.stack_differences)
@@ -125,8 +133,28 @@ class Scorer:
         def diff_delete(line: str) -> None:
             deletions.append(line)
 
-        self.differ.set_seq1([line.mnemonic for line in cand_seq])
-        result_diff = self.differ.get_opcodes()
+        if self.algorithm == "levenshtein":
+            import Levenshtein
+
+            remapping = dict()
+
+            def remap(seq: List[str]) -> str:
+                seq = seq[:]
+                for i in range(len(seq)):
+                    val = remapping.get(seq[i])
+                    if val is None:
+                        val = chr(len(remapping))
+                        remapping[seq[i]] = val
+                    seq[i] = val
+                return "".join(seq)
+
+            result_diff = Levenshtein.opcodes(
+                remap([line.mnemonic for line in cand_seq]),
+                remap([line.mnemonic for line in self.target_seq]),
+            )
+        else:
+            self.difflib_differ.set_seq1([line.mnemonic for line in cand_seq])
+            result_diff = self.difflib_differ.get_opcodes()
 
         for (tag, i1, i2, j1, j2) in result_diff:
             if tag == "equal":
