@@ -480,6 +480,13 @@ def ensure_arithmetic_type(expr: Expression, typemap: TypeMap) -> None:
     )
 
 
+def get_constant_int_value(const: ca.Constant) -> int:
+    try:
+        return int(const.value.strip("uU"), 0)
+    except ValueError:
+        raise RandomizationFailure
+
+
 def get_insertion_points(
     fn: ca.FuncDef, region: Region, *, allow_within_decl: bool = False
 ) -> List[Tuple[Block, int, Optional[ca.Node], Optional[ca.Node]]]:
@@ -1656,6 +1663,77 @@ def perm_mult_zero(
     replace_node(fn.body, zero, new_expr)
 
 
+def perm_factor_mult(
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
+) -> None:
+    """Convert a * b to a * x * (b / x)."""
+    cands: List[ca.BinaryOp] = [
+        e
+        for e in get_block_expressions(fn.body, region)
+        if isinstance(e, ca.BinaryOp)
+        and e.op == "*"
+        and (isinstance(e.left, ca.Constant) or isinstance(e.right, ca.Constant))
+    ]
+    ensure(cands)
+    expr = random.choice(cands)
+
+    if isinstance(expr.left, ca.Constant):
+        scale = expr.left
+        expr0 = expr.right
+    else:
+        assert isinstance(expr.right, ca.Constant)
+        scale = expr.right
+        expr0 = expr.left
+
+    val = get_constant_int_value(scale)
+    ensure(abs(val) >= 2)
+    factor_set = set()
+    for i in range(2, min(abs(val), 21)):
+        if val % i == 0:
+            factor_set.add(i)
+            factor_set.add(val // i)
+    factors = sorted(factor_set)
+    if val < 0:
+        factors += [-f for f in factors]
+    ensure(factors)
+    val1 = random.choice(factors)
+    val2 = val // val1
+
+    expr1 = ca.BinaryOp("*", expr0, ca.Constant("int", str(val1)))
+    expr2 = ca.BinaryOp("*", expr1, ca.Constant("int", str(val2)))
+    for e in (expr1, expr2):
+        if random.randrange(2):
+            e.left, e.right = e.right, e.left
+    replace_node(fn.body, expr, expr2)
+
+
+def perm_factor_shift(
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
+) -> None:
+    """Convert a >> b to a >> x >> (b - x), or similar with <<."""
+    cands: List[ca.BinaryOp] = [
+        e
+        for e in get_block_expressions(fn.body, region)
+        if isinstance(e, ca.BinaryOp)
+        and e.op in ("<<", ">>")
+        and isinstance(e.right, ca.Constant)
+    ]
+    ensure(cands)
+    expr = random.choice(cands)
+    assert isinstance(expr.right, ca.Constant)
+    lhs = expr.left
+    rhs = get_constant_int_value(expr.right)
+
+    ensure(rhs >= 2)
+    val1 = random.randint(1, rhs - 1)
+    val2 = rhs - val1
+
+    expr0 = lhs
+    expr1 = ca.BinaryOp(expr.op, expr0, ca.Constant("int", str(val1)))
+    expr2 = ca.BinaryOp(expr.op, expr1, ca.Constant("int", str(val2)))
+    replace_node(fn.body, expr, expr2)
+
+
 def perm_float_literal(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> None:
@@ -2325,6 +2403,8 @@ RANDOMIZATION_PASSES: List[RandomizationPass] = [
     perm_empty_stmt,
     perm_condition,
     perm_mult_zero,
+    perm_factor_mult,
+    perm_factor_shift,
     perm_dummy_comma_expr,
     perm_add_self_assignment,
     perm_commutative,

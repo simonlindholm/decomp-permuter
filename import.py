@@ -946,5 +946,4 @@ def main(arg_list: List[str]) -> None:
 
 
 if __name__ == "__main__":
-    #Default: Call main with passed args. [1:] to leave off `./import.py` itself.
     main(sys.argv[1:])
