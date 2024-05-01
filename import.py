@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import toml
+import fnmatch
 from typing import Callable, Dict, List, Match, Mapping, Optional, Pattern, Tuple
 import urllib.request
 import urllib.parse
@@ -651,7 +652,8 @@ def get_decompme_compiler_name(
 
     for path, compiler_name in compiler_mappings.items():
         assert isinstance(compiler_name, str)
-        if path == compiler_path:
+
+        if fnmatch.fnmatch(compiler_path, path):
             return compiler_name
 
     try:
@@ -672,13 +674,13 @@ def get_decompme_compiler_name(
     trail = "permuter_settings.toml, where ... is one of: " + ", ".join(available_ids)
     if compiler_mappings:
         print(
-            "Please add an entry:\n\n"
+            "Please add an entry: (wildcards allowed!)\n\n"
             f'"{compiler_path}" = "..."\n\n'
             f"to the [decompme.compilers] section of {trail}"
         )
     else:
         print(
-            "Please add a section:\n\n"
+            "Please add a section: (wildcards allowed!)\n\n"
             "[decompme.compilers]\n"
             f'"{compiler_path}" = "..."\n\n'
             f"to {trail}"
@@ -769,7 +771,7 @@ def write_to_file(cont: str, filename: str) -> None:
         f.write(cont)
 
 
-def main() -> None:
+def main(arg_list: List[str]) -> None:
     parser = argparse.ArgumentParser(
         description="""Import a function for use with the permuter.
         Will create a new directory nonmatchings/<funcname>-<id>/."""
@@ -822,7 +824,7 @@ def main() -> None:
         help="""Upload the function to decomp.me to share with other people,
         instead of importing.""",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(arg_list)
 
     root_dir = find_root_dir(
         args.c_file, SETTINGS_FILES + ["Makefile", "makefile", "build.ninja"]
@@ -904,7 +906,11 @@ def main() -> None:
                 json_data: Dict[str, str] = json.loads(resp)
                 if "slug" in json_data:
                     slug = json_data["slug"]
-                    print(f"https://decomp.me/scratch/{slug}")
+                    token = json_data.get("claim_token")
+                    if token:
+                        print(f"https://decomp.me/scratch/{slug}/claim?token={token}")
+                    else:
+                        print(f"https://decomp.me/scratch/{slug}")
                 else:
                     error = json_data.get("error", resp)
                     print(f"Server error: {error}")
@@ -940,4 +946,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1:])

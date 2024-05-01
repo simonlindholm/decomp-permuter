@@ -53,6 +53,7 @@ class PermuterData:
     keep_prob: float
     need_profiler: bool
     stack_differences: bool
+    algorithm: str
     randomization_weights: Mapping[str, float]
     compile_script: str
     source: str
@@ -70,6 +71,7 @@ def permuter_data_from_json(
         keep_prob=json_prop(obj, "keep_prob", float),
         need_profiler=json_prop(obj, "need_profiler", bool),
         stack_differences=json_prop(obj, "stack_differences", bool),
+        algorithm=json_prop(obj, "algorithm", str),
         compile_script=json_prop(obj, "compile_script", str),
         randomization_weights=json_dict(
             json_prop(obj, "randomization_weights", dict, {}), float
@@ -88,6 +90,7 @@ def permuter_data_to_json(perm: PermuterData) -> dict:
         "keep_prob": perm.keep_prob,
         "need_profiler": perm.need_profiler,
         "stack_differences": perm.stack_differences,
+        "algorithm": perm.algorithm,
         "randomization_weights": perm.randomization_weights,
         "compile_script": perm.compile_script,
     }
