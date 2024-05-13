@@ -710,7 +710,7 @@ def write_compile_command(compiler: List[str], cwd: str, out_file: str) -> None:
     os.chmod(out_file, 0o755)
 
 
-def write_asm(asm_prelude_file: str, asm_cont: str, out_file: str) -> None:
+def write_asm(asm_prelude_file: Optional[str], asm_cont: str, out_file: str) -> None:
     asm_prelude_file = asm_prelude_file or DEFAULT_ASM_PRELUDE_FILE
     with open(asm_prelude_file, "r") as p:
         asm_prelude = p.read()
