@@ -104,13 +104,15 @@ class PatchedCGenerator(c_generator.CGenerator):
         return super().visit_If(n2)  # type: ignore
 
 
-def extract_fn(ast: ca.FileAST, fn_name: str) -> Tuple[ca.FuncDef, int]:
+def extract_fn(
+    ast: ca.FileAST, fn_name: str, strip_other_fn_defs: bool
+) -> Tuple[ca.FuncDef, int]:
     ret = []
     for i, node in enumerate(ast.ext):
         if isinstance(node, ca.FuncDef):
             if node.decl.name == fn_name:
                 ret.append((node, i))
-            elif "inline" not in node.decl.funcspec:
+            elif strip_other_fn_defs and "inline" not in node.decl.funcspec:
                 node = node.decl
                 ast.ext[i] = node
         if isinstance(node, ca.Decl) and isinstance(node.type, ca.FuncDecl):
