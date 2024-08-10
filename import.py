@@ -843,7 +843,6 @@ def main(arg_list: List[str]) -> None:
                 settings = toml.load(f)
             break
 
-    compiler_type = settings.get("compiler_type", "base")
     build_system = settings.get("build_system", "make")
     compiler = settings.get("compiler_command")
     assembler = settings.get("assembler_command")
@@ -861,6 +860,9 @@ def main(arg_list: List[str]) -> None:
             "Defaulting to base compiler randomization settings. For best permutation results,\n"
             "please set 'compiler_type' in this project's permuter_settings.toml."
         )
+
+    if asm_prelude_file is not None:
+        assert isinstance(asm_prelude_file, str)
 
     func_name, asm_cont = parse_asm(root_dir, args.c_file, args.asm_file_or_func_name)
     print(f"Function name: {func_name}")
