@@ -245,7 +245,12 @@ def fixup_build_command(
             for i, arg in enumerate(res)
             if any(
                 cmd in arg
-                for cmd in ["asm_processor", "asm-processor", "preprocess.py"]
+                for cmd in [
+                    "asm_processor",
+                    "asm-processor",
+                    "build.py",
+                    "preprocess.py",
+                ]
             )
         )
         ind1 = res.index("--", ind0 + 1)
