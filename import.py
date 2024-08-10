@@ -843,15 +843,26 @@ def main(arg_list: List[str]) -> None:
                 settings = toml.load(f)
             break
 
-    build_system = settings.get("build_system", "make")
-    compiler = settings.get("compiler_command")
-    assembler = settings.get("assembler_command")
-    asm_prelude_file = settings.get("asm_prelude_file")
+    def get_setting(key: str) -> Optional[str]:
+        value = settings.get(key)
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            print(
+                f"Value of {key} in settings.toml must be a string, but found: {value}"
+            )
+            sys.exit(1)
+        return value
+
+    build_system_raw = get_setting("build_system")
+    build_system = build_system_raw or "make"
+    compiler_str = get_setting("compiler_command") or ""
+    assembler_str = get_setting("assembler_command") or ""
+    asm_prelude_file = get_setting("asm_prelude_file")
     make_flags = args.make_flags
 
-    compiler_type = settings.get("compiler_type")
+    compiler_type = get_setting("compiler_type")
     if compiler_type is not None:
-        assert isinstance(compiler_type, str)
         print(f"Compiler type: {compiler_type}")
     else:
         compiler_type = "base"
@@ -861,21 +872,16 @@ def main(arg_list: List[str]) -> None:
             "please set 'compiler_type' in this project's permuter_settings.toml."
         )
 
-    if asm_prelude_file is not None:
-        assert isinstance(asm_prelude_file, str)
-
     func_name, asm_cont = parse_asm(root_dir, args.c_file, args.asm_file_or_func_name)
     print(f"Function name: {func_name}")
 
-    if compiler or assembler:
-        assert isinstance(compiler, str)
-        assert isinstance(assembler, str)
-        assert settings.get("build_system") is None
-
-        compiler = shlex.split(compiler)
-        assembler = shlex.split(assembler)
+    if compiler_str or assembler_str:
+        assert (
+            build_system_raw is None
+        ), "Must not specify both build system and compiler/assembler"
+        compiler = shlex.split(compiler_str)
+        assembler = shlex.split(assembler_str)
     else:
-        assert isinstance(build_system, str)
         compiler, assembler = find_build_command_line(
             root_dir, args.c_file, make_flags, build_system
         )
