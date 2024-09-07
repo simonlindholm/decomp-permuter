@@ -144,7 +144,11 @@ MIPS_SETTINGS: ArchSettings = ArchSettings(
     re_includes_sp=re.compile(r"\b(sp|s8)\b"),
     sp_ref_insns=["addiu"],
     reloc_str="R_MIPS_",
-    executable=["mips-linux-gnu-objdump", "mips64-linux-gnu-objdump", "mips64-elf-objdump"],
+    executable=[
+        "mips-linux-gnu-objdump",
+        "mips64-linux-gnu-objdump",
+        "mips64-elf-objdump",
+    ],
     arguments=["-drz", "-m", "mips:4300"],
     branch_likely_instructions=MIPS_BRANCH_LIKELY_INSTRUCTIONS,
     branch_instructions=MIPS_BRANCH_INSTRUCTIONS,
@@ -425,16 +429,22 @@ def simplify_objdump(
 
     return output_lines
 
+
 @lru_cache
-def find_executable(arch_executable, arch_name) -> str:
+def find_executable(arch_executable: Tuple[str, ...], arch_name: str) -> str:
     executable = None
     for cand in arch_executable:
         if shutil.which(cand):
             executable = cand
             break
     if executable is None:
-        raise Exception(f"Could not find any objdump executables: [{', '.join(arch_executable)}] for {arch_name}, make sure you have installed the toolchain for the target architecture.")
+        raise Exception(
+            "Could not find any objdump executables: "
+            f"[{', '.join(arch_executable)}] for {arch_name}. "
+            "Make sure you have installed the toolchain for the target architecture."
+        )
     return executable
+
 
 def objdump(
     o_filename: str, arch: ArchSettings, *, stack_differences: bool = False

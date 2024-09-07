@@ -43,7 +43,7 @@ cpp_cmd = homebrew_gcc_cpp() if is_macos else "cpp"
 make_cmd = "gmake" if is_macos else "make"
 
 dir_path = os.path.dirname(os.path.realpath(__file__))
-prelude_file = os.path.join(dir_path, "prelude.inc")
+DEFAULT_ASM_PRELUDE_FILE = os.path.join(dir_path, "prelude.inc")
 
 DEFAULT_AS_CMDLINE: List[str] = ["mips-linux-gnu-as", "-march=vr4300", "-mabi=32"]
 
@@ -245,7 +245,12 @@ def fixup_build_command(
             for i, arg in enumerate(res)
             if any(
                 cmd in arg
-                for cmd in ["asm_processor", "asm-processor", "preprocess.py"]
+                for cmd in [
+                    "asm_processor",
+                    "asm-processor",
+                    "build.py",
+                    "preprocess.py",
+                ]
             )
         )
         ind1 = res.index("--", ind0 + 1)
@@ -710,8 +715,9 @@ def write_compile_command(compiler: List[str], cwd: str, out_file: str) -> None:
     os.chmod(out_file, 0o755)
 
 
-def write_asm(asm_cont: str, out_file: str) -> None:
-    with open(prelude_file, "r") as p:
+def write_asm(asm_prelude_file: Optional[str], asm_cont: str, out_file: str) -> None:
+    asm_prelude_file = asm_prelude_file or DEFAULT_ASM_PRELUDE_FILE
+    with open(asm_prelude_file, "r") as p:
         asm_prelude = p.read()
     with open(out_file, "w", encoding="utf-8") as f:
         f.write(asm_prelude)
@@ -842,15 +848,26 @@ def main(arg_list: List[str]) -> None:
                 settings = toml.load(f)
             break
 
-    compiler_type = settings.get("compiler_type", "base")
-    build_system = settings.get("build_system", "make")
-    compiler = settings.get("compiler_command")
-    assembler = settings.get("assembler_command")
+    def get_setting(key: str) -> Optional[str]:
+        value = settings.get(key)
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            print(
+                f"Value of {key} in settings.toml must be a string, but found: {value}"
+            )
+            sys.exit(1)
+        return value
+
+    build_system_raw = get_setting("build_system")
+    build_system = build_system_raw or "make"
+    compiler_str = get_setting("compiler_command") or ""
+    assembler_str = get_setting("assembler_command") or ""
+    asm_prelude_file = get_setting("asm_prelude_file")
     make_flags = args.make_flags
 
-    compiler_type = settings.get("compiler_type")
+    compiler_type = get_setting("compiler_type")
     if compiler_type is not None:
-        assert isinstance(compiler_type, str)
         print(f"Compiler type: {compiler_type}")
     else:
         compiler_type = "base"
@@ -863,15 +880,13 @@ def main(arg_list: List[str]) -> None:
     func_name, asm_cont = parse_asm(root_dir, args.c_file, args.asm_file_or_func_name)
     print(f"Function name: {func_name}")
 
-    if compiler or assembler:
-        assert isinstance(compiler, str)
-        assert isinstance(assembler, str)
-        assert settings.get("build_system") is None
-
-        compiler = shlex.split(compiler)
-        assembler = shlex.split(assembler)
+    if compiler_str or assembler_str:
+        assert (
+            build_system_raw is None
+        ), "Must not specify both build system and compiler/assembler"
+        compiler = shlex.split(compiler_str)
+        assembler = shlex.split(assembler_str)
     else:
-        assert isinstance(build_system, str)
         compiler, assembler = find_build_command_line(
             root_dir, args.c_file, make_flags, build_system
         )
@@ -932,7 +947,7 @@ def main(arg_list: List[str]) -> None:
         write_to_file(source, base_c_file)
         create_write_settings_toml(func_name, compiler_type, settings_file)
         write_compile_command(compiler, root_dir, compile_script)
-        write_asm(asm_cont, target_s_file)
+        write_asm(asm_prelude_file, asm_cont, target_s_file)
         compile_asm(assembler, root_dir, target_s_file, target_o_file)
         if compilable_source is not None:
             compile_base(compile_script, compilable_source, base_c_file, base_o_file)

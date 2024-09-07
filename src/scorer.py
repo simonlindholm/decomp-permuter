@@ -1,7 +1,7 @@
 import difflib
 import hashlib
 import re
-from typing import Tuple, List, Optional
+from typing import Dict, List, Optional, Sequence, Tuple
 from collections import Counter
 
 from .objdump import ArchSettings, Line, objdump, get_arch
@@ -133,10 +133,11 @@ class Scorer:
         def diff_delete(line: str) -> None:
             deletions.append(line)
 
+        result_diff: Sequence[tuple[str, int, int, int, int]]
         if self.algorithm == "levenshtein":
             import Levenshtein
 
-            remapping = dict()
+            remapping: Dict[str, str] = {}
 
             def remap(seq: List[str]) -> str:
                 seq = seq[:]
