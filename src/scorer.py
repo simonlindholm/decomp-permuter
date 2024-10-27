@@ -133,7 +133,7 @@ class Scorer:
         def diff_delete(line: str) -> None:
             deletions.append(line)
 
-        result_diff: Sequence[tuple[str, int, int, int, int]]
+        result_diff: Sequence[Tuple[str, int, int, int, int]]
         if self.algorithm == "levenshtein":
             import Levenshtein
 
