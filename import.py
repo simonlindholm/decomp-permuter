@@ -76,9 +76,10 @@ def prune_asm(asm_cont: str) -> Tuple[str, str]:
     cur_section = ".text"
     for line in asm_cont.splitlines(keepends=True):
         changed_section = False
+        line_parts = line.split()
 
-        if line.strip().startswith(".section"):
-            cur_section = line.split()[1]
+        if len(line_parts) >= 2 and line_parts[0] == ".section":
+            cur_section = line_parts[1]
             changed_section = True
         elif line.strip() in [
             ".text",
@@ -99,11 +100,10 @@ def prune_asm(asm_cont: str) -> Tuple[str, str]:
         if (
             func_name is None
             and cur_section == ".text"
-            and (
-                line.strip().startswith("glabel ") or line.strip().startswith(".globl ")
-            )
+            and len(line_parts) >= 2
+            and line_parts[0] in ("glabel", ".globl")
         ):
-            func_name = line.split()[1]
+            func_name = line_parts[1]
         asm_lines.append(line)
 
     # ".late_rodata" is non-standard asm, so we add it to the end of the file as ".rodata"
