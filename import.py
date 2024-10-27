@@ -891,8 +891,8 @@ def main(arg_list: List[str]) -> None:
             root_dir, args.c_file, make_flags, build_system
         )
 
-    print(f"Compiler: {formatcmd(compiler)} {{input}} -o {{output}}")
-    print(f"Assembler: {formatcmd(assembler)} {{input}} -o {{output}}")
+    print(f"Compiler: {finalize_compile_command(compiler)}")
+    print(f'Assembler: {formatcmd(assembler)} "$INPUT" -o "$OUTPUT"')
 
     preserve_macros = build_preserve_macros(
         root_dir, args.preserve_macros_regex, settings
