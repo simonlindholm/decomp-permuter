@@ -313,9 +313,12 @@ def insert_decl(
     fn.body.block_items[index:index] = [decl]
 
 
+def insert_statements(block: Block, index: int, stmts: List[Statement]) -> None:
+    get_block_stmts(block, True)[index:index] = stmts
+
+
 def insert_statement(block: Block, index: int, stmt: Statement) -> None:
-    stmts = get_block_stmts(block, True)
-    stmts[index:index] = [stmt]
+    insert_statements(block, index, [stmt])
 
 
 def brace_nested_blocks(stmt: Statement) -> None:
