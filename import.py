@@ -864,6 +864,8 @@ def main(arg_list: List[str]) -> None:
     compiler_str = get_setting("compiler_command") or ""
     assembler_str = get_setting("assembler_command") or ""
     asm_prelude_file = get_setting("asm_prelude_file")
+    if asm_prelude_file is not None:
+        asm_prelude_file = os.path.join(root_dir, asm_prelude_file)
     make_flags = args.make_flags
 
     compiler_type = get_setting("compiler_type")
