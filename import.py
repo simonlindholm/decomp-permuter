@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # usage: ./import.py path/to/file.c path/to/asm.s [make flags]
 import argparse
+from base64 import b64encode
 from collections import defaultdict
 import json
 import os
@@ -55,7 +56,7 @@ STUB_FN_MACROS: List[str] = [
     "-D_Static_assert(x, y)=",
     "-D__attribute__(x)=",
     "-DGLOBAL_ASM(...)=",
-    "-D__asm__(...)=",
+    "-D__asm__(...)=_permuter_ignore_line __asm__(__VA_ARGS__)",
 ]
 
 SETTINGS_FILES = [
@@ -438,6 +439,10 @@ def preprocess_c_with_macros(
     for line in source.splitlines():
         is_macro = line.startswith("_permuter define ")
         params = []
+        ignore = False
+        if "_permuter_ignore_line " in line:
+            line = line.replace("_permuter_ignore_line ", "")
+            ignore = True
         if is_macro:
             ind1 = line.find("(")
             ind2 = line.find(" ", len("_permuter define "))
@@ -451,7 +456,11 @@ def preprocess_c_with_macros(
             if after.startswith("("):
                 params = [w.strip() for w in after[1 : after.find(")")].split(",")]
         else:
-            lines.append(line)
+            if ignore:
+                encoded = b64encode(line.encode("utf-8")).decode("ascii")
+                lines.append(f"#pragma _permuter b64literal {encoded}")
+            else:
+                lines.append(line)
             name = ""
         for m in reg_token.finditer(line):
             name2 = m.group(0)
