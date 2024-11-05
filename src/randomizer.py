@@ -2459,8 +2459,10 @@ class Randomizer:
             for method in RANDOMIZATION_PASSES
         ]
 
-    def randomize(self, ast: ca.FileAST, fn_name: str) -> None:
-        fn = ast_util.extract_fn(ast, fn_name)[0]
+    def randomize(
+        self, ast: ca.FileAST, fn_name: str, strip_other_fn_defs: bool
+    ) -> None:
+        fn = ast_util.extract_fn(ast, fn_name, strip_other_fn_defs)[0]
         indices = ast_util.compute_node_indices(fn)
         region = get_randomization_region(fn, indices, self.random)
         while True:

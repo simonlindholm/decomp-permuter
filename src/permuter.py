@@ -91,6 +91,7 @@ class Permuter:
         better_only: bool,
         score_threshold: Optional[int],
         debug_mode: bool,
+        strip_other_fn_defs: bool,
     ) -> None:
         self.dir = dir
         self.compiler = compiler
@@ -127,6 +128,7 @@ class Permuter:
         self._better_only = better_only
         self._score_threshold = score_threshold
         self._debug_mode = debug_mode
+        self._strip_other_fn_defs = strip_other_fn_defs
         (
             self.base_score,
             self.base_hash,
@@ -144,6 +146,7 @@ class Permuter:
             base_source,
             eval_state,
             self.fn_name,
+            self._strip_other_fn_defs,
             self.randomization_weights,
             rng_seed=0,
         )
@@ -189,6 +192,7 @@ class Permuter:
                 cand_c,
                 eval_state,
                 self.fn_name,
+                self._strip_other_fn_defs,
                 self.randomization_weights,
                 rng_seed=rng_seed,
             )
