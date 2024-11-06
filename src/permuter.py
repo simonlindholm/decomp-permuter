@@ -91,6 +91,7 @@ class Permuter:
         better_only: bool,
         score_threshold: Optional[int],
         debug_mode: bool,
+        speed: int,
     ) -> None:
         self.dir = dir
         self.compiler = compiler
@@ -137,6 +138,7 @@ class Permuter:
         self._cur_cand: Optional[Candidate] = None
         self._last_score: Optional[int] = None
         self._score_for_source: Dict[bytes, int] = {}
+        self.speed = speed
 
     def _create_and_score_base(self) -> Tuple[int, str, str]:
         base_source, eval_state = perm_evaluate_one(self._permutations)
