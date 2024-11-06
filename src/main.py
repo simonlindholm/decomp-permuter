@@ -764,8 +764,8 @@ def main() -> None:
         dest="speed",
         type=int,
         help="Speed% to run at to reduce resources. Default 100",
-        choices=range(0,101),
-        metavar="[0-100]",
+        choices=range(1,101),
+        metavar="[1-100]",
         default=100,
     )
 
