@@ -839,6 +839,12 @@ def main(arg_list: List[str]) -> None:
         help="""Upload the function to decomp.me to share with other people,
         instead of importing.""",
     )
+    parser.add_argument(
+        "--settings",
+        dest="settings_file",
+        metavar="SETTINGS_FILE",
+        help="""Path to settings file.""",
+    )
     args = parser.parse_args(arg_list)
 
     root_dir = find_root_dir(
@@ -850,12 +856,20 @@ def main(arg_list: List[str]) -> None:
         sys.exit(1)
 
     settings: Mapping[str, object] = {}
-    for filename in SETTINGS_FILES:
-        filename = os.path.join(root_dir, filename)
-        if os.path.exists(filename):
-            with open(filename) as f:
+    if args.settings_file:
+        if os.path.exists(args.settings_file):
+            with open(args.settings_file) as f:
                 settings = toml.load(f)
-            break
+        else:
+            print(f"Can't find settings file!", file=sys.stderr)
+            sys.exit(1)
+    else:
+        for filename in SETTINGS_FILES:
+            filename = os.path.join(root_dir, filename)
+            if os.path.exists(filename):
+                with open(filename) as f:
+                    settings = toml.load(f)
+                break
 
     def get_setting(key: str) -> Optional[str]:
         value = settings.get(key)
