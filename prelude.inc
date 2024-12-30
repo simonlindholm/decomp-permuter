@@ -16,6 +16,9 @@
     \label:
 .endm
 
+.macro endlabel label
+.endm
+
 # Float register aliases (o32 ABI)
 
 .set $fv0,          $f0
