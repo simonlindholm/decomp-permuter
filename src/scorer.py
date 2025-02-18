@@ -86,15 +86,18 @@ class Scorer:
 
             return False
 
-        def diff_sameline(old_line: Line, new_line: Line) -> None:
+        def diff_sameline(old_line: Line, new_line: Line) -> bool:
             nonlocal num_stack_penalties
             nonlocal num_regalloc_penalties
+
+            old_num_stack_penalties = num_stack_penalties
+            old_num_regalloc_penalties = num_regalloc_penalties
 
             old = old_line.row
             new = new_line.row
 
             if old == new:
-                return
+                return False
 
             ignore_last_field = False
             if self.stack_differences:
@@ -139,6 +142,11 @@ class Scorer:
             # Penalize any extra fields
             num_regalloc_penalties += abs(len(newfields) - len(oldfields))
 
+            return (
+                old_num_regalloc_penalties != num_regalloc_penalties
+                or old_num_stack_penalties != num_stack_penalties
+            )
+
         def diff_insert(line: str) -> None:
             # Reordering or totally different codegen.
             # Defer this until later when we can tell.
@@ -171,12 +179,14 @@ class Scorer:
             self.difflib_differ.set_seq1([line.mnemonic for line in cand_seq])
             result_diff = self.difflib_differ.get_opcodes()
 
+        ignore_diff: List[Line] = []
         for tag, i1, i2, j1, j2 in result_diff:
             if tag == "equal":
                 for k in range(i2 - i1):
                     old_line = self.target_seq[j1 + k]
                     new_line = cand_seq[i1 + k]
-                    diff_sameline(old_line, new_line)
+                    if not diff_sameline(old_line, new_line):
+                        ignore_diff.append(new_line)
             if tag == "replace" or tag == "delete":
                 for k in range(i1, i2):
                     diff_insert(cand_seq[k].row)
@@ -214,7 +224,7 @@ class Scorer:
                         new_line = cand_seq[i1 + k]
                         old = self.target_seq[j1 + k].row
                         new = new_line.row
-                        same = old == new
+                        same = old == new or new_line in ignore_diff
                         color = "\u001b[0m" if same else "\u001b[94m"
                         old_str = format_line(old, mnem_max_len, 40).ljust(40)
                         new_str = format_line(new, mnem_max_len)
