@@ -1,7 +1,7 @@
 from multiprocessing import Queue
 import re
 import threading
-from typing import Optional, Tuple
+from typing import Optional, List, Tuple, Dict, Any, cast
 import zlib
 
 from ..candidate import CandidateResult
@@ -26,7 +26,7 @@ from .core import (
 )
 
 
-def _profiler_from_json(obj: dict) -> Profiler:
+def _profiler_from_json(obj: Dict[Any, Any]) -> Profiler:
     ret = Profiler()
     for key in obj:
         assert isinstance(key, str), "json properties are strings"
@@ -36,13 +36,14 @@ def _profiler_from_json(obj: dict) -> Profiler:
     return ret
 
 
-def _result_from_json(obj: dict, source: Optional[str]) -> EvalResult:
+def _result_from_json(obj: Dict[Any, Any], source: Optional[str]) -> EvalResult:
     if "error" in obj:
         return EvalError(exc_str=json_prop(obj, "error", str), seed=None)
 
     profiler: Optional[Profiler] = None
     if "profiler" in obj:
-        profiler = _profiler_from_json(json_prop(obj, "profiler", dict))
+        profiler_prop = cast(Dict[Any, Any], json_prop(obj, "profiler", dict))
+        profiler = _profiler_from_json(profiler_prop)
     return CandidateResult(
         score=json_prop(obj, "score", int),
         hash=json_prop(obj, "hash", str) if "hash" in obj else None,
@@ -56,7 +57,7 @@ def _make_script_portable(source: str) -> str:
     import.py introduces. The resulting script must be run in an environment
     that has the right binaries in its $PATH, and with a current working
     directory similar to where import.py found its target's make root."""
-    lines = []
+    lines: List[str] = []
     for line in source.split("\n"):
         if re.match("cd '?/", line):
             # Skip cd's to absolute directory paths. Note that shlex quotes
@@ -161,7 +162,7 @@ class Connection:
 
         if msg_type == "result":
             source: Optional[str] = None
-            if msg.get("has_source") == True:
+            if msg.get("has_source") is True:
                 # Source is sent separately, compressed, since it can be
                 # large (hundreds of kilobytes is not uncommon).
                 compressed_source = self._port.receive()
@@ -212,7 +213,7 @@ class Connection:
                         # enough in practice.)
                         finished = True
                     else:
-                        work = {
+                        work: Dict[str, Any] = {
                             "type": "work",
                             "work": {
                                 "seed": task[1],

@@ -7,7 +7,7 @@ import sys
 import threading
 import time
 import traceback
-from typing import BinaryIO, Dict, Optional, Set, Tuple, Union, TYPE_CHECKING
+from typing import BinaryIO, Dict, Optional, Set, Tuple, Union, Any, cast, TYPE_CHECKING
 import zlib
 
 if TYPE_CHECKING:
@@ -97,7 +97,7 @@ class PermInitSuccess:
 class WorkDone:
     perm_id: str
     id: int
-    obj: dict
+    obj: Dict[Any, Any]
     time_us: int
     compressed_source: Optional[bytes]
 
@@ -165,7 +165,7 @@ class OutputWork:
     handle: int
     time_start: float
     time_us: int
-    obj: dict
+    obj: Dict[Any, Any]
     compressed_source: Optional[bytes]
 
 
@@ -301,7 +301,7 @@ class NetThread:
             client_id = json_prop(msg, "client_id", str)
             client_name = json_prop(msg, "client_name", str)
             client = Client(client_id, client_name)
-            data = json_prop(msg, "data", dict)
+            data = cast(Dict[Any, Any], json_prop(msg, "data", dict))
             compressed_source = self._port.receive()
             compressed_target_o_bin = self._port.receive()
 
@@ -392,7 +392,7 @@ class NetThread:
         elif isinstance(item, OutputNeedMoreWork):
             self._port.send_json({"type": "need_work"})
 
-        elif isinstance(item, OutputWork):
+        elif isinstance(item, OutputWork):  # pyright: ignore[reportUnnecessaryIsInstance]
             overhead_us = int((time.time() - item.time_start) * 10**6) - item.time_us
             self._port.send_json(
                 {
@@ -602,7 +602,7 @@ class ServerInner:
         elif isinstance(msg, NeedMoreWork):
             self._need_work()
 
-        elif isinstance(msg, NetThreadDisconnected):
+        elif isinstance(msg, NetThreadDisconnected):  # pyright: ignore[reportUnnecessaryIsInstance]
             self._send_io_global(IoServerFailed(msg.graceful, msg.message))
 
         else:
@@ -651,7 +651,7 @@ class ServerInner:
 
             elif msg_type == "result":
                 compressed_source: Optional[bytes] = None
-                if msg.get("has_source") == True:
+                if msg.get("has_source") is True:
                     compressed_source = self._evaluator_port.receive()
                 perm_id = json_prop(msg, "permuter", str)
                 id = json_prop(msg, "id", int)

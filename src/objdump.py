@@ -229,7 +229,6 @@ def parse_relocated_line(line: str) -> Tuple[str, str, str]:
 
 
 def pre_process(mnemonic: str, args: str, next_row: Optional[str]) -> Tuple[str, str]:
-
     if next_row and "R_PPC_EMB_SDA21" in next_row:
         # With sda21 relocs, the linker transforms `r0` into `r2`/`r13`, and
         # we may encounter this in either pre-transformed or post-transformed

@@ -70,7 +70,7 @@ class Perm:
 
 
 def _eval_all(seed: int, perms: List[Perm], state: EvalState) -> List[str]:
-    ret = []
+    ret: List[str] = []
     for p in perms:
         seed, sub_seed = divmod(seed, p.perm_count)
         ret.append(p.evaluate(sub_seed, state))
@@ -99,7 +99,7 @@ def _count_either(perms: List[Perm]) -> int:
 
 def _shuffle(items: List[T], seed: int) -> List[T]:
     items = items[:]
-    output = []
+    output: List[T] = []
     while items:
         ind = seed % len(items)
         seed //= len(items)
@@ -289,7 +289,7 @@ class LineSwapAstPerm(Perm):
         return state.gen_ast_statement_perm(self, variation, statements=texts)
 
     def eval_statement_ast(self, args: List[Statement], seed: int) -> List[Statement]:
-        ret = []
+        ret: List[Statement] = []
         for item in _shuffle(args, seed):
             assert isinstance(item, ca.Compound)
             ret.extend(item.block_items or [])

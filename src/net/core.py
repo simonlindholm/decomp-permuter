@@ -6,8 +6,18 @@ import socket
 import struct
 import sys
 import toml
-import typing
-from typing import BinaryIO, Dict, Mapping, Optional, Type, TypeVar, Union
+from typing import (
+    BinaryIO,
+    Dict,
+    Mapping,
+    Optional,
+    Type,
+    TypeVar,
+    Union,
+    Any,
+    List,
+    cast,
+)
 
 from nacl.encoding import HexEncoder
 from nacl.public import Box, PrivateKey, PublicKey
@@ -61,7 +71,7 @@ class PermuterData:
 
 
 def permuter_data_from_json(
-    obj: dict, source: str, target_o_bin: bytes
+    obj: Dict[Any, Any], source: str, target_o_bin: bytes
 ) -> PermuterData:
     return PermuterData(
         base_score=json_prop(obj, "base_score", int),
@@ -81,7 +91,7 @@ def permuter_data_from_json(
     )
 
 
-def permuter_data_to_json(perm: PermuterData) -> dict:
+def permuter_data_to_json(perm: PermuterData) -> Dict[str, Any]:
     return {
         "base_score": perm.base_score,
         "base_hash": perm.base_hash,
@@ -133,7 +143,7 @@ def read_config() -> Config:
 
 
 def write_config(config: Config) -> None:
-    obj = {}
+    obj: Dict[str, Union[str, int]] = {}
 
     def write(key: str, val: Union[None, str, int]) -> None:
         if val is not None:
@@ -156,7 +166,7 @@ def write_config(config: Config) -> None:
 
 def file_read_max(inf: BinaryIO, n: int) -> bytes:
     try:
-        ret = []
+        ret: List[bytes] = []
         while n > 0:
             data = inf.read(n)
             if not data:
@@ -177,7 +187,7 @@ def file_read_fixed(inf: BinaryIO, n: int) -> bytes:
 
 def socket_read_max(sock: socket.socket, n: int) -> bytes:
     try:
-        ret = []
+        ret: List[bytes] = []
         while n > 0:
             data = sock.recv(min(n, 4096))
             if not data:
@@ -225,16 +235,13 @@ class Port(abc.ABC):
         self._receive_nonce = 1 if is_client else 0
 
     @abc.abstractmethod
-    def _send(self, data: bytes) -> None:
-        ...
+    def _send(self, data: bytes) -> None: ...
 
     @abc.abstractmethod
-    def _receive(self, length: int) -> bytes:
-        ...
+    def _receive(self, length: int) -> bytes: ...
 
     @abc.abstractmethod
-    def _receive_max(self, length: int) -> bytes:
-        ...
+    def _receive_max(self, length: int) -> bytes: ...
 
     def send(self, msg: bytes) -> None:
         """Send a binary message, potentially blocking."""
@@ -252,7 +259,7 @@ class Port(abc.ABC):
         except BrokenPipeError:
             raise EOFError from None
 
-    def send_json(self, msg: dict) -> None:
+    def send_json(self, msg: Dict[Any, Any]) -> None:
         """Send a message in the form of a JSON dict, potentially blocking."""
         self.send(json.dumps(msg).encode("utf-8"))
 
@@ -278,7 +285,7 @@ class Port(abc.ABC):
                 debug_print(f"Receive from {self._who}: {len(msg)} bytes")
         return msg
 
-    def receive_json(self) -> dict:
+    def receive_json(self) -> Dict[Any, Any]:
         """Read a message in the form of a JSON dict, blocking."""
         ret = json.loads(self.receive())
         if isinstance(ret, str):
@@ -289,7 +296,7 @@ class Port(abc.ABC):
             # to ensure future extensibility. (Other types are rare in
             # practice, anyway.)
             raise ValueError("Top-level JSON value must be a dictionary")
-        return ret
+        return cast(Dict[Any, Any], ret)
 
 
 class SocketPort(Port):

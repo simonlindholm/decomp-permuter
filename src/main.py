@@ -36,9 +36,6 @@ from .helpers import (
     trim_source,
 )
 
-MIN_PRIO = 0.01
-MAX_PRIO = 2.0
-
 from .permuter import (
     EvalError,
     EvalResult,
@@ -56,6 +53,8 @@ from .profiler import Profiler
 from .randomizer import RANDOMIZATION_PASSES
 from .scorer import Scorer
 
+MIN_PRIO = 0.01
+MAX_PRIO = 2.0
 # The probability that the randomizer continues transforming the output it
 # generated last time.
 DEFAULT_RAND_KEEP_PROB = 0.6
@@ -315,7 +314,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         force_seed = 0 if len(seed_parts) == 1 else seed_parts[0]
 
     name_counts: Dict[str, int] = {}
-    for i, d in enumerate(options.directories):
+    for _i, d in enumerate(options.directories):
         heartbeat()
         compile_cmd = os.path.join(d, "compile.sh")
         target_o = os.path.join(d, "target.o")
@@ -433,7 +432,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
     else:
         seed_iterators: List[Optional[Iterator[int]]] = [
             permuter.seed_iterator()
-            for perm_ind, permuter in enumerate(context.permuters)
+            for _perm_ind, permuter in enumerate(context.permuters)
         ]
         seed_iterators_remaining = len(seed_iterators)
         next_iterator_index = 0
@@ -477,7 +476,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
 
         # Start local worker threads
         processes: List[multiprocessing.Process] = []
-        for i in range(options.threads):
+        for _i in range(options.threads):
             p = multiprocessing.Process(
                 target=multiprocess_worker,
                 args=(context.permuters, worker_task_queue, feedback_queue),
@@ -545,7 +544,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
                     found_zero = True
                     if options.stop_on_zero:
                         break
-            elif isinstance(feedback, NeedMoreWork):
+            elif isinstance(feedback, NeedMoreWork):  # pyright: ignore[reportUnnecessaryIsInstance]
                 task = get_task(source)
                 if task is not None:
                     if source == -1:
@@ -556,7 +555,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
                 static_assert_unreachable(feedback)
 
         # Signal workers to stop.
-        for i in range(active_workers):
+        for _i in range(active_workers):
             worker_task_queue.put(Finished())
 
         for conn in net_conns:
@@ -574,7 +573,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
                 if not (options.stop_on_zero and found_zero):
                     if process_result(feedback, who):
                         found_zero = True
-            elif isinstance(feedback, NeedMoreWork):
+            elif isinstance(feedback, NeedMoreWork):  # pyright: ignore[reportUnnecessaryIsInstance]
                 pass
             else:
                 static_assert_unreachable(feedback)
@@ -600,7 +599,7 @@ class PrintRandomizationPassesAction(argparse.Action):
         values: object,
         option_string: Optional[str] = None,
     ) -> None:
-        weights = get_default_randomization_weights("base")
+        _weights = get_default_randomization_weights("base")
         for method in RANDOMIZATION_PASSES:
             print(f"{method.__name__}:")
             docs = (method.__doc__ or "").strip()

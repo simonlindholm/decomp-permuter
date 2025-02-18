@@ -45,13 +45,13 @@ class Scorer:
 
         objdump_output, cand_seq = self._objdump(cand_o)
 
-        num_stack_penalties = 0
-        num_regalloc_penalties = 0
-        num_reordering_penalties = 0
-        num_insertion_penalties = 0
-        num_deletion_penalties = 0
-        deletions = []
-        insertions = []
+        num_stack_penalties: int = 0
+        num_regalloc_penalties: int = 0
+        num_reordering_penalties: int = 0
+        num_insertion_penalties: int = 0
+        num_deletion_penalties: int = 0
+        deletions: List[str] = []
+        insertions: List[str] = []
 
         def field_matches_any_symbol(field: str, arch: ArchSettings) -> bool:
             if arch.name == "ppc":
@@ -105,7 +105,8 @@ class Scorer:
             else:
                 # If the last field has a parenthesis suffix, e.g. "0x38(r7)"
                 # we split that part out to make it a separate field
-                # however, we don't split if it has a proceeding %hi/%lo  e.g."%lo(.data)" or "%hi(.rodata + 0x10)"
+                # however, we don't split if it has a proceeding %hi/%lo
+                # e.g."%lo(.data)" or "%hi(.rodata + 0x10)"
                 re_paren = re.compile(r"(?<!%hi)(?<!%lo)\(")
                 oldfields = oldfields[:-1] + (
                     re_paren.split(oldfields[-1]) if len(oldfields) > 0 else []
@@ -157,7 +158,7 @@ class Scorer:
             self.difflib_differ.set_seq1([line.mnemonic for line in cand_seq])
             result_diff = self.difflib_differ.get_opcodes()
 
-        for (tag, i1, i2, j1, j2) in result_diff:
+        for tag, i1, i2, j1, j2 in result_diff:
             if tag == "equal":
                 for k in range(i2 - i1):
                     old_line = self.target_seq[j1 + k]
@@ -172,7 +173,7 @@ class Scorer:
 
         if self.debug_mode:
             # Print simple asm diff
-            for (tag, i1, i2, j1, j2) in result_diff:
+            for tag, i1, i2, j1, j2 in result_diff:
                 if tag == "equal":
                     for k in range(i2 - i1):
                         old = self.target_seq[j1 + k].row

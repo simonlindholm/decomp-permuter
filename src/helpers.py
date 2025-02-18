@@ -2,7 +2,7 @@ import os
 import toml
 from pathlib import Path
 import typing
-from typing import List, Mapping, NoReturn, Optional, Type, TypeVar
+from typing import List, Mapping, NoReturn, Optional, Type, TypeVar, Any, Dict, cast
 from .error import CandidateConstructionFailure
 
 T = TypeVar("T")
@@ -54,7 +54,8 @@ def get_default_randomization_weights(compiler_type: str) -> Mapping[str, float]
             raise CandidateConstructionFailure(
                 f"Unable to find compiler type {compiler_type} in default_weights.toml"
             )
-        compiler_weights = json_dict(json_prop(obj, compiler_type, dict), float)
+        compiler_type_prop = cast(Dict[Any, Any], json_prop(obj, compiler_type, dict))
+        compiler_weights = json_dict(compiler_type_prop, float)
 
         return merge_randomization_weights(base_weights, compiler_weights)
 
@@ -89,15 +90,15 @@ def json_prop(
     return _json_as_type("Member " + prop, value, t)
 
 
-def json_array(obj: list, t: Type[T]) -> List[T]:
-    ret = []
+def json_array(obj: List[Any], t: Type[T]) -> List[T]:
+    ret: List[T] = []
     for elem in obj:
         ret.append(_json_as_type("Array elements", elem, t))
     return ret
 
 
-def json_dict(obj: dict, t: Type[T]) -> Mapping[str, T]:
-    ret = {}
+def json_dict(obj: Dict[Any, Any], t: Type[T]) -> Mapping[str, T]:
+    ret: Dict[str, T] = {}
     for key, value in obj.items():
         assert isinstance(key, str), "JSON/TOML can only have string keys"
         ret[key] = _json_as_type("Dict entries", value, t)
