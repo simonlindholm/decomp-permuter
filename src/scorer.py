@@ -185,20 +185,52 @@ class Scorer:
                     diff_delete(self.target_seq[k].row)
 
         if self.debug_mode:
+            # find the max mnemonic length for consistent padding
+            mnem_max_len = max(
+                max(len(line.mnemonic) for line in self.target_seq),
+                max(len(line.mnemonic) for line in cand_seq),
+            )
+
+            def format_line(line: str, mnem_len: int, max_len: Optional[int] = None):
+                """
+                Split line on first tab to separate the mnemonic from the rest
+                of the line. Print the mnemonic as a left-justified string of
+                length `mnem_len`, then add the rest of the line. If `max_len`
+                is specified, cut the resulting string to `max_len`.
+                """
+                split = line.split("\t", maxsplit=1)
+                if len(split) != 2:
+                    return line
+                mnem, rest = split
+                line_str = f"{mnem:{mnem_len}s}  {rest}"
+                if max_len:
+                    line_str = line_str[:max_len]
+                return line_str
+
             # Print simple asm diff
             for tag, i1, i2, j1, j2 in result_diff:
                 if tag == "equal":
                     for k in range(i2 - i1):
+                        new_line = cand_seq[i1 + k]
                         old = self.target_seq[j1 + k].row
-                        new = cand_seq[i1 + k].row
-                        color = "\u001b[0m" if old == new else "\u001b[94m"
-                        print(color, old[:40].ljust(40), "\t", new)
+                        new = new_line.row
+                        same = old == new
+                        color = "\u001b[0m" if same else "\u001b[94m"
+                        old_str = format_line(old, mnem_max_len, 40).ljust(40)
+                        new_str = format_line(new, mnem_max_len)
+                        print(f"{color}{old_str}\t{new_str}")
                 if tag == "replace" or tag == "delete":
                     for k in range(i1, i2):
-                        print("\u001b[32;1m", "".ljust(40), "\t", cand_seq[k].row)
+                        color = "\u001b[32;1m"
+                        old_str = "".ljust(40)
+                        new_str = format_line(cand_seq[k].row, mnem_max_len)
+                        print(f"{color}{old_str}\t{new_str}")
                 if tag == "replace" or tag == "insert":
                     for k in range(j1, j2):
-                        print("\u001b[91;1m", self.target_seq[k].row)
+                        color = "\u001b[91;1m"
+                        old_str = format_line(self.target_seq[k].row, mnem_max_len)
+                        new_str = ""
+                        print(f"{color}{old_str}\t{new_str}")
 
             print("\u001b[0m")
 
