@@ -267,7 +267,7 @@ def multiprocess_worker(
 
             if permuter.speed != 100:
                 end = time.time()
-                
+
                 sleep_time = (end - start) * ((100 / permuter.speed) - 1)
                 time.sleep(sleep_time)
 
@@ -763,8 +763,8 @@ def main() -> None:
         "--speed",
         dest="speed",
         type=int,
-        help="Speed% to run at to reduce resources. Default 100",
-        choices=range(1,101),
+        help="Speed%% to run at to reduce resources. Default 100",
+        choices=range(1, 101),
         metavar="[1-100]",
         default=100,
     )
