@@ -4,7 +4,7 @@ import re
 from typing import Dict, List, Optional, Sequence, Tuple
 from collections import Counter
 
-from .objdump import ArchSettings, Line, objdump, get_arch
+from .objdump import ArchSettings, Line, objdump, get_arch, DEFAULT_IGN_BRANCH_TARGETS
 
 
 class Scorer:
@@ -25,6 +25,7 @@ class Scorer:
         debug_mode: bool,
         objdump_path: Optional[str] = None,
         objdump_args: Optional[List[str]] = None,
+        ign_branch_targets: bool = DEFAULT_IGN_BRANCH_TARGETS,
     ):
         self.target_o = target_o
         self.arch = get_arch(target_o)
@@ -33,6 +34,7 @@ class Scorer:
         self.debug_mode = debug_mode
         self.objdump_path = objdump_path
         self.objdump_args = objdump_args
+        self.ign_branch_targets = ign_branch_targets
         _, self.target_seq = self._objdump(target_o)
         self.difflib_differ: difflib.SequenceMatcher[str] = difflib.SequenceMatcher(
             autojunk=False
@@ -46,6 +48,7 @@ class Scorer:
             stack_differences=self.stack_differences,
             objdump_path=self.objdump_path,
             objdump_args=self.objdump_args,
+            ign_branch_targets=self.ign_branch_targets,
         )
         return "\n".join([line.row for line in lines]), lines
 

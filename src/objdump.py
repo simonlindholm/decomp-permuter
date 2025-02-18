@@ -9,15 +9,14 @@ import sys
 import shutil
 from typing import List, Match, Pattern, Set, Tuple, Optional
 
+# Don't include branch targets in the output. Assuming our input is semantically
+# equivalent skipping it shouldn't be an issue, and it makes insertions have too
+# large effect.
+DEFAULT_IGN_BRANCH_TARGETS = True
 
 # Ignore registers, for cleaner output. (We don't do this right now, but it can
 # be useful for debugging.)
 ign_regs = False
-
-# Don't include branch targets in the output. Assuming our input is semantically
-# equivalent skipping it shouldn't be an issue, and it makes insertions have too
-# large effect.
-ign_branch_targets = True
 
 # Skip branch-likely delay slots. (They aren't interesting on IDO.)
 # Set to false for now to help non-IDO compilers and to match diff.py;
@@ -320,7 +319,11 @@ def process_arm32_reloc(reloc_row: str, prev: str, repl: str) -> str:
     return repl
 
 
-def process_reloc(reloc_row: str, prev: str) -> Optional[str]:
+def process_reloc(
+    reloc_row: str,
+    prev: str,
+    ign_branch_targets: bool = DEFAULT_IGN_BRANCH_TARGETS,
+) -> Optional[str]:
     if prev == "<skipped>":
         return None
 
@@ -345,7 +348,11 @@ def process_reloc(reloc_row: str, prev: str) -> Optional[str]:
 
 
 def simplify_objdump(
-    input_lines: List[str], arch: ArchSettings, *, stack_differences: bool
+    input_lines: List[str],
+    arch: ArchSettings,
+    *,
+    stack_differences: bool,
+    ign_branch_targets: bool = DEFAULT_IGN_BRANCH_TARGETS,
 ) -> List[Line]:
     output_lines: List[Line] = []
     skip_next = False
@@ -377,7 +384,9 @@ def simplify_objdump(
 
         if arch.reloc_str in row:
             # Process Relocations, modify the previous line and do not add this line to output
-            modified_prev = process_reloc(row, output_lines[-1].row)
+            modified_prev = process_reloc(
+                row, output_lines[-1].row, ign_branch_targets=ign_branch_targets
+            )
             if modified_prev:
                 output_lines[-1].row = modified_prev
                 output_lines[-1].has_symbol = True
@@ -450,6 +459,7 @@ def objdump(
     arch: ArchSettings,
     *,
     stack_differences: bool = False,
+    ign_branch_targets: bool = DEFAULT_IGN_BRANCH_TARGETS,
     objdump_path: Optional[str] = None,
     objdump_args: Optional[List[str]] = None,
 ) -> List[Line]:
@@ -457,7 +467,12 @@ def objdump(
     arguments = objdump_args or arch.arguments
     output = subprocess.check_output([executable] + arguments + [o_filename])
     lines = output.decode("utf-8").splitlines()
-    return simplify_objdump(lines, arch, stack_differences=stack_differences)
+    return simplify_objdump(
+        lines,
+        arch,
+        stack_differences=stack_differences,
+        ign_branch_targets=ign_branch_targets,
+    )
 
 
 if __name__ == "__main__":

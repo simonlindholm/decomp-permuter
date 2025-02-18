@@ -53,6 +53,7 @@ from .printer import Printer
 from .profiler import Profiler
 from .randomizer import RANDOMIZATION_PASSES
 from .scorer import Scorer
+from .objdump import DEFAULT_IGN_BRANCH_TARGETS
 
 MIN_PRIO = 0.01
 MAX_PRIO = 2.0
@@ -85,6 +86,7 @@ class Options:
     no_context_output: bool = False
     debug_mode: bool = False
     speed: int = 100
+    ign_branch_targets: bool = DEFAULT_IGN_BRANCH_TARGETS
 
 
 def restricted_float(lo: float, hi: float) -> Callable[[str], float]:
@@ -374,6 +376,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             debug_mode=options.debug_mode,
             objdump_path=objdump_path,
             objdump_args=objdump_args,
+            ign_branch_targets=options.ign_branch_targets,
         )
         c_source = preprocess(base_c)
 
@@ -778,6 +781,20 @@ def main() -> None:
         metavar="[1-100]",
         default=100,
     )
+    if DEFAULT_IGN_BRANCH_TARGETS:
+        parser.add_argument(
+            "--no-ignore-branch-targets",
+            dest="ign_branch_targets",
+            action="store_false",
+            help="Do not ignore branch targets in objdump output",
+        )
+    else:
+        parser.add_argument(
+            "--ignore-branch-targets",
+            dest="ign_branch_targets",
+            action="store_true",
+            help="Ignore branch targets in objdump output",
+        )
 
     args = parser.parse_args()
 
@@ -807,6 +824,7 @@ def main() -> None:
         no_context_output=args.no_context_output,
         debug_mode=args.debug_mode,
         speed=args.speed,
+        ign_branch_targets=args.ign_branch_targets,
     )
 
     run(options)
