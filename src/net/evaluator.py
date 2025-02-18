@@ -106,7 +106,7 @@ def _create_permuter(data: PermuterData) -> Permuter:
             best_only=False,
             score_threshold=None,
             debug_mode=False,
-            speed=1,
+            speed=100,
         )
     except:
         os.unlink(path)
