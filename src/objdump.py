@@ -446,10 +446,16 @@ def find_executable(arch_executable: Tuple[str, ...], arch_name: str) -> str:
 
 
 def objdump(
-    o_filename: str, arch: ArchSettings, *, stack_differences: bool = False
+    o_filename: str,
+    arch: ArchSettings,
+    *,
+    stack_differences: bool = False,
+    objdump_path: Optional[str] = None,
+    objdump_args: Optional[List[str]] = None,
 ) -> List[Line]:
-    executable = find_executable(tuple(arch.executable), arch.name)
-    output = subprocess.check_output([executable] + arch.arguments + [o_filename])
+    executable = objdump_path or find_executable(tuple(arch.executable), arch.name)
+    arguments = objdump_args or arch.arguments
+    output = subprocess.check_output([executable] + arguments + [o_filename])
     lines = output.decode("utf-8").splitlines()
     return simplify_objdump(lines, arch, stack_differences=stack_differences)
 

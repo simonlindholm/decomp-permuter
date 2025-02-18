@@ -9,6 +9,7 @@ import re
 import sys
 import threading
 import time
+import shlex
 
 from typing import (
     Callable,
@@ -55,6 +56,7 @@ from .scorer import Scorer
 
 MIN_PRIO = 0.01
 MAX_PRIO = 2.0
+
 # The probability that the randomizer continues transforming the output it
 # generated last time.
 DEFAULT_RAND_KEEP_PROB = 0.6
@@ -358,11 +360,20 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         compiler = Compiler(
             compile_cmd, show_errors=options.show_errors, debug_mode=options.debug_mode
         )
+
+        objdump_path = json_prop(settings, "objdump_path", str, "") or None
+        objdump_args = json_prop(settings, "objdump_args", str, "") or None
+
+        if objdump_args is not None:
+            objdump_args = shlex.split(objdump_args)
+
         scorer = Scorer(
             target_o,
             stack_differences=options.stack_differences,
             algorithm=options.algorithm,
             debug_mode=options.debug_mode,
+            objdump_path=objdump_path,
+            objdump_args=objdump_args,
         )
         c_source = preprocess(base_c)
 

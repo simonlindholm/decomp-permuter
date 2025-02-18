@@ -779,13 +779,22 @@ def compile_base(compile_script: str, source: str, c_file: str, out_file: str) -
 
 
 def create_write_settings_toml(
-    func_name: str, compiler_type: str, filename: str
+    func_name: str,
+    compiler_type: str,
+    filename: str,
+    objdump_path: Optional[str] = None,
+    objdump_args: Optional[str] = None,
 ) -> None:
     rand_weights = get_default_randomization_weights(compiler_type)
 
     with open(filename, "w", encoding="utf-8") as f:
         f.write(f'func_name = "{func_name}"\n')
-        f.write(f'compiler_type = "{compiler_type}"\n\n')
+        f.write(f'compiler_type = "{compiler_type}"\n')
+        if objdump_path:
+            f.write(f'objdump_path = "{objdump_path}"\n')
+        if objdump_args:
+            f.write(f'objdump_args = "{objdump_args}"\n')
+        f.write("\n")
 
         f.write("# uncomment lines below to customize randomization pass weights\n")
         f.write("# see --help=randomization-passes for descriptions\n")
@@ -900,6 +909,8 @@ def main(arg_list: List[str]) -> None:
     compiler_str = get_setting("compiler_command") or ""
     assembler_str = get_setting("assembler_command") or ""
     asm_prelude_file = get_setting("asm_prelude_file")
+    objdump_path = get_setting("objdump_path")
+    objdump_args = get_setting("objdump_args")
     if asm_prelude_file is not None:
         asm_prelude_file = os.path.join(root_dir, asm_prelude_file)
     make_flags = args.make_flags
@@ -983,7 +994,9 @@ def main(arg_list: List[str]) -> None:
 
     try:
         write_to_file(source, base_c_file)
-        create_write_settings_toml(func_name, compiler_type, settings_file)
+        create_write_settings_toml(
+            func_name, compiler_type, settings_file, objdump_path, objdump_args
+        )
         write_compile_command(compiler, root_dir, compile_script)
         write_asm(asm_prelude_file, asm_cont, target_s_file)
         compile_asm(assembler, root_dir, target_s_file, target_o_file)

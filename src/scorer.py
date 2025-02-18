@@ -23,12 +23,16 @@ class Scorer:
         stack_differences: bool,
         algorithm: str,
         debug_mode: bool,
+        objdump_path: Optional[str] = None,
+        objdump_args: Optional[List[str]] = None,
     ):
         self.target_o = target_o
         self.arch = get_arch(target_o)
         self.stack_differences = stack_differences
         self.algorithm = algorithm
         self.debug_mode = debug_mode
+        self.objdump_path = objdump_path
+        self.objdump_args = objdump_args
         _, self.target_seq = self._objdump(target_o)
         self.difflib_differ: difflib.SequenceMatcher[str] = difflib.SequenceMatcher(
             autojunk=False
@@ -36,7 +40,13 @@ class Scorer:
         self.difflib_differ.set_seq2([line.mnemonic for line in self.target_seq])
 
     def _objdump(self, o_file: str) -> Tuple[str, List[Line]]:
-        lines = objdump(o_file, self.arch, stack_differences=self.stack_differences)
+        lines = objdump(
+            o_file,
+            self.arch,
+            stack_differences=self.stack_differences,
+            objdump_path=self.objdump_path,
+            objdump_args=self.objdump_args,
+        )
         return "\n".join([line.row for line in lines]), lines
 
     def score(self, cand_o: Optional[str]) -> Tuple[int, str]:
