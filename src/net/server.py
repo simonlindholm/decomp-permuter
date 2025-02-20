@@ -392,7 +392,7 @@ class NetThread:
         elif isinstance(item, OutputNeedMoreWork):
             self._port.send_json({"type": "need_work"})
 
-        elif isinstance(item, OutputWork):  # pyright: ignore[reportUnnecessaryIsInstance]
+        elif isinstance(item, OutputWork):
             overhead_us = int((time.time() - item.time_start) * 10**6) - item.time_us
             self._port.send_json(
                 {
@@ -602,7 +602,7 @@ class ServerInner:
         elif isinstance(msg, NeedMoreWork):
             self._need_work()
 
-        elif isinstance(msg, NetThreadDisconnected):  # pyright: ignore[reportUnnecessaryIsInstance]
+        elif isinstance(msg, NetThreadDisconnected):
             self._send_io_global(IoServerFailed(msg.graceful, msg.message))
 
         else:

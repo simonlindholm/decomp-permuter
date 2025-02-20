@@ -558,7 +558,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
                     found_zero = True
                     if options.stop_on_zero:
                         break
-            elif isinstance(feedback, NeedMoreWork):  # pyright: ignore[reportUnnecessaryIsInstance]
+            elif isinstance(feedback, NeedMoreWork):
                 task = get_task(source)
                 if task is not None:
                     if source == -1:
@@ -587,7 +587,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
                 if not (options.stop_on_zero and found_zero):
                     if process_result(feedback, who):
                         found_zero = True
-            elif isinstance(feedback, NeedMoreWork):  # pyright: ignore[reportUnnecessaryIsInstance]
+            elif isinstance(feedback, NeedMoreWork):
                 pass
             else:
                 static_assert_unreachable(feedback)

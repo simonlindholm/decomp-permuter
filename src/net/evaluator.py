@@ -210,7 +210,7 @@ def multiprocess_worker(
                 break
             if isinstance(task, AddPermuterLocal):
                 permuters[task.perm_id] = task.permuter
-            elif isinstance(task, RemovePermuter):  # pyright: ignore[reportUnnecessaryIsInstance]
+            elif isinstance(task, RemovePermuter):
                 del permuters[task.perm_id]
             else:
                 static_assert_unreachable(task)
@@ -403,7 +403,7 @@ def main() -> None:
             try_remove(item.perm_id)
             _send_result(item, port)
 
-        elif isinstance(item, Work):  # pyright: ignore[reportUnnecessaryIsInstance]
+        elif isinstance(item, Work):
             remaining_work[item.perm_id] += 1
             worker_queue.put((item, timestamp))
 
