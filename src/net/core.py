@@ -6,18 +6,7 @@ import socket
 import struct
 import sys
 import toml
-from typing import (
-    BinaryIO,
-    Dict,
-    Mapping,
-    Optional,
-    Type,
-    TypeVar,
-    Union,
-    Any,
-    List,
-    cast,
-)
+from typing import BinaryIO, Dict, Mapping, Optional, Type, TypeVar, Union, List, cast
 
 from nacl.encoding import HexEncoder
 from nacl.public import Box, PrivateKey, PublicKey
@@ -71,7 +60,7 @@ class PermuterData:
 
 
 def permuter_data_from_json(
-    obj: Dict[Any, Any], source: str, target_o_bin: bytes
+    obj: Dict[str, object], source: str, target_o_bin: bytes
 ) -> PermuterData:
     return PermuterData(
         base_score=json_prop(obj, "base_score", int),
@@ -91,7 +80,7 @@ def permuter_data_from_json(
     )
 
 
-def permuter_data_to_json(perm: PermuterData) -> Dict[str, Any]:
+def permuter_data_to_json(perm: PermuterData) -> Dict[str, object]:
     return {
         "base_score": perm.base_score,
         "base_hash": perm.base_hash,
@@ -259,7 +248,7 @@ class Port(abc.ABC):
         except BrokenPipeError:
             raise EOFError from None
 
-    def send_json(self, msg: Dict[Any, Any]) -> None:
+    def send_json(self, msg: Dict[str, object]) -> None:
         """Send a message in the form of a JSON dict, potentially blocking."""
         self.send(json.dumps(msg).encode("utf-8"))
 
@@ -285,7 +274,7 @@ class Port(abc.ABC):
                 debug_print(f"Receive from {self._who}: {len(msg)} bytes")
         return msg
 
-    def receive_json(self) -> Dict[Any, Any]:
+    def receive_json(self) -> Dict[str, object]:
         """Read a message in the form of a JSON dict, blocking."""
         ret = json.loads(self.receive())
         if isinstance(ret, str):
@@ -296,7 +285,7 @@ class Port(abc.ABC):
             # to ensure future extensibility. (Other types are rare in
             # practice, anyway.)
             raise ValueError("Top-level JSON value must be a dictionary")
-        return cast(Dict[Any, Any], ret)
+        return cast(Dict[str, object], ret)
 
 
 class SocketPort(Port):

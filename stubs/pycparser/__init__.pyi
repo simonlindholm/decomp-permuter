@@ -10,7 +10,7 @@
 __all__ = ["c_parser", "c_ast"]
 __version__ = "2.19"
 
-from typing import Any, List, Optional, Union
+from typing import List, Optional, Union
 from . import c_ast
 from .c_parser import CParser
 

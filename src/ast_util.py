@@ -4,7 +4,7 @@ import copy
 from dataclasses import dataclass
 from random import Random
 import re
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, TYPE_CHECKING, Union
+from typing import Callable, Dict, List, Optional, Set, Tuple, TYPE_CHECKING, Union
 
 from pycparser import c_ast as ca, c_generator
 from pycparser.c_parser import CParser
@@ -357,9 +357,9 @@ def has_nested_block(node: ca.Node) -> bool:
 
 def for_nested_blocks(stmt: Statement, callback: Callable[[Block], None]) -> None:
     def invoke(stmt: Statement) -> None:
-        assert isinstance(
-            stmt, (ca.Compound, ca.Case, ca.Default)
-        ), "brace_nested_blocks should have turned nested statements into blocks"
+        assert isinstance(stmt, (ca.Compound, ca.Case, ca.Default)), (
+            "brace_nested_blocks should have turned nested statements into blocks"
+        )
         callback(stmt)
 
     if isinstance(stmt, ca.Compound):

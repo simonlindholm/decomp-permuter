@@ -373,7 +373,7 @@ def build_preserve_macros(
 ) -> Optional[PreserveMacros]:
     subdata = settings.get("preserve_macros", {})
     assert isinstance(subdata, dict)
-    subdata = cast(Dict[str, str], subdata)
+    subdata = cast(Dict[str, object], subdata)
     regexes: List[Tuple[re.Pattern[str], str]] = []
     for regex, value in subdata.items():
         assert isinstance(value, str)
@@ -670,10 +670,10 @@ def get_decompme_compiler_name(
 ) -> str:
     decompme_settings = settings.get("decompme", {})
     assert isinstance(decompme_settings, dict)
-    decompme_settings = cast(Dict[str, str], decompme_settings)
+    decompme_settings = cast(Dict[str, object], decompme_settings)
     compiler_mappings = decompme_settings.get("compilers", {})
     assert isinstance(compiler_mappings, dict)
-    compiler_mappings = cast(Dict[str, str], compiler_mappings)
+    compiler_mappings = cast(Dict[str, object], compiler_mappings)
 
     compiler_path = compiler[0]
 
@@ -690,7 +690,7 @@ def get_decompme_compiler_name(
             available = json_data["compilers"]
             if not isinstance(available, dict):
                 raise Exception("compilers must be a dict")
-            available = cast(Dict[str, str], available)
+            available = cast(Dict[str, object], available)
             available_ids = list(available.keys())
     except Exception as e:
         print(f"Failed to request available compilers from decomp.me:\n{e}")

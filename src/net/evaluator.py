@@ -12,7 +12,7 @@ from tempfile import mkstemp
 import threading
 import time
 import traceback
-from typing import Counter, Dict, List, Optional, Set, Tuple, Union, Any
+from typing import Counter, Dict, List, Optional, Set, Tuple, Union
 import zlib
 
 from nacl.secret import SecretBox
@@ -155,7 +155,7 @@ def _remove_permuter(perm: Permuter) -> None:
 
 
 def _send_result(item: WorkDone, port: Port) -> None:
-    obj: Dict[str, Any] = {
+    obj: Dict[str, object] = {
         "type": "result",
         "permuter": item.perm_id,
         "id": item.id,

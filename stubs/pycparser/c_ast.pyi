@@ -7,7 +7,7 @@
 # License: BSD
 # -----------------------------------------------------------------
 
-from typing import TextIO, Iterable, List, Any, Optional, Union as Union_
+from typing import TextIO, Iterable, List, Optional, Union as Union_
 from .plyparser import Coord
 import sys
 

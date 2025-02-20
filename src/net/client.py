@@ -1,7 +1,7 @@
 from multiprocessing import Queue
 import re
 import threading
-from typing import Optional, List, Tuple, Dict, Any, cast
+from typing import Optional, List, Tuple, Dict, cast
 import zlib
 
 from ..candidate import CandidateResult
@@ -26,7 +26,7 @@ from .core import (
 )
 
 
-def _profiler_from_json(obj: Dict[Any, Any]) -> Profiler:
+def _profiler_from_json(obj: Dict[str, object]) -> Profiler:
     ret = Profiler()
     for key in obj:
         assert isinstance(key, str), "json properties are strings"
@@ -36,13 +36,13 @@ def _profiler_from_json(obj: Dict[Any, Any]) -> Profiler:
     return ret
 
 
-def _result_from_json(obj: Dict[Any, Any], source: Optional[str]) -> EvalResult:
+def _result_from_json(obj: Dict[str, object], source: Optional[str]) -> EvalResult:
     if "error" in obj:
         return EvalError(exc_str=json_prop(obj, "error", str), seed=None)
 
     profiler: Optional[Profiler] = None
     if "profiler" in obj:
-        profiler_prop = cast(Dict[Any, Any], json_prop(obj, "profiler", dict))
+        profiler_prop = cast(Dict[str, object], json_prop(obj, "profiler", dict))
         profiler = _profiler_from_json(profiler_prop)
     return CandidateResult(
         score=json_prop(obj, "score", int),
@@ -213,7 +213,7 @@ class Connection:
                         # enough in practice.)
                         finished = True
                     else:
-                        work: Dict[str, Any] = {
+                        work: Dict[str, object] = {
                             "type": "work",
                             "work": {
                                 "seed": task[1],

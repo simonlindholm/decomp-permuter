@@ -7,7 +7,7 @@ import sys
 import threading
 import time
 import traceback
-from typing import BinaryIO, Dict, Optional, Set, Tuple, Union, Any, cast, TYPE_CHECKING
+from typing import BinaryIO, Dict, Optional, Set, Tuple, Union, cast, TYPE_CHECKING
 import zlib
 
 if TYPE_CHECKING:
@@ -97,7 +97,7 @@ class PermInitSuccess:
 class WorkDone:
     perm_id: str
     id: int
-    obj: Dict[Any, Any]
+    obj: Dict[str, object]
     time_us: int
     compressed_source: Optional[bytes]
 
@@ -165,7 +165,7 @@ class OutputWork:
     handle: int
     time_start: float
     time_us: int
-    obj: Dict[Any, Any]
+    obj: Dict[str, object]
     compressed_source: Optional[bytes]
 
 
@@ -301,7 +301,7 @@ class NetThread:
             client_id = json_prop(msg, "client_id", str)
             client_name = json_prop(msg, "client_name", str)
             client = Client(client_id, client_name)
-            data = cast(Dict[Any, Any], json_prop(msg, "data", dict))
+            data = cast(Dict[str, object], json_prop(msg, "data", dict))
             compressed_source = self._port.receive()
             compressed_target_o_bin = self._port.receive()
 
