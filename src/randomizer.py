@@ -1130,6 +1130,7 @@ def perm_empty_stmt(
     """Inserts a no-op statement, one of:
     - if (1) {} (sometimes multiple of them)
     - if (0) {}
+    - do {} while (0);
     - label:
     - goto label; label:;
     - ;
@@ -1143,7 +1144,7 @@ def perm_empty_stmt(
 
     stmts: List[Statement] = []
 
-    kind = random.randrange(5)
+    kind = random.randrange(6)
     if kind == 0:  # if (1) or multiple if (1)
         count = random.choice([1, random.randint(2, 6)])
         for _ in range(count):
@@ -1152,15 +1153,18 @@ def perm_empty_stmt(
     elif kind == 1:  # if (0)
         cond = ca.Constant(type="int", value="0")
         stmts = [ca.If(cond=cond, iftrue=ca.Compound([]), iffalse=None)]
-    elif kind == 2:  # label:
+    elif kind == 2:  # do {} while (0)
+        cond = ca.Constant(type="int", value="0")
+        stmts = [ca.DoWhile(stmt=ca.Compound([]), cond=cond)]
+    elif kind == 3:  # label:
         stmts = [ca.Label(label_name, ca.EmptyStatement())]
         pass
-    elif kind == 3:  # goto label; label:
+    elif kind == 4:  # goto label; label:
         stmts = [
             ca.Goto(label_name),
             ca.Label(label_name, ca.EmptyStatement()),
         ]
-    elif kind == 4:  # ;
+    elif kind == 5:  # ;
         stmts = [ca.EmptyStatement()]
 
     tob, toi, _, _ = random.choice(cands)
@@ -1310,7 +1314,7 @@ def perm_condition(
 def perm_add_self_assignment(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> None:
-    """Introduce a "x = x;" or "x += 0;" somewhere."""
+    """Introduce a "x = x;", "x += 0;" or "x++; x--;" somewhere."""
     cands: List[Expression] = []
     seen_keys = set()
     for expr in get_block_expressions(fn.body, region):
@@ -1328,11 +1332,20 @@ def perm_add_self_assignment(
     ins_cands = get_insertion_points(fn, region)
     ensure(ins_cands)
     where = random.choice(ins_cands)
-    if random_bool(random, 0.5):
-        assignment = ca.Assignment("=", copy.deepcopy(expr), copy.deepcopy(expr))
+
+    kind = random.randrange(3)
+    stmts: List[Statement]
+
+    if kind == 0:
+        stmts = [ca.Assignment("=", copy.deepcopy(expr), copy.deepcopy(expr))]
+    elif kind == 1:
+        stmts = [ca.Assignment("+=", copy.deepcopy(expr), ca.Constant("int", "0"))]
     else:
-        assignment = ca.Assignment("+=", copy.deepcopy(expr), ca.Constant("int", "0"))
-    ast_util.insert_statement(where[0], where[1], assignment)
+        stmts = [
+            ca.UnaryOp("p++", copy.deepcopy(expr)),
+            ca.UnaryOp("p--", copy.deepcopy(expr)),
+        ]
+    ast_util.insert_statements(where[0], where[1], stmts)
 
 
 def perm_dummy_comma_expr(

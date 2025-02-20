@@ -84,6 +84,7 @@ class Options:
     no_context_output: bool = False
     spawn_new: bool = False
     debug_mode: bool = False
+    speed: int = 100
 
 
 def restricted_float(lo: float, hi: float) -> Callable[[str], float]:
@@ -276,6 +277,7 @@ def multiprocess_worker(
                 output_queue.close()
                 break
             permuter_index, seed = queue_item
+
             if permuter_index > len(permuters) - 1:
                 # TODO: why does this happen?
                 # also I haven't benchmarked this branch yet, but I suspect this is related to the slowdown
@@ -283,9 +285,19 @@ def multiprocess_worker(
                 pass
             else:
                 permuter = permuters[permuter_index]
+
+                start = time.time()
+
                 result = permuter.try_eval_candidate(seed)
                 if isinstance(result, CandidateResult) and permuter.should_output(result):
                     permuter.record_result(result)
+
+                if permuter.speed != 100:
+                    end = time.time()
+
+                    sleep_time = (end - start) * ((100 / permuter.speed) - 1)
+                    time.sleep(sleep_time)
+
                 output_queue.put((WorkDone(permuter_index, result), -1, None))
             output_queue.put((NeedMoreWork(), -1, None))
     except KeyboardInterrupt:
@@ -401,6 +413,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
                 better_only=options.better_only,
                 score_threshold=options.score_threshold,
                 debug_mode=options.debug_mode,
+                speed=options.speed,
             )
         except CandidateConstructionFailure as e:
             print(e.message, file=sys.stderr)
@@ -430,12 +443,22 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         for permuter_index, seed in cycle_seeds(context.permuters):
             heartbeat()
             permuter = context.permuters[permuter_index]
+
+            start = time.time()
+
             result = permuter.try_eval_candidate(seed)
+
             new_permuter, found_zero = post_score(context, permuter, result, None)
             if found_zero and options.stop_on_zero:
                 break
             if new_permuter:
                 context.add_permuter(new_permuter)
+
+            if permuter.speed != 100:
+                end = time.time()
+
+                sleep_time = (end - start) * ((100 / permuter.speed) - 1)
+                time.sleep(sleep_time)
     else:
         context.seed_iterators = [
             permuter.seed_iterator() for permuter in context.permuters
@@ -774,6 +797,15 @@ def main() -> None:
         action="store_true",
         help="Debug mode, only compiles and scores the base for debugging issues",
     )
+    parser.add_argument(
+        "--speed",
+        dest="speed",
+        type=int,
+        help="Speed% to run at to reduce resources. Default 100",
+        choices=range(1,101),
+        metavar="[1-100]",
+        default=100,
+    )
 
     args = parser.parse_args()
 
@@ -803,6 +835,7 @@ def main() -> None:
         no_context_output=args.no_context_output,
         spawn_new=args.spawn_new,
         debug_mode=args.debug_mode,
+        speed=args.speed,
     )
 
     run(options)

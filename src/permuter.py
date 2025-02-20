@@ -93,6 +93,7 @@ class Permuter:
         base_score: Optional[int] = None,
         base_hash: Optional[str] = None,
         base_source: Optional[str] = None,
+        speed: int,
     ) -> None:
         self.dir = dir
         self.compiler = compiler
@@ -129,7 +130,7 @@ class Permuter:
         self._score_threshold = score_threshold
         self._debug_mode = debug_mode
 
-        if base_score is not None and base_hash != None and base_source != None:
+        if base_score is not None and base_hash is not None and base_source is not None:
             self.base_score = base_score
             self.base_hash = base_hash
             self.base_source = base_source
@@ -145,6 +146,7 @@ class Permuter:
         self._cur_cand: Optional[Candidate] = None
         self._last_score: Optional[int] = None
         self._score_for_source: Dict[bytes, int] = {}
+        self.speed = speed
 
     def create_fork(self, result: CandidateResult) -> "Permuter":
         # Return a copy of this permuter based on an existing permutation result
