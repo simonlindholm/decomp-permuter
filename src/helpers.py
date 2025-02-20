@@ -99,7 +99,7 @@ def json_array(obj: List[object], t: Type[T]) -> List[T]:
     return ret
 
 
-def json_dict(obj: Dict[str, object], t: Type[T]) -> Mapping[str, T]:
+def json_dict(obj: Dict[str, object], t: Type[T]) -> Dict[str, T]:
     ret: Dict[str, T] = {}
     for key, value in obj.items():
         assert isinstance(key, str), "JSON/TOML can only have string keys"
