@@ -613,7 +613,7 @@ class PrintRandomizationPassesAction(argparse.Action):
         values: object,
         option_string: Optional[str] = None,
     ) -> None:
-        _weights = get_default_randomization_weights("base")
+        # TODO include weights from get_default_randomization_weights("base")
         for method in RANDOMIZATION_PASSES:
             print(f"{method.__name__}:")
             docs = (method.__doc__ or "").strip()
