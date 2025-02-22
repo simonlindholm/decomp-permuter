@@ -1,6 +1,7 @@
 import difflib
 import hashlib
 import re
+import shlex
 from typing import Dict, List, Optional, Sequence, Tuple, Set
 from collections import Counter
 
@@ -25,8 +26,8 @@ class Scorer:
         algorithm: str,
         debug_mode: bool,
         ign_branch_targets: bool,
-        objdump_path: Optional[str] = None,
-        objdump_args: Optional[List[str]] = None,
+        objdump_path: Optional[str],
+        objdump_args: Optional[str],
     ):
         self.target_o = target_o
         self.arch = get_arch(target_o)
@@ -43,13 +44,14 @@ class Scorer:
         self.difflib_differ.set_seq2([line.mnemonic for line in self.target_seq])
 
     def _objdump(self, o_file: str) -> Tuple[str, List[Line]]:
+        objdump_args = shlex.split(self.objdump_args) if self.objdump_args else None
         lines = objdump(
             o_file,
             self.arch,
+            objdump_path=self.objdump_path,
+            objdump_args=objdump_args,
             stack_differences=self.stack_differences,
             ign_branch_targets=self.ign_branch_targets,
-            objdump_path=self.objdump_path,
-            objdump_args=self.objdump_args,
         )
         return "\n".join([line.row for line in lines]), lines
 

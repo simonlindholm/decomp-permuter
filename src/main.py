@@ -9,7 +9,6 @@ import re
 import sys
 import threading
 import time
-import shlex
 
 from typing import (
     Callable,
@@ -365,17 +364,14 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         objdump_path = json_prop(settings, "objdump_path", str, "") or None
         objdump_args = json_prop(settings, "objdump_args", str, "") or None
 
-        if objdump_args is not None:
-            objdump_args = shlex.split(objdump_args)
-
         scorer = Scorer(
             target_o,
             stack_differences=options.stack_differences,
             algorithm=options.algorithm,
             debug_mode=options.debug_mode,
+            ign_branch_targets=options.ign_branch_targets,
             objdump_path=objdump_path,
             objdump_args=objdump_args,
-            ign_branch_targets=options.ign_branch_targets,
         )
         c_source = preprocess(base_c)
 

@@ -453,10 +453,10 @@ def objdump(
     o_filename: str,
     arch: ArchSettings,
     *,
-    stack_differences: bool = False,
-    ign_branch_targets: bool = False,
     objdump_path: Optional[str] = None,
     objdump_args: Optional[List[str]] = None,
+    stack_differences: bool = False,
+    ign_branch_targets: bool = False,
 ) -> List[Line]:
     executable = objdump_path or find_executable(tuple(arch.executable), arch.name)
     arguments = objdump_args or arch.arguments
