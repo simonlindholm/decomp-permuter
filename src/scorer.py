@@ -219,8 +219,9 @@ class Scorer:
         if self.debug_mode:
             # find the max mnemonic length for consistent padding
             mnem_max_len = max(
-                max(len(line.mnemonic) for line in self.target_seq),
-                max(len(line.mnemonic) for line in cand_seq),
+                *(len(line.mnemonic) for line in self.target_seq),
+                *(len(line.mnemonic) for line in cand_seq),
+                0,
             )
 
             def format_line(line: str, mnem_len: int, max_len: Optional[int] = None):
