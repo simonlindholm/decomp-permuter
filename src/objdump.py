@@ -9,11 +9,6 @@ import sys
 import shutil
 from typing import List, Match, Pattern, Set, Tuple, Optional
 
-# Don't include branch targets in the output. Assuming our input is semantically
-# equivalent skipping it shouldn't be an issue, and it makes insertions have too
-# large effect.
-DEFAULT_IGN_BRANCH_TARGETS = True
-
 # Ignore registers, for cleaner output. (We don't do this right now, but it can
 # be useful for debugging.)
 ign_regs = False
@@ -322,7 +317,7 @@ def process_arm32_reloc(reloc_row: str, prev: str, repl: str) -> str:
 def process_reloc(
     reloc_row: str,
     prev: str,
-    ign_branch_targets: bool = DEFAULT_IGN_BRANCH_TARGETS,
+    ign_branch_targets: bool,
 ) -> Optional[str]:
     if prev == "<skipped>":
         return None
@@ -352,7 +347,7 @@ def simplify_objdump(
     arch: ArchSettings,
     *,
     stack_differences: bool,
-    ign_branch_targets: bool = DEFAULT_IGN_BRANCH_TARGETS,
+    ign_branch_targets: bool,
 ) -> List[Line]:
     output_lines: List[Line] = []
     skip_next = False
@@ -459,7 +454,7 @@ def objdump(
     arch: ArchSettings,
     *,
     stack_differences: bool = False,
-    ign_branch_targets: bool = DEFAULT_IGN_BRANCH_TARGETS,
+    ign_branch_targets: bool = False,
     objdump_path: Optional[str] = None,
     objdump_args: Optional[List[str]] = None,
 ) -> List[Line]:

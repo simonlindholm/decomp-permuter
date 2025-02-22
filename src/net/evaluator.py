@@ -77,6 +77,7 @@ def _create_permuter(data: PermuterData) -> Permuter:
             stack_differences=data.stack_differences,
             algorithm=data.algorithm,
             debug_mode=False,
+            ign_branch_targets=False,
         )
     finally:
         os.unlink(path)

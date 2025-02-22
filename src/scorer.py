@@ -1,16 +1,17 @@
 import difflib
 import hashlib
 import re
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple, Set
 from collections import Counter
 
-from .objdump import ArchSettings, Line, objdump, get_arch, DEFAULT_IGN_BRANCH_TARGETS
+from .objdump import ArchSettings, Line, objdump, get_arch
 
 
 class Scorer:
     PENALTY_INF = 10**9
 
     PENALTY_STACKDIFF = 1
+    PENALTY_BRANCHDIFF = 1
     PENALTY_REGALLOC = 5
     PENALTY_REORDERING = 60
     PENALTY_INSERTION = 100
@@ -23,9 +24,9 @@ class Scorer:
         stack_differences: bool,
         algorithm: str,
         debug_mode: bool,
+        ign_branch_targets: bool,
         objdump_path: Optional[str] = None,
         objdump_args: Optional[List[str]] = None,
-        ign_branch_targets: bool = DEFAULT_IGN_BRANCH_TARGETS,
     ):
         self.target_o = target_o
         self.arch = get_arch(target_o)
@@ -59,6 +60,7 @@ class Scorer:
         objdump_output, cand_seq = self._objdump(cand_o)
 
         num_stack_penalties: int = 0
+        num_branch_penalties: int = 0
         num_regalloc_penalties: int = 0
         num_reordering_penalties: int = 0
         num_insertion_penalties: int = 0
@@ -88,9 +90,11 @@ class Scorer:
 
         def diff_sameline(old_line: Line, new_line: Line) -> bool:
             nonlocal num_stack_penalties
+            nonlocal num_branch_penalties
             nonlocal num_regalloc_penalties
 
             old_num_stack_penalties = num_stack_penalties
+            old_num_branch_penalties = num_branch_penalties
             old_num_regalloc_penalties = num_regalloc_penalties
 
             old = old_line.row
@@ -108,6 +112,23 @@ class Scorer:
                     newrel = int(newsp.group(1) or "0", 0)
                     num_stack_penalties += abs(oldrel - newrel)
                     ignore_last_field = True
+
+            if not self.ign_branch_targets:
+                b_instr = self.arch.branch_instructions
+                bl_instr = self.arch.branch_likely_instructions
+
+                if (
+                    old_line.mnemonic == new_line.mnemonic
+                    and (old_line.mnemonic in b_instr or old_line.mnemonic in bl_instr)
+                    and old_line.row != new_line.row
+                    and not old_line.has_symbol
+                    and not new_line.has_symbol
+                ):
+                    old_target = old_line.row.split(",")[-1]
+                    new_target = new_line.row.split(",")[-1]
+                    if old_target != new_target:
+                        num_branch_penalties += 1
+                        ignore_last_field = True
 
             # Probably regalloc difference, or signed vs unsigned
 
@@ -145,6 +166,7 @@ class Scorer:
             return (
                 old_num_regalloc_penalties != num_regalloc_penalties
                 or old_num_stack_penalties != num_stack_penalties
+                or old_num_branch_penalties != num_branch_penalties
             )
 
         def diff_insert(line: str) -> None:
@@ -179,14 +201,14 @@ class Scorer:
             self.difflib_differ.set_seq1([line.mnemonic for line in cand_seq])
             result_diff = self.difflib_differ.get_opcodes()
 
-        ignore_diff: List[Line] = []
+        equal_no_diff: Set[int] = set()
         for tag, i1, i2, j1, j2 in result_diff:
             if tag == "equal":
                 for k in range(i2 - i1):
                     old_line = self.target_seq[j1 + k]
                     new_line = cand_seq[i1 + k]
                     if not diff_sameline(old_line, new_line):
-                        ignore_diff.append(new_line)
+                        equal_no_diff.add(i1 + k)
             if tag == "replace" or tag == "delete":
                 for k in range(i1, i2):
                     diff_insert(cand_seq[k].row)
@@ -221,13 +243,12 @@ class Scorer:
             for tag, i1, i2, j1, j2 in result_diff:
                 if tag == "equal":
                     for k in range(i2 - i1):
+                        old_line = self.target_seq[j1 + k]
                         new_line = cand_seq[i1 + k]
-                        old = self.target_seq[j1 + k].row
-                        new = new_line.row
-                        same = old == new or new_line in ignore_diff
+                        same = i1 + k in equal_no_diff
                         color = "\u001b[0m" if same else "\u001b[94m"
-                        old_str = format_line(old, mnem_max_len, 40).ljust(40)
-                        new_str = format_line(new, mnem_max_len)
+                        old_str = format_line(old_line.row, mnem_max_len, 40).ljust(40)
+                        new_str = format_line(new_line.row, mnem_max_len)
                         print(f"{color}{old_str}\t{new_str}")
                 if tag == "replace" or tag == "delete":
                     for k in range(i1, i2):
@@ -263,6 +284,11 @@ class Scorer:
                 f" ({self.PENALTY_STACKDIFF})",
             )
             print(
+                "Branch Differences: ".ljust(30),
+                num_branch_penalties,
+                f" ({self.PENALTY_BRANCHDIFF})",
+            )
+            print(
                 "Register Differences: ".ljust(30),
                 num_regalloc_penalties,
                 f" ({self.PENALTY_REGALLOC})",
@@ -285,6 +311,7 @@ class Scorer:
 
         final_score = (
             num_stack_penalties * self.PENALTY_STACKDIFF
+            + num_branch_penalties * self.PENALTY_BRANCHDIFF
             + num_regalloc_penalties * self.PENALTY_REGALLOC
             + num_reordering_penalties * self.PENALTY_REORDERING
             + num_insertion_penalties * self.PENALTY_INSERTION
