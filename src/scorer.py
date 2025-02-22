@@ -47,9 +47,9 @@ class Scorer:
             o_file,
             self.arch,
             stack_differences=self.stack_differences,
+            ign_branch_targets=self.ign_branch_targets,
             objdump_path=self.objdump_path,
             objdump_args=self.objdump_args,
-            ign_branch_targets=self.ign_branch_targets,
         )
         return "\n".join([line.row for line in lines]), lines
 
