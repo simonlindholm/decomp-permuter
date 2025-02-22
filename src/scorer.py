@@ -34,8 +34,8 @@ class Scorer:
         self.stack_differences = stack_differences
         self.algorithm = algorithm
         self.debug_mode = debug_mode
-        self.objdump_path = objdump_path
-        self.objdump_args = objdump_args
+        self.objdump_path = objdump_path or ""
+        self.objdump_args = objdump_args or ""
         self.ign_branch_targets = ign_branch_targets
         _, self.target_seq = self._objdump(target_o)
         self.difflib_differ: difflib.SequenceMatcher[str] = difflib.SequenceMatcher(
