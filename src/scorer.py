@@ -26,16 +26,14 @@ class Scorer:
         algorithm: str,
         debug_mode: bool,
         ign_branch_targets: bool,
-        objdump_path: Optional[str],
-        objdump_args: Optional[str],
+        objdump_command: Optional[str],
     ):
         self.target_o = target_o
         self.arch = get_arch(target_o)
         self.stack_differences = stack_differences
         self.algorithm = algorithm
         self.debug_mode = debug_mode
-        self.objdump_path = objdump_path or ""
-        self.objdump_args = objdump_args or ""
+        self.objdump_command = objdump_command or ""
         self.ign_branch_targets = ign_branch_targets
         _, self.target_seq = self._objdump(target_o)
         self.difflib_differ: difflib.SequenceMatcher[str] = difflib.SequenceMatcher(
@@ -44,12 +42,13 @@ class Scorer:
         self.difflib_differ.set_seq2([line.mnemonic for line in self.target_seq])
 
     def _objdump(self, o_file: str) -> Tuple[str, List[Line]]:
-        objdump_args = shlex.split(self.objdump_args) if self.objdump_args else None
+        objdump_command = (
+            shlex.split(self.objdump_command) if self.objdump_command else None
+        )
         lines = objdump(
             o_file,
             self.arch,
-            objdump_path=self.objdump_path,
-            objdump_args=objdump_args,
+            objdump_command=objdump_command,
             stack_differences=self.stack_differences,
             ign_branch_targets=self.ign_branch_targets,
         )

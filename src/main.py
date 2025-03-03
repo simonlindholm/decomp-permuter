@@ -361,8 +361,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             compile_cmd, show_errors=options.show_errors, debug_mode=options.debug_mode
         )
 
-        objdump_path = json_prop(settings, "objdump_path", str, "") or None
-        objdump_args = json_prop(settings, "objdump_args", str, "") or None
+        objdump_command = json_prop(settings, "objdump_command", str, "") or None
 
         scorer = Scorer(
             target_o,
@@ -370,8 +369,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             algorithm=options.algorithm,
             debug_mode=options.debug_mode,
             ign_branch_targets=options.ign_branch_targets,
-            objdump_path=objdump_path,
-            objdump_args=objdump_args,
+            objdump_command=objdump_command,
         )
         c_source = preprocess(base_c)
 

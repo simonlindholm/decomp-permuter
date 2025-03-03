@@ -58,8 +58,7 @@ class PermuterData:
     source: str
     target_o_bin: bytes
     ign_branch_targets: bool
-    objdump_path: str
-    objdump_args: str
+    objdump_command: str
 
 
 def permuter_data_from_json(
@@ -81,8 +80,7 @@ def permuter_data_from_json(
         source=source,
         target_o_bin=target_o_bin,
         ign_branch_targets=json_prop(obj, "ign_branch_targets", bool, True),
-        objdump_path=json_prop(obj, "objdump_path", str, ""),
-        objdump_args=json_prop(obj, "objdump_args", str, ""),
+        objdump_command=json_prop(obj, "objdump_command", str, ""),
     )
 
 
@@ -99,8 +97,7 @@ def permuter_data_to_json(perm: PermuterData) -> Dict[str, object]:
         "randomization_weights": perm.randomization_weights,
         "compile_script": perm.compile_script,
         "ign_branch_targets": perm.ign_branch_targets,
-        "objdump_path": perm.objdump_path,
-        "objdump_args": perm.objdump_args,
+        "objdump_command": perm.objdump_command,
     }
 
 

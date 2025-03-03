@@ -101,8 +101,7 @@ def make_portable_permuter(permuter: Permuter) -> PermuterData:
         source=permuter.source,
         target_o_bin=target_o_bin,
         ign_branch_targets=permuter.scorer.ign_branch_targets,
-        objdump_path=permuter.scorer.objdump_path,
-        objdump_args=permuter.scorer.objdump_args,
+        objdump_command=permuter.scorer.objdump_command,
     )
 
 
