@@ -316,7 +316,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         force_seed = 0 if len(seed_parts) == 1 else seed_parts[0]
 
     name_counts: Dict[str, int] = {}
-    for _i, d in enumerate(options.directories):
+    for d in options.directories:
         heartbeat()
         compile_cmd = os.path.join(d, "compile.sh")
         target_o = os.path.join(d, "target.o")
@@ -438,8 +438,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
                 time.sleep(sleep_time)
     else:
         seed_iterators: List[Optional[Iterator[int]]] = [
-            permuter.seed_iterator()
-            for _perm_ind, permuter in enumerate(context.permuters)
+            permuter.seed_iterator() for permuter in context.permuters
         ]
         seed_iterators_remaining = len(seed_iterators)
         next_iterator_index = 0
