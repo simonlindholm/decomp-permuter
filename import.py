@@ -673,7 +673,7 @@ def get_decompme_compiler_name(
     decompme_settings = cast(Dict[str, object], decompme_settings)
     compiler_mappings = decompme_settings.get("compilers", {})
     assert isinstance(compiler_mappings, dict)
-    compiler_mappings = cast(Dict[str, str], compiler_mappings)
+    compiler_mappings = cast(Dict[str, object], compiler_mappings)
 
     compiler_path = compiler[0]
 

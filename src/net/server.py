@@ -12,6 +12,9 @@ import zlib
 
 if TYPE_CHECKING:
     import docker
+    import docker.errors
+    import docker.models
+    import docker.models.containers
 
 from nacl.secret import SecretBox
 import nacl.utils

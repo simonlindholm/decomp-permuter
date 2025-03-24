@@ -225,7 +225,9 @@ class Scorer:
                 0,
             )
 
-            def format_line(line: str, mnem_len: int, max_len: Optional[int] = None):
+            def format_line(
+                line: str, mnem_len: int, max_len: Optional[int] = None
+            ) -> str:
                 """
                 Split line on first tab to separate the mnemonic from the rest
                 of the line. Print the mnemonic as a left-justified string of
