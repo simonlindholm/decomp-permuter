@@ -357,9 +357,9 @@ def has_nested_block(node: ca.Node) -> bool:
 
 def for_nested_blocks(stmt: Statement, callback: Callable[[Block], None]) -> None:
     def invoke(stmt: Statement) -> None:
-        assert isinstance(stmt, (ca.Compound, ca.Case, ca.Default)), (
-            "brace_nested_blocks should have turned nested statements into blocks"
-        )
+        assert isinstance(
+            stmt, (ca.Compound, ca.Case, ca.Default)
+        ), "brace_nested_blocks should have turned nested statements into blocks"
         callback(stmt)
 
     if isinstance(stmt, ca.Compound):

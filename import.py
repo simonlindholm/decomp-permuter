@@ -926,9 +926,9 @@ def main(arg_list: List[str]) -> None:
     print(f"Function name: {func_name}")
 
     if compiler_str or assembler_str:
-        assert build_system_raw is None, (
-            "Must not specify both build system and compiler/assembler"
-        )
+        assert (
+            build_system_raw is None
+        ), "Must not specify both build system and compiler/assembler"
         compiler = shlex.split(compiler_str)
         assembler = shlex.split(assembler_str)
     else:

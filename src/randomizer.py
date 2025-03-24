@@ -195,9 +195,9 @@ def compute_write_locations(
         if var_name not in writes:
             writes[var_name] = []
         else:
-            assert loc > writes[var_name][-1], (
-                "consistent traversal order should guarantee monotonicity here"
-            )
+            assert (
+                loc > writes[var_name][-1]
+            ), "consistent traversal order should guarantee monotonicity here"
         writes[var_name].append(loc)
 
     class Visitor(ca.NodeVisitor):
@@ -228,9 +228,9 @@ def compute_read_locations(top_node: ca.Node, indices: Indices) -> Dict[str, Lis
         if var_name not in reads:
             reads[var_name] = []
         else:
-            assert loc > reads[var_name][-1], (
-                "consistent traversal order should guarantee monotonicity here"
-            )
+            assert (
+                loc > reads[var_name][-1]
+            ), "consistent traversal order should guarantee monotonicity here"
         reads[var_name].append(loc)
     return reads
 
@@ -983,9 +983,9 @@ def perm_randomize_function_type(
             new_decl = copy.copy(item)
             all_decls.append((new_decl, i, new_decl))
         if isinstance(item, ca.FuncDef) and item.decl.name == name:
-            assert isinstance(item.decl.type, ca.FuncDecl), (
-                "function definitions have function types"
-            )
+            assert isinstance(
+                item.decl.type, ca.FuncDecl
+            ), "function definitions have function types"
             new_fndef = copy.copy(item)
             new_decl = copy.copy(item.decl)
             new_fndef.decl = new_decl
