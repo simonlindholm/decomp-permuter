@@ -778,7 +778,9 @@ def main() -> None:
         "--no-ignore-branch-targets",
         dest="ign_branch_targets",
         action="store_false",
-        help="Do not ignore branch targets when computing the score",
+        help="Take branch targets into account when computing the score. "
+        "Not recommended: it increases score volatility in combination "
+        "with insertions/deletions.",
     )
 
     args = parser.parse_args()
