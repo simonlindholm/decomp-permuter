@@ -1,5 +1,6 @@
 """This file runs as a free-standing program within a sandbox, and processes
 permutation requests. It communicates with the outside world on stdin/stdout."""
+
 import base64
 from dataclasses import dataclass
 import math
@@ -11,7 +12,7 @@ from tempfile import mkstemp
 import threading
 import time
 import traceback
-from typing import Counter, Dict, List, Mapping, Optional, Set, Tuple, Union
+from typing import Counter, Dict, List, Optional, Set, Tuple, Union
 import zlib
 
 from nacl.secret import SecretBox
@@ -21,7 +22,6 @@ from ..compiler import Compiler
 from ..error import CandidateConstructionFailure
 from ..helpers import (
     exception_to_string,
-    get_default_randomization_weights,
     static_assert_unreachable,
 )
 from ..permuter import EvalError, EvalResult, Permuter
@@ -77,6 +77,8 @@ def _create_permuter(data: PermuterData) -> Permuter:
             stack_differences=data.stack_differences,
             algorithm=data.algorithm,
             debug_mode=False,
+            ign_branch_targets=data.ign_branch_targets,
+            objdump_command=data.objdump_command,
         )
     finally:
         os.unlink(path)
@@ -106,6 +108,7 @@ def _create_permuter(data: PermuterData) -> Permuter:
             best_only=False,
             score_threshold=None,
             debug_mode=False,
+            speed=100,
         )
     except:
         os.unlink(path)
@@ -154,7 +157,7 @@ def _remove_permuter(perm: Permuter) -> None:
 
 
 def _send_result(item: WorkDone, port: Port) -> None:
-    obj = {
+    obj: Dict[str, object] = {
         "type": "result",
         "permuter": item.perm_id,
         "id": item.id,
@@ -298,7 +301,7 @@ def main() -> None:
     task_queue: "Queue[Task]" = Queue()
     local_queues: "List[Queue[LocalWork]]" = []
 
-    for i in range(num_threads):
+    for _i in range(num_threads):
         local_queue: "Queue[LocalWork]" = Queue()
         p = Process(
             target=multiprocess_worker,

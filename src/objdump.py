@@ -9,15 +9,9 @@ import sys
 import shutil
 from typing import List, Match, Pattern, Set, Tuple, Optional
 
-
 # Ignore registers, for cleaner output. (We don't do this right now, but it can
 # be useful for debugging.)
 ign_regs = False
-
-# Don't include branch targets in the output. Assuming our input is semantically
-# equivalent skipping it shouldn't be an issue, and it makes insertions have too
-# large effect.
-ign_branch_targets = True
 
 # Skip branch-likely delay slots. (They aren't interesting on IDO.)
 # Set to false for now to help non-IDO compilers and to match diff.py;
@@ -229,7 +223,6 @@ def parse_relocated_line(line: str) -> Tuple[str, str, str]:
 
 
 def pre_process(mnemonic: str, args: str, next_row: Optional[str]) -> Tuple[str, str]:
-
     if next_row and "R_PPC_EMB_SDA21" in next_row:
         # With sda21 relocs, the linker transforms `r0` into `r2`/`r13`, and
         # we may encounter this in either pre-transformed or post-transformed
@@ -321,7 +314,11 @@ def process_arm32_reloc(reloc_row: str, prev: str, repl: str) -> str:
     return repl
 
 
-def process_reloc(reloc_row: str, prev: str) -> Optional[str]:
+def process_reloc(
+    reloc_row: str,
+    prev: str,
+    ign_branch_targets: bool,
+) -> Optional[str]:
     if prev == "<skipped>":
         return None
 
@@ -346,7 +343,11 @@ def process_reloc(reloc_row: str, prev: str) -> Optional[str]:
 
 
 def simplify_objdump(
-    input_lines: List[str], arch: ArchSettings, *, stack_differences: bool
+    input_lines: List[str],
+    arch: ArchSettings,
+    *,
+    stack_differences: bool,
+    ign_branch_targets: bool,
 ) -> List[Line]:
     output_lines: List[Line] = []
     skip_next = False
@@ -378,7 +379,9 @@ def simplify_objdump(
 
         if arch.reloc_str in row:
             # Process Relocations, modify the previous line and do not add this line to output
-            modified_prev = process_reloc(row, output_lines[-1].row)
+            modified_prev = process_reloc(
+                row, output_lines[-1].row, ign_branch_targets=ign_branch_targets
+            )
             if modified_prev:
                 output_lines[-1].row = modified_prev
                 output_lines[-1].has_symbol = True
@@ -447,12 +450,27 @@ def find_executable(arch_executable: Tuple[str, ...], arch_name: str) -> str:
 
 
 def objdump(
-    o_filename: str, arch: ArchSettings, *, stack_differences: bool = False
+    o_filename: str,
+    arch: ArchSettings,
+    *,
+    objdump_command: Optional[List[str]] = None,
+    stack_differences: bool = False,
+    ign_branch_targets: bool = False,
 ) -> List[Line]:
-    executable = find_executable(tuple(arch.executable), arch.name)
-    output = subprocess.check_output([executable] + arch.arguments + [o_filename])
+    if objdump_command:
+        executable = objdump_command[0]
+        arguments = objdump_command[1:]
+    else:
+        executable = find_executable(tuple(arch.executable), arch.name)
+        arguments = arch.arguments
+    output = subprocess.check_output([executable] + arguments + [o_filename])
     lines = output.decode("utf-8").splitlines()
-    return simplify_objdump(lines, arch, stack_differences=stack_differences)
+    return simplify_objdump(
+        lines,
+        arch,
+        stack_differences=stack_differences,
+        ign_branch_targets=ign_branch_targets,
+    )
 
 
 if __name__ == "__main__":

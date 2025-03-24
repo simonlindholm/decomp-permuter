@@ -142,7 +142,7 @@ class Region:
 
 
 def reverse_start_indices(indices: Indices) -> Dict[int, ca.Node]:
-    ret = {}
+    ret: Dict[int, ca.Node] = {}
     for k, v in indices.starts.items():
         ret[v] = k
     return ret
@@ -195,9 +195,9 @@ def compute_write_locations(
         if var_name not in writes:
             writes[var_name] = []
         else:
-            assert (
-                loc > writes[var_name][-1]
-            ), "consistent traversal order should guarantee monotonicity here"
+            assert loc > writes[var_name][-1], (
+                "consistent traversal order should guarantee monotonicity here"
+            )
         writes[var_name].append(loc)
 
     class Visitor(ca.NodeVisitor):
@@ -228,9 +228,9 @@ def compute_read_locations(top_node: ca.Node, indices: Indices) -> Dict[str, Lis
         if var_name not in reads:
             reads[var_name] = []
         else:
-            assert (
-                loc > reads[var_name][-1]
-            ), "consistent traversal order should guarantee monotonicity here"
+            assert loc > reads[var_name][-1], (
+                "consistent traversal order should guarantee monotonicity here"
+            )
         reads[var_name].append(loc)
     return reads
 
@@ -404,19 +404,19 @@ def random_bool(random: Random, prob: float) -> bool:
 
 def random_weighted(random: Random, values: Sequence[Tuple[T, float]]) -> T:
     sumprob = 0.0
-    for (val, prob) in values:
+    for val, prob in values:
         assert prob >= 0, "Probabilities must be non-negative"
         sumprob += prob
     assert sumprob > 0, "Cannot pick randomly from empty set"
     targetprob = random.uniform(0, sumprob)
     sumprob = 0.0
-    for (val, prob) in values:
+    for val, prob in values:
         sumprob += prob
         if sumprob > targetprob:
             return val
 
     # Float imprecision
-    for (val, prob) in values:
+    for val, prob in values:
         if prob > 0:
             return val
     assert False, "unreachable"
@@ -544,10 +544,10 @@ def maybe_reuse_var(
     if not same_type(var_type, type, typemap, allow_similar=True):
         return None
 
-    def find_next(list: List[int], value: int) -> Optional[int]:
-        ind = bisect.bisect_left(list, value)
-        if ind < len(list):
-            return list[ind]
+    def find_next(lst: List[int], value: int) -> Optional[int]:
+        ind = bisect.bisect_left(lst, value)
+        if ind < len(lst):
+            return lst[ind]
         return None
 
     assignment_ind = indices.starts[assign_before]
@@ -983,9 +983,9 @@ def perm_randomize_function_type(
             new_decl = copy.copy(item)
             all_decls.append((new_decl, i, new_decl))
         if isinstance(item, ca.FuncDef) and item.decl.name == name:
-            assert isinstance(
-                item.decl.type, ca.FuncDecl
-            ), "function definitions have function types"
+            assert isinstance(item.decl.type, ca.FuncDecl), (
+                "function definitions have function types"
+            )
             new_fndef = copy.copy(item)
             new_decl = copy.copy(item.decl)
             new_fndef.decl = new_decl
@@ -1995,6 +1995,7 @@ def perm_split_assignment(
     """Split assignments of the form `a = b . c . d ...;` into
     `a = b; a = a . c . d ...;` or `a = c . d ...; a = b . a;` or similar."""
     cands = []
+
     # Look for assignments of the form 'var = binaryOp' (ignores op=)
     class Visitor(ca.NodeVisitor):
         def visit_Assignment(self, node: ca.Assignment) -> None:

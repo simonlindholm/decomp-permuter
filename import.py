@@ -13,7 +13,18 @@ import subprocess
 import sys
 import toml
 import fnmatch
-from typing import Callable, Dict, List, Match, Mapping, Optional, Pattern, Tuple
+from typing import (
+    Callable,
+    Dict,
+    List,
+    Match,
+    Mapping,
+    Optional,
+    Pattern,
+    Tuple,
+    Set,
+    cast,
+)
 import urllib.request
 import urllib.parse
 
@@ -72,8 +83,8 @@ def formatcmd(cmdline: List[str]) -> str:
 
 def prune_asm(asm_cont: str) -> Tuple[str, str]:
     func_name = None
-    asm_lines = []
-    late_rodata = []
+    asm_lines: List[str] = []
+    late_rodata: List[str] = []
     cur_section = ".text"
     for line in asm_cont.splitlines(keepends=True):
         changed_section = False
@@ -196,7 +207,7 @@ def parse_asm(
 
 
 def create_directory(func_name: str) -> str:
-    os.makedirs(f"nonmatchings/", exist_ok=True)
+    os.makedirs("nonmatchings/", exist_ok=True)
     ctr = 0
     while True:
         ctr += 1
@@ -226,7 +237,7 @@ def find_root_dir(filename: str, pattern: List[str]) -> Optional[str]:
 def fixup_build_command(
     parts: List[str], ignore_part: str
 ) -> Tuple[List[str], Optional[List[str]]]:
-    res = []
+    res: List[str] = []
     skip_count = 0
     assembler = None
     for part in parts:
@@ -292,8 +303,8 @@ def find_build_command_line(
         .split("\n")
     )
 
-    output = []
-    close_match = ""
+    output: List[List[str]] = []
+    close_match: str = ""
 
     assembler = DEFAULT_AS_CMDLINE
     for line in debug_output:
@@ -360,10 +371,10 @@ PreserveMacros = Tuple[Pattern[str], Callable[[str], str]]
 def build_preserve_macros(
     cwd: str, preserve_regex: Optional[str], settings: Mapping[str, object]
 ) -> Optional[PreserveMacros]:
-
     subdata = settings.get("preserve_macros", {})
     assert isinstance(subdata, dict)
-    regexes = []
+    subdata = cast(Dict[str, object], subdata)
+    regexes: List[Tuple[re.Pattern[str], str]] = []
     for regex, value in subdata.items():
         assert isinstance(value, str)
         regexes.append((re.compile(f"^(?:{regex})$"), value))
@@ -432,9 +443,9 @@ def preprocess_c_with_macros(
     # function declarations for them in a specially demarcated section of
     # the file. When the compiler runs, this section will be replaced by
     # the real defines and the preprocessor invoked once more.
-    late_defines = []
-    lines = []
-    graph = defaultdict(set)
+    late_defines: List[Tuple[str, str]] = []
+    lines: List[str] = []
+    graph: Dict[str, Set[str]] = defaultdict(set)
     reg_token = re.compile(r"[a-zA-Z0-9_]+")
     for line in source.splitlines():
         is_macro = line.startswith("_permuter define ")
@@ -475,7 +486,7 @@ def preprocess_c_with_macros(
                 graph[name].add(name2)
 
     # Prune away (recursively) unused macros, for cleanliness.
-    used_anywhere = set()
+    used_anywhere: Set[str] = set()
     used_by_nonmacro = graph[""]
     queue = [""]
     while queue:
@@ -497,7 +508,7 @@ def preprocess_c_with_macros(
         else:
             return f"extern {typ} {name};"
 
-    used_macros = [name for (name, after) in late_defines if name in used_by_nonmacro]
+    used_macros = [name for (name, _after) in late_defines if name in used_by_nonmacro]
 
     return (
         "\n".join(
@@ -659,8 +670,10 @@ def get_decompme_compiler_name(
 ) -> str:
     decompme_settings = settings.get("decompme", {})
     assert isinstance(decompme_settings, dict)
+    decompme_settings = cast(Dict[str, object], decompme_settings)
     compiler_mappings = decompme_settings.get("compilers", {})
     assert isinstance(compiler_mappings, dict)
+    compiler_mappings = cast(Dict[str, str], compiler_mappings)
 
     compiler_path = compiler[0]
 
@@ -670,13 +683,15 @@ def get_decompme_compiler_name(
         if fnmatch.fnmatch(compiler_path, path):
             return compiler_name
 
+    available_ids: List[str] = []
     try:
         with urllib.request.urlopen(f"{api_base}/api/compilers") as f:
             json_data = json.load(f)
             available = json_data["compilers"]
             if not isinstance(available, dict):
                 raise Exception("compilers must be a dict")
-            available_ids = available.keys()
+            available = cast(Dict[str, object], available)
+            available_ids = list(available.keys())
     except Exception as e:
         print(f"Failed to request available compilers from decomp.me:\n{e}")
 
@@ -714,7 +729,6 @@ def get_compiler_flags(cmdline: List[str]) -> str:
 
 
 def write_compile_command(compiler: List[str], cwd: str, out_file: str) -> None:
-
     with open(out_file, "w", encoding="utf-8") as f:
         f.write("#!/usr/bin/env bash\n")
         f.write('INPUT="$(realpath "$1")"\n')
@@ -765,14 +779,19 @@ def compile_base(compile_script: str, source: str, c_file: str, out_file: str) -
 
 
 def create_write_settings_toml(
-    func_name: str, compiler_type: str, filename: str
+    func_name: str,
+    compiler_type: str,
+    filename: str,
+    objdump_command: Optional[str] = None,
 ) -> None:
-
     rand_weights = get_default_randomization_weights(compiler_type)
 
     with open(filename, "w", encoding="utf-8") as f:
         f.write(f'func_name = "{func_name}"\n')
-        f.write(f'compiler_type = "{compiler_type}"\n\n')
+        f.write(f'compiler_type = "{compiler_type}"\n')
+        if objdump_command:
+            f.write(f'objdump_command = "{objdump_command}"\n')
+        f.write("\n")
 
         f.write("# uncomment lines below to customize randomization pass weights\n")
         f.write("# see --help=randomization-passes for descriptions\n")
@@ -852,7 +871,7 @@ def main(arg_list: List[str]) -> None:
     )
 
     if not root_dir:
-        print(f"Can't find root dir of project!", file=sys.stderr)
+        print("Can't find root dir of project!", file=sys.stderr)
         sys.exit(1)
 
     settings: Mapping[str, object] = {}
@@ -861,7 +880,7 @@ def main(arg_list: List[str]) -> None:
             with open(args.settings_file) as f:
                 settings = toml.load(f)
         else:
-            print(f"Can't find settings file!", file=sys.stderr)
+            print("Can't find settings file!", file=sys.stderr)
             sys.exit(1)
     else:
         for filename in SETTINGS_FILES:
@@ -887,6 +906,7 @@ def main(arg_list: List[str]) -> None:
     compiler_str = get_setting("compiler_command") or ""
     assembler_str = get_setting("assembler_command") or ""
     asm_prelude_file = get_setting("asm_prelude_file")
+    objdump_command = get_setting("objdump_command")
     if asm_prelude_file is not None:
         asm_prelude_file = os.path.join(root_dir, asm_prelude_file)
     make_flags = args.make_flags
@@ -906,9 +926,9 @@ def main(arg_list: List[str]) -> None:
     print(f"Function name: {func_name}")
 
     if compiler_str or assembler_str:
-        assert (
-            build_system_raw is None
-        ), "Must not specify both build system and compiler/assembler"
+        assert build_system_raw is None, (
+            "Must not specify both build system and compiler/assembler"
+        )
         compiler = shlex.split(compiler_str)
         assembler = shlex.split(assembler_str)
     else:
@@ -970,7 +990,9 @@ def main(arg_list: List[str]) -> None:
 
     try:
         write_to_file(source, base_c_file)
-        create_write_settings_toml(func_name, compiler_type, settings_file)
+        create_write_settings_toml(
+            func_name, compiler_type, settings_file, objdump_command
+        )
         write_compile_command(compiler, root_dir, compile_script)
         write_asm(asm_prelude_file, asm_cont, target_s_file)
         compile_asm(assembler, root_dir, target_s_file, target_o_file)
