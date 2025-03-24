@@ -77,6 +77,20 @@ SETTINGS_FILES = [
 ]
 
 
+def json_dict(
+    data: Mapping[str, object], prop: str, allow_missing: bool = True
+) -> Dict[str, object]:
+    if prop not in data:
+        if allow_missing:
+            return {}
+        else:
+            raise Exception(f'missing "{prop}" property')
+    ret = data[prop]
+    if not isinstance(ret, dict):
+        raise Exception(f'"{prop}" property must be a dict')
+    return cast(Dict[str, object], ret)
+
+
 def formatcmd(cmdline: List[str]) -> str:
     return " ".join(shlex.quote(arg) for arg in cmdline)
 
@@ -371,9 +385,7 @@ PreserveMacros = Tuple[Pattern[str], Callable[[str], str]]
 def build_preserve_macros(
     cwd: str, preserve_regex: Optional[str], settings: Mapping[str, object]
 ) -> Optional[PreserveMacros]:
-    subdata = settings.get("preserve_macros", {})
-    assert isinstance(subdata, dict)
-    subdata = cast(Dict[str, object], subdata)
+    subdata = json_dict(settings, "preserve_macros")
     regexes: List[Tuple[re.Pattern[str], str]] = []
     for regex, value in subdata.items():
         assert isinstance(value, str)
@@ -668,12 +680,8 @@ def prune_and_separate_context(
 def get_decompme_compiler_name(
     compiler: List[str], settings: Mapping[str, object], api_base: str
 ) -> str:
-    decompme_settings = settings.get("decompme", {})
-    assert isinstance(decompme_settings, dict)
-    decompme_settings = cast(Dict[str, object], decompme_settings)
-    compiler_mappings = decompme_settings.get("compilers", {})
-    assert isinstance(compiler_mappings, dict)
-    compiler_mappings = cast(Dict[str, object], compiler_mappings)
+    decompme_settings = json_dict(settings, "decompme")
+    compiler_mappings = json_dict(decompme_settings, "compilers")
 
     compiler_path = compiler[0]
 
@@ -687,10 +695,7 @@ def get_decompme_compiler_name(
     try:
         with urllib.request.urlopen(f"{api_base}/api/compilers") as f:
             json_data = json.load(f)
-            available = json_data["compilers"]
-            if not isinstance(available, dict):
-                raise Exception("compilers must be a dict")
-            available = cast(Dict[str, object], available)
+            available = json_dict(json_data, "compilers", allow_missing=False)
             available_ids = list(available.keys())
     except Exception as e:
         print(f"Failed to request available compilers from decomp.me:\n{e}")
