@@ -728,7 +728,12 @@ def finalize_compile_command(cmdline: List[str]) -> str:
     return " ".join(quoted[:ind] + ['"$INPUT"'] + quoted[ind:] + ["-o", '"$OUTPUT"'])
 
 
-def get_compiler_flags(cmdline: List[str]) -> str:
+def get_compiler_flags(settings: Mapping[str, object], cmdline: List[str]) -> str:
+    decompme_settings = json_dict(settings, "decompme")
+    flags = decompme_settings.get("flags")
+    if flags:
+        assert isinstance(flags, str)
+        return flags
     flags = [b for a, b in zip(cmdline, cmdline[1:]) if a != "|" and b != "|"]
     return " ".join(shlex.quote(flag) for flag in flags)
 
@@ -962,7 +967,7 @@ def main(arg_list: List[str]) -> None:
                     "context": context,
                     "source_code": source,
                     "compiler": compiler_name,
-                    "compiler_flags": settings["decompme"]["flags"] or get_compiler_flags(compiler),
+                    "compiler_flags": get_compiler_flags(settings, compiler),
                     "diff_label": func_name,
                 }
             ).encode("ascii")
