@@ -962,7 +962,7 @@ def main(arg_list: List[str]) -> None:
                     "context": context,
                     "source_code": source,
                     "compiler": compiler_name,
-                    "compiler_flags": get_compiler_flags(compiler),
+                    "compiler_flags": settings["decompme"]["flags"] or get_compiler_flags(compiler),
                     "diff_label": func_name,
                 }
             ).encode("ascii")
