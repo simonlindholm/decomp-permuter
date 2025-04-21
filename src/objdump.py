@@ -21,7 +21,7 @@ skip_bl_delay_slots = False
 
 skip_lines = 1
 re_int = re.compile(r"-?[0-9]+")
-re_int_full = re.compile(r"\b-?[0-9]+\b")
+re_int_full = re.compile(r"(?<![0-9a-zA-Z_])-?[0-9]+\b")
 
 
 @dataclass
