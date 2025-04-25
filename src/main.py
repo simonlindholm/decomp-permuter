@@ -36,9 +36,6 @@ from .helpers import (
     trim_source,
 )
 
-MIN_PRIO = 0.01
-MAX_PRIO = 2.0
-
 from .permuter import (
     EvalError,
     EvalResult,
@@ -55,6 +52,9 @@ from .printer import Printer
 from .profiler import Profiler
 from .randomizer import RANDOMIZATION_PASSES
 from .scorer import Scorer
+
+MIN_PRIO = 0.01
+MAX_PRIO = 2.0
 
 # The probability that the randomizer continues transforming the output it
 # generated last time.
@@ -85,6 +85,7 @@ class Options:
     spawn_new: bool = False
     debug_mode: bool = False
     speed: int = 100
+    ign_branch_targets: bool = False
 
 
 def restricted_float(lo: float, hi: float) -> Callable[[str], float]:
@@ -158,7 +159,7 @@ def post_score(
         context.internal_errors += 1
         if result.exc_str is not None:
             if result.exc_str in context.internal_error_stack_traces:
-                return False
+                return None, False
             context.internal_error_stack_traces.add(result.exc_str)
             context.printer.print(
                 "internal permuter failure.", permuter, who, keep_progress=True
@@ -210,7 +211,10 @@ def post_score(
             color = "\u001b[32;1m"
             msg = f"found new best score! ({score_value} vs {permuter.base_score})"
             pct_threshold = 0.01
-            if score_value < (1 - pct_threshold) * former_best and context.options.spawn_new:
+            if (
+                score_value < (1 - pct_threshold) * former_best
+                and context.options.spawn_new
+            ):
                 msg += f" - over {pct_threshold * 100}% improvement! spawning new Permuter..."
                 new_permuter = permuter.create_fork(result)
         elif score_value == former_best:
@@ -289,7 +293,9 @@ def multiprocess_worker(
                 start = time.time()
 
                 result = permuter.try_eval_candidate(seed)
-                if isinstance(result, CandidateResult) and permuter.should_output(result):
+                if isinstance(result, CandidateResult) and permuter.should_output(
+                    result
+                ):
                     permuter.record_result(result)
 
                 if permuter.speed != 100:
@@ -342,7 +348,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         force_seed = 0 if len(seed_parts) == 1 else seed_parts[0]
 
     name_counts: Dict[str, int] = {}
-    for i, d in enumerate(options.directories):
+    for d in options.directories:
         heartbeat()
         compile_cmd = os.path.join(d, "compile.sh")
         target_o = os.path.join(d, "target.o")
@@ -386,11 +392,16 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
         compiler = Compiler(
             compile_cmd, show_errors=options.show_errors, debug_mode=options.debug_mode
         )
+
+        objdump_command = json_prop(settings, "objdump_command", str, "") or None
+
         scorer = Scorer(
             target_o,
             stack_differences=options.stack_differences,
             algorithm=options.algorithm,
             debug_mode=options.debug_mode,
+            ign_branch_targets=options.ign_branch_targets,
+            objdump_command=objdump_command,
         )
         c_source = preprocess(base_c)
 
@@ -460,9 +471,6 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
                 sleep_time = (end - start) * ((100 / permuter.speed) - 1)
                 time.sleep(sleep_time)
     else:
-        context.seed_iterators = [
-            permuter.seed_iterator() for permuter in context.permuters
-        ]
         seed_iterators_remaining = len(context.seed_iterators)
         next_iterator_index = 0
 
@@ -505,13 +513,17 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
 
         # Start local worker threads
         processes: List[multiprocessing.Process] = []
-
         for i in range(options.threads):
             context.new_permuter_queues.append(Queue())
 
             p = multiprocessing.Process(
                 target=multiprocess_worker,
-                args=(context.permuters, worker_task_queue, feedback_queue, context.new_permuter_queues[i]),
+                args=(
+                    context.permuters,
+                    worker_task_queue,
+                    feedback_queue,
+                    context.new_permuter_queues[i],
+                ),
             )
             p.start()
             processes.append(p)
@@ -534,7 +546,9 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             if source == -1:
                 active_workers -= 1
 
-        def process_result(work: WorkDone, who: Optional[str]) -> Tuple[Optional[Permuter], bool]:
+        def process_result(
+            work: WorkDone, who: Optional[str]
+        ) -> Tuple[Optional[Permuter], bool]:
             permuter = context.permuters[work.perm_index]
             return post_score(context, permuter, work.result, who)
 
@@ -587,7 +601,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
                 static_assert_unreachable(feedback)
 
         # Signal workers to stop.
-        for i in range(active_workers):
+        for _i in range(active_workers):
             worker_task_queue.put(Finished())
 
         for conn in net_conns:
@@ -632,7 +646,7 @@ class PrintRandomizationPassesAction(argparse.Action):
         values: object,
         option_string: Optional[str] = None,
     ) -> None:
-        weights = get_default_randomization_weights("base")
+        # TODO include weights from get_default_randomization_weights("base")
         for method in RANDOMIZATION_PASSES:
             print(f"{method.__name__}:")
             docs = (method.__doc__ or "").strip()
@@ -801,10 +815,18 @@ def main() -> None:
         "--speed",
         dest="speed",
         type=int,
-        help="Speed% to run at to reduce resources. Default 100",
-        choices=range(1,101),
+        help="Speed%% to run at to reduce resources. Default 100",
+        choices=range(1, 101),
         metavar="[1-100]",
         default=100,
+    )
+    parser.add_argument(
+        "--no-ignore-branch-targets",
+        dest="ign_branch_targets",
+        action="store_false",
+        help="Take branch targets into account when computing the score. "
+        "Not recommended: it increases score volatility in combination "
+        "with insertions/deletions.",
     )
 
     args = parser.parse_args()
@@ -836,6 +858,7 @@ def main() -> None:
         spawn_new=args.spawn_new,
         debug_mode=args.debug_mode,
         speed=args.speed,
+        ign_branch_targets=args.ign_branch_targets,
     )
 
     run(options)

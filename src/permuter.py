@@ -178,6 +178,7 @@ class Permuter:
             base_score=result.score,
             base_hash=result.hash,
             base_source=self.base_source,
+            speed=self.speed,
         )
 
         return ret

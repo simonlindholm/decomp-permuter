@@ -14,7 +14,7 @@ import sys
 import time
 import threading
 import traceback
-from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
+from typing import Callable, Dict, List, Optional
 
 from ...helpers import static_assert_unreachable
 from ..core import CancelToken, ServerError, read_config
