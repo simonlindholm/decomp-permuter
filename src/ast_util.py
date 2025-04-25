@@ -35,8 +35,10 @@ def to_c_raw(node: ca.Node) -> str:
     return source
 
 
-def to_c(node: ca.Node, *, from_import: bool = False) -> str:
+def to_c(node: ca.Node, *, from_import: bool = False, raw_source: bool = False) -> str:
     source = to_c_raw(node) if from_import else PatchedCGenerator().visit(node)
+    if raw_source:
+        return source
     return process_pragmas(source)
 
 
