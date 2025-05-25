@@ -16,7 +16,7 @@ To setup your own copy of the controller server:
   to run `compile.sh` scripts within. For an example Dockerfile that works for
   this, see https://github.com/decompals/pah-docker.
 - Start the server with:
-  ```
+```
 ./target/release/pahserver run --listen-on 0.0.0.0:<port> --config config.toml --db path/to/database.json
 ```
 and configure the system to run this at startup, e.g. via a systemd service:
