@@ -63,3 +63,4 @@ perm_dummy_comma_expr = 0.5
 perm_add_self_assignment = 0.5
 perm_duplicate_assignment = 0.5
 perm_pad_var_decl = 0.5
+perm_inline = 0.5
