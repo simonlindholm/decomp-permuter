@@ -971,7 +971,12 @@ def main(arg_list: List[str]) -> None:
                     "diff_label": func_name,
                 }
             ).encode("ascii")
-            with urllib.request.urlopen(f"{api_base}/api/scratch", post_data) as f:
+            req = urllib.request.Request(
+                f"{api_base}/api/scratch",
+                data=post_data,
+                headers={"User-Agent": "decomp-permuter"},
+            )
+            with urllib.request.urlopen(req) as f:
                 resp = f.read()
                 json_data: Dict[str, str] = json.loads(resp)
                 if "slug" in json_data:
