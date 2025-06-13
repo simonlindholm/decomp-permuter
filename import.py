@@ -974,7 +974,7 @@ def main(arg_list: List[str]) -> None:
             req = urllib.request.Request(
                 f"{api_base}/api/scratch",
                 data=post_data,
-                headers={"User-Agent": "Decomp-Permuter"},
+                headers={"User-Agent": "decomp-permuter"},
             )
             with urllib.request.urlopen(req) as f:
                 resp = f.read()
