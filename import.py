@@ -693,7 +693,7 @@ def get_decompme_compiler_name(
 
     available_ids: List[str] = []
     try:
-        with urllib.request.urlopen(f"{api_base}/api/compilers") as f:
+        with urllib.request.urlopen(f"{api_base}/api/compiler") as f:
             json_data = json.load(f)
             available = json_dict(json_data, "compilers", allow_missing=False)
             available_ids = list(available.keys())
