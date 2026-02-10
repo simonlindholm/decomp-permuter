@@ -195,6 +195,7 @@ X86_BRANCH_INSTRUCTIONS = {
     "jpo",
     "js",
     "jz",
+    "call",
 }
 
 MIPS_SETTINGS: ArchSettings = ArchSettings(
@@ -277,7 +278,7 @@ X86_SETTINGS: ArchSettings = ArchSettings(
     # This destroys the objdump output processor logic, so we avoid this.
     arguments=["-d","--no-show-raw-insn"],
     branch_instructions=X86_BRANCH_INSTRUCTIONS,
-    branch_likely_instructions=X86_BRANCH_INSTRUCTIONS.union({"mov", "call"}),
+    branch_likely_instructions=set(),
 )
 
 
@@ -608,7 +609,15 @@ def simplify_objdump(
 
         row = re.sub(arch.re_comment, "", row)
         row = row.rstrip()
-        row = "\t".join(row.split("\t")[2:])  # [20:]
+
+        tabs = row.split("\t")
+
+        # TODO: use --no-show-raw-insn for all arches
+        if "--no-show-raw-insn" in arch.arguments:
+            row = "\t".join(tabs[1:])
+        else:
+            row = "\t".join(tabs[2:])
+
         if not row:
             continue
 
