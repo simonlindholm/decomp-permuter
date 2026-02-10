@@ -128,6 +128,75 @@ ARM32_BRANCH_INSTRUCTIONS = {
     for suffix in ARM32_SUFFIXES
 }
 
+X86_BRANCH_INSTRUCTIONS = {
+    "jmp",
+    "ljmp",
+    "ja",
+    "jae",
+    "jb",
+    "jbe",
+    "jc",
+    "jcxz",
+    "jecxz",
+    "jrcxz",
+    "je",
+    "jg",
+    "jge",
+    "jl",
+    "jle",
+    "jna",
+    "jnae",
+    "jnb",
+    "jnbe",
+    "jnc",
+    "jne",
+    "jng",
+    "jnge",
+    "jnl",
+    "jnle",
+    "jno",
+    "jnp",
+    "jns",
+    "jnz",
+    "jo",
+    "jp",
+    "jpe",
+    "jpo",
+    "js",
+    "jz",
+    "ja",
+    "jae",
+    "jb",
+    "jbe",
+    "jc",
+    "je",
+    "jz",
+    "jg",
+    "jge",
+    "jl",
+    "jle",
+    "jna",
+    "jnae",
+    "jnb",
+    "jnbe",
+    "jnc",
+    "jne",
+    "jng",
+    "jnge",
+    "jnl",
+    "jnle",
+    "jno",
+    "jnp",
+    "jns",
+    "jnz",
+    "jo",
+    "jp",
+    "jpe",
+    "jpo",
+    "js",
+    "jz",
+}
+
 MIPS_SETTINGS: ArchSettings = ArchSettings(
     name="mips",
     re_comment=re.compile(r"<.*?>"),
@@ -185,6 +254,32 @@ ARM32_SETTINGS: ArchSettings = ArchSettings(
     branch_likely_instructions=set(),
 )
 
+X86_SETTINGS: ArchSettings = ArchSettings(
+    name="x86",
+    re_comment=re.compile(r"<.*>"),
+    re_includes_sp=re.compile(r"\b(\%esp)\b"),
+    sp_ref_insns=["add", "sub"],
+    # Includes:
+    #   - (e)a-d(x,l,h)
+    #   - (e)s,d,b(i,p)(l)
+    #   - cr0-7
+    #   - x87 st
+    #   - MMX, SSE vector registers
+    #   - cursed registers: eal ebl ebh edl edh...
+    re_reg=re.compile(
+        r"\%?\b(e?(?:(?:[sd]i|[sb]p)l?|[abcd][xhl])|[cdesfg]s|cr[0-7]|x?mm[0-7]|st)\b"
+    ),
+    re_sprel=re.compile(r"-?(0x[0-9a-f]+|[0-9]+)(?=\((%ebp|%esi)\))"),
+    reloc_str="R_386_",
+    executable=["objdump"],
+    # The x86 architecture has a variable instruction length. The raw bytes of
+    # an instruction as displayed by objdump can line wrap if it's long enough.
+    # This destroys the objdump output processor logic, so we avoid this.
+    arguments=["-d","--no-show-raw-insn"],
+    branch_instructions=X86_BRANCH_INSTRUCTIONS,
+    branch_likely_instructions=X86_BRANCH_INSTRUCTIONS.union({"mov", "call"}),
+)
+
 
 def get_arch(o_file: str) -> ArchSettings:
     # https://refspecs.linuxfoundation.org/elf/gabi4+/ch4.eheader.html
@@ -194,6 +289,8 @@ def get_arch(o_file: str) -> ArchSettings:
         arch = (data[18] << 8) + data[19]
     else:
         arch = (data[19] << 8) + data[18]
+    if arch == 3:
+        return X86_SETTINGS
     if arch == 8:
         return MIPS_SETTINGS
     if arch == 20:
@@ -314,6 +411,155 @@ def process_arm32_reloc(reloc_row: str, prev: str, repl: str) -> str:
     return repl
 
 
+def process_x86_reloc(reloc_row: str, prev: str, repl: str) -> str:
+    # ignore WRTSEG + FP 16-bit fixup
+    ignore = [
+        "WRTSEG",
+        "FIWRQQ",
+        "FIDRQQ",
+        "FIERQQ",
+        "FICRQQ",
+        "FISRQQ",
+        "FIARQQ",
+        "FIFRQQ",
+        "FIGRQQ",
+        "FJCRQQ",
+        "FJSRQQ",
+        "FJARQQ",
+        "FJFRQQ",
+        "FJGRQQ",
+    ]
+
+    if any(x in reloc_row for x in ignore):
+        return repl
+
+    repl = reloc_row.split()[-1]
+    mnemonic, args = prev.split(maxsplit=1)
+    offset = False
+    addr_imm = None
+
+    # Calls
+
+    # Example lcall $0x0, $0x00
+    if "lcall" in mnemonic:
+        addr_imm = re.search(r".*", args)
+
+    # Example call a2f
+    # Example call *0
+    # Example jmp  64
+    elif mnemonic in X86_BRANCH_INSTRUCTIONS or "call" in mnemonic:
+        addr_imm = re.search(r"(^|(?<=\*)|(?<=\*\%cs\:))[0-9a-f]+(?!x)", args)
+
+    # Direct use of reloc
+    # Match 0x0 part to replace
+
+    # Example %edi,0
+    # Example movb $0x0,0x0
+    if not addr_imm:
+        addr_imm = re.search(r"(?:0x)?(?<![1-9])0$", args)
+
+    # Example movb $0x0,0x0(%si)
+    if not addr_imm:
+        addr_imm = re.search(r"(?<=,)(?:0x)?0+(?=\(.*\))", args)
+
+    # Example 0x0,0x8(%edi)
+    # Example 0x0,%edi
+    # Example *0x0(,%edx,4)
+    # Example $0x0,0x4(%edi)
+    if not addr_imm:
+        addr_imm = re.search(r"(^\$?|(?<=\*))(?:0x)?0(?!x)", args)
+
+    # Offset value
+
+    # Example movb $0x0,0x4
+    # Example %edi,4
+    if not addr_imm:
+        addr_imm = re.search(r"(?:-)?(?:0x)?[0-9a-f]+$", args)
+        offset = True
+
+    # Example movb $0x0,0x4(%si)
+    if not addr_imm:
+        addr_imm = re.search(r"(?<=,)(?:-)?(?:0x)?[0-9a-f]+", args)
+        offset = True
+
+    # Example 0x4,%eax
+    # Example $0x4,%eax
+    if not addr_imm:
+        addr_imm = re.search(r"(^|(?<=\*)|(?:\$))(?:-)?(?:0x)?[0-9a-f]+", args)
+        offset = True
+
+    if not addr_imm:
+        addr_imm = re.search(
+            r"(^|(?<=\*)|(?<=\%[fgdecs]s\:))(?:-)?(?:0x)?[0-9a-f]+", args
+        )
+        offset = True
+
+    if not addr_imm:
+        assert False, f"failed to find address immediate for line '{prev}'"
+
+    start, end = addr_imm.span()
+
+    if "R_386_NONE" in reloc_row:
+        pass
+    elif "R_386_32" in reloc_row:
+        pass
+    elif "R_386_PC32" in reloc_row:
+        pass
+    elif "R_386_16" in reloc_row:
+        pass
+    elif "R_386_PC16" in reloc_row:
+        pass
+    elif "R_386_8" in reloc_row:
+        pass
+    elif "R_386_PC8" in reloc_row:
+        pass
+    elif "dir32" in reloc_row:
+        if "+" in repl:
+            repl = repl.split("+")[0]
+    elif "DISP32" in reloc_row:
+        pass
+    elif "OFF16" in reloc_row:
+        pass
+    elif "OFF32" in reloc_row:
+        pass
+    elif "OFFPC16" in reloc_row:
+        if "+" in repl:
+            repl = repl.split("+")[0]
+    elif "OFFPC32" in reloc_row:
+        if "+" in repl:
+            repl = repl.split("+")[0]
+    elif "R_386_GOT32" in reloc_row:
+        repl = f"%got({repl})"
+    elif "R_386_PLT32" in reloc_row:
+        repl = f"%plt({repl})"
+    elif "R_386_RELATIVE" in reloc_row:
+        repl = f"%rel({repl})"
+    elif "R_386_GOTOFF" in reloc_row:
+        repl = f"%got({repl})"
+    elif "R_386_GOTPC" in reloc_row:
+        repl = f"%got({repl})"
+    elif "R_386_32PLT" in reloc_row:
+        repl = f"%plt({repl})"
+    elif "FAR16" in reloc_row:
+        if "+" in repl:
+            repl = repl.split("+")[0]
+    elif "SEG" in reloc_row:
+        pass
+    else:
+        assert False, f"unknown relocation type '{reloc_row}' for line '{prev}'"
+
+    if offset:
+        of = addr_imm.group()
+        if of[0] == "$":
+            of = of[1:]
+        if of[0] == "-":
+            repl = f"{repl}{of}"
+        else:
+            repl = f"{repl}+{of}"
+
+    return repl
+
+
 def process_reloc(
     reloc_row: str,
     prev: str,
@@ -336,6 +582,8 @@ def process_reloc(
         new_repl = process_ppc_reloc(reloc_row, prev, repl)
     elif "R_ARM_" in reloc_row:
         new_repl = process_arm32_reloc(reloc_row, prev, repl)
+    elif "R_386_" in reloc_row:
+        new_repl = process_x86_reloc(reloc_row, prev, repl)
     else:
         raise Exception(f"unknown relocation type: {reloc_row}")
 
