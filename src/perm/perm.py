@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Tuple, TypeVar, Optional
 import math
 
-from pycparser import c_ast as ca
+from perm_pycparser import c_ast as ca
 
 from ..ast_util import Statement
 

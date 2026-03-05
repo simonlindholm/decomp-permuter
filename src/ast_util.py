@@ -6,8 +6,8 @@ from random import Random
 import re
 from typing import Callable, Dict, List, Optional, Set, Tuple, TYPE_CHECKING, Union
 
-from pycparser import c_ast as ca, c_generator
-from pycparser.c_parser import CParser, ParseError
+from perm_pycparser import c_ast as ca, c_generator
+from perm_pycparser.c_parser import CParser, ParseError
 
 from .error import CandidateConstructionFailure
 from .ast_types import SimpleType, set_decl_name
@@ -277,8 +277,10 @@ def make_decl(
     align: Optional[List[ca.Alignas]] = None,
     storage: Optional[List[str]] = None,
     funcspec: Optional[List[str]] = None,
+    gcc_attributes: Optional[List[ca.GccAttribute]] = None,
     init: Optional[Union[Expression, ca.InitList]] = None,
     bitsize: Optional[Expression] = None,
+    asmlabel: Optional[ca.Constant] = None,
 ) -> ca.Decl:
     type = copy.deepcopy(type)
     decl = ca.Decl(
@@ -287,9 +289,11 @@ def make_decl(
         align=align or [],
         storage=storage or [],
         funcspec=funcspec or [],
+        gcc_attributes=gcc_attributes or [],
         type=type,
         init=init,
         bitsize=bitsize,
+        asmlabel=asmlabel,
     )
     set_decl_name(decl)
     return decl
@@ -410,7 +414,7 @@ def prune_ast(fn: ca.FuncDef, ast: ca.FileAST) -> int:
         if isinstance(tp, ca.FuncDecl):
             return
         inner_type = tp.type if isinstance(tp, ca.TypeDecl) else tp
-        if isinstance(inner_type, ca.IdentifierType):
+        if isinstance(inner_type, (ca.IdentifierType, ca.Typeof)):
             return
         if inner_type.name:
             edges[inner_type.name].append(i)
@@ -511,6 +515,8 @@ def prune_ast(fn: ca.FuncDef, ast: ca.FileAST) -> int:
                     if all(name in can_fwd_declare_typedef for name in tp.names):
                         need_fwd_decl_typedef.extend(tp.names)
                         return
+                elif isinstance(tp, ca.Typeof):
+                    pass
                 elif tp.name and tp.name in can_fwd_declare_tagged:
                     if not (tp.values if isinstance(tp, ca.Enum) else tp.decls):
                         need_fwd_decl_tagged.append(tp.name)

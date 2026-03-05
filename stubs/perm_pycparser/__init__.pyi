@@ -10,7 +10,7 @@
 __all__ = ["c_parser", "c_ast"]
 __version__ = "2.19"
 
-from typing import List, Optional, Union
+from typing import Any, List, Union
 from . import c_ast
 from .c_parser import CParser
 
@@ -22,5 +22,6 @@ def parse_file(
     use_cpp: bool = False,
     cpp_path: str = "cpp",
     cpp_args: str = "",
-    parser: Optional[CParser] = None,
+    debug: bool = False,
+    parser: Any = None,
 ) -> c_ast.FileAST: ...

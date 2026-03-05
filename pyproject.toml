@@ -1,2 +1,5 @@
 [tool.pyright]
 stubPath = "stubs/"
+
+[tool.black]
+force-exclude = "/perm_pycparser/"

@@ -18,7 +18,7 @@ from typing import (
     Union,
 )
 
-from pycparser import c_ast as ca
+from perm_pycparser import c_ast as ca
 
 from . import ast_util
 from .ast_util import Block, Indices, Statement, Expression, to_c_raw
@@ -355,6 +355,7 @@ def visit_replace(top_node: ca.Node, callback: Callable[[ca.Node, bool], Any]) -
                 ca.ArrayDecl,
                 ca.Typename,
                 ca.IdentifierType,
+                ca.Typeof,
                 ca.Struct,
                 ca.Union,
                 ca.Enum,
@@ -374,6 +375,11 @@ def visit_replace(top_node: ca.Node, callback: Callable[[ca.Node, bool], Any]) -
                 ca.InitList,
                 ca.NamedInitializer,
                 ca.ParamList,
+                ca.GccAttribute,
+                ca.GccAttributeStatement,
+                ca.Asm,
+                ca.AsmOperand,
+                ca.Range,
             ),
         ):
             pass
@@ -1816,7 +1822,7 @@ def perm_cast_simple(
 
     # Surround the original expression with a cast to the chosen type
     typedecl = ca.TypeDecl(None, [], [], ca.IdentifierType(new_type))
-    new_expr = ca.Cast(ca.Typename(None, [], None, typedecl), expr)
+    new_expr = ca.Cast(ca.Typename(None, [], None, [], typedecl), expr)
     replace_node(fn.body, expr, new_expr)
 
 

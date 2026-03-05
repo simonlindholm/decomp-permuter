@@ -1,0 +1,4 @@
+Vendored copy of https://github.com/eliben/pycparser, with some patches to accept various C syntax extensions.
+
+This is a copy of m2c's m2c_pycparser/ directory with the only difference being a renaming (to avoid conflicts
+if both permuter and m2c are installed). Latest m2c commit: 899152ddb6ecab9e3cc43b6f34b351417b57fd3e

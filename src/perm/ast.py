@@ -5,7 +5,7 @@ from .perm import EvalState, Perm
 from ..ast_util import Block, Statement
 from ..error import CandidateConstructionFailure
 
-from pycparser import c_ast as ca
+from perm_pycparser import c_ast as ca
 
 
 class _Done(Exception):

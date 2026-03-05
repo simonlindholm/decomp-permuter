@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import sys
 
-from pycparser import parse_file, c_generator
+from perm_pycparser import parse_file, c_generator
 
 fname = "test.c" if len(sys.argv) < 2 else sys.argv[1]
 

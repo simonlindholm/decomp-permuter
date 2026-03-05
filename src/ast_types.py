@@ -10,7 +10,7 @@ For the purposes of the randomizer these restrictions are acceptable."""
 from dataclasses import dataclass, field
 from typing import Union, Dict, Set, List
 
-from pycparser import c_ast as ca
+from perm_pycparser import c_ast as ca
 
 Type = Union[ca.PtrDecl, ca.ArrayDecl, ca.TypeDecl, ca.FuncDecl]
 SimpleType = Union[ca.PtrDecl, ca.TypeDecl]

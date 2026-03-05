@@ -15,7 +15,7 @@ This tool supports MIPS (compiled by IDO, possibly GCC), PowerPC, and ARM32 asse
 `./permuter.py directory/` runs the permuter; see below for the meaning of the directory.
 Pass `-h` to see possible flags. `-j` is suggested (enables multi-threaded mode).
 
-You'll first need to install a couple of prerequisites: `python3 -m pip install pycparser pynacl toml Levenshtein` (also `dataclasses` if on Python 3.6 or below)
+You'll first need to install a couple of prerequisites: `python3 -m pip install pynacl toml Levenshtein` (also `dataclasses` if on Python 3.6 or below)
 `pynacl` is optional and only necessary for the "permuter@home" networking feature.
 `Levenshtein` is optional and only necessary for using the Levenshtein diff algorithm (difflib is used by default).
 
@@ -50,7 +50,7 @@ The .c file may be modified with any of the following macros which affect manual
 - `PERM_FORCE_SAMELINE(code)` expands to `code`, but joined to a single line after round-tripping through the C parser library (which normally puts statements on separate lines). Can be useful for IDO where same-lineness affects codegen.
 - `PERM_LINESWAP(lines)` expands to a permutation of the ordered set of non-whitespace lines (split by `\n`). Each line must contain zero or more complete C statements. (For incomplete statements use `PERM_LINESWAP_TEXT`, which is slower because it has to repeatedly parse C code.)
 - `PERM_INT(lo, hi)` expands to an integer between `lo` and `hi` (which must be constants).
-- `PERM_IGNORE(code)` expands to `code`, without passing it through the C parser library (pycparser)/randomizer. This can be used to avoid parse errors for non-standard C, e.g. `asm` blocks.
+- `PERM_IGNORE(code)` expands to `code`, without passing it through the C parser library (pycparser)/randomizer. This can be used to avoid parse errors for non-standard C, e.g. GCC extensions (most should be supported though), or for trying to use the permuter on C++ code.
 - `PERM_PRETEND(code)` expands to `code` for the purpose of the C parser/randomizer, but gets removed afterwards. This can be used together with `PERM_IGNORE` to enable the permuter to deal with input it isn't designed for (e.g. inline functions, C++, non-code).
 - `PERM_ONCE([key,] code)` expands to either `code` or to nothing, such that each unique key gets expanded exactly once. `key` defaults to `code`. For example, `PERM_ONCE(a;) b; PERM_ONCE(a;)` expands to either `a; b;` or `b; a;`.
 
