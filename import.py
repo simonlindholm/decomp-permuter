@@ -285,7 +285,15 @@ def fixup_build_command(
         assembler = res[ind1 + 1 : ind2]
         compiler_args = res[ind2 + 1 :]
         while compiler and compiler[0].startswith("-"):
-            compiler.pop(0)
+            flag = compiler.pop(0)
+            if flag in (
+                "--input-enc",
+                "--output-enc",
+                "--asm-prelude",
+                "--convert-statics",
+                "--keep-preprocessed",
+            ):
+                compiler.pop(0)
         res = compiler + compiler_args
     except ValueError:
         pass
