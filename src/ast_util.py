@@ -553,7 +553,17 @@ def prune_ast(fn: ca.FuncDef, ast: ca.FileAST) -> int:
             assert item.name in can_fwd_declare_typedef
             assert isinstance(item.type, ca.TypeDecl)
             assert isinstance(item.type.type, (ca.Struct, ca.Union, ca.Enum))
-            fwd_declare(item.type.type)
+            orig_tp = item.type.type
+            if isinstance(orig_tp, ca.Struct):
+                new_tp = ca.Struct(orig_tp.name, None, orig_tp.coord)
+            elif isinstance(orig_tp, ca.Union):
+                new_tp = ca.Union(orig_tp.name, None, orig_tp.coord)
+            else:
+                new_tp = ca.Enum(orig_tp.name, None, orig_tp.coord)
+            if not new_tp.name:
+                temp_id += 1
+                new_tp.name = f"_PermuterTemp{temp_id}"
+            item.type.type = new_tp
         elif (
             isinstance(item, ca.Decl)
             and isinstance(item.type, (ca.Struct, ca.Union, ca.Enum))
