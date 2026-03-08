@@ -554,6 +554,7 @@ def prune_ast(fn: ca.FuncDef, ast: ca.FileAST) -> int:
             assert isinstance(item.type, ca.TypeDecl)
             assert isinstance(item.type.type, (ca.Struct, ca.Union, ca.Enum))
             item.type.type = copy.deepcopy(item.type.type)
+            fwd_declare(item.type.type)
         elif (
             isinstance(item, ca.Decl)
             and isinstance(item.type, (ca.Struct, ca.Union, ca.Enum))
