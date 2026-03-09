@@ -538,10 +538,6 @@ def prune_ast(fn: ca.FuncDef, ast: ca.FileAST) -> int:
     temp_id = 0
 
     def fwd_declare(tp: Union[ca.Struct, ca.Union, ca.Enum]) -> None:
-        nonlocal temp_id
-        if not tp.name:
-            temp_id += 1
-            tp.name = f"_PermuterTemp{temp_id}"
         if isinstance(tp, (ca.Struct, ca.Union)):
             tp.decls = None
         elif isinstance(tp, ca.Enum):
@@ -558,6 +554,10 @@ def prune_ast(fn: ca.FuncDef, ast: ca.FileAST) -> int:
             assert item.name in can_fwd_declare_typedef
             assert isinstance(item.type, ca.TypeDecl)
             assert isinstance(item.type.type, (ca.Struct, ca.Union, ca.Enum))
+            if not item.type.type.name:
+                temp_id += 1
+                item.type.type.name = f"_PermuterTemp{temp_id}"
+            item.type.type = copy.deepcopy(item.type.type)
             fwd_declare(item.type.type)
         elif (
             isinstance(item, ca.Decl)
