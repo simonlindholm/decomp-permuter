@@ -397,30 +397,6 @@ def deduplicate_typedefs(ast: ca.FileAST) -> None:
     """Ensure multi-name typedefs sharing an anonymous struct/union/enum emit a
     single named definition instead of duplicating the body for each typedef."""
 
-    def _get_inner_struct(
-        tp: "Union[ca.Type, ca.Struct, ca.Union, ca.Enum]",
-    ) -> Optional[Union[ca.Struct, ca.Union, ca.Enum]]:
-        """Walk through PtrDecl/ArrayDecl/TypeDecl wrappers to find a
-        Struct, Union, or Enum node, if any."""
-        if isinstance(tp, (ca.Struct, ca.Union, ca.Enum)):
-            return tp
-        while not isinstance(tp, ca.TypeDecl):
-            tp = tp.type
-        inner = tp.type
-        if isinstance(inner, (ca.Struct, ca.Union, ca.Enum)):
-            return inner
-        return None
-
-    def _set_inner_struct(
-        tp: "Union[ca.Type, ca.Struct, ca.Union, ca.Enum]",
-        new_inner: Union[ca.Struct, ca.Union, ca.Enum],
-    ) -> None:
-        """Replace the innermost Struct/Union/Enum in the type chain."""
-        assert not isinstance(tp, (ca.Struct, ca.Union, ca.Enum))
-        while not isinstance(tp, ca.TypeDecl):
-            tp = tp.type
-        tp.type = new_inner
-
     temp_shared_id = 0
     seen_structs: Set[int] = set()
     for item in ast.ext:
@@ -428,8 +404,13 @@ def deduplicate_typedefs(ast: ca.FileAST) -> None:
             continue
         if isinstance(item.type, (ca.Struct, ca.Union, ca.Enum)):
             continue
-        inner = _get_inner_struct(item.type)
-        if inner is None:
+        # Walk through PtrDecl/ArrayDecl/TypeDecl wrappers to find a
+        # Struct, Union, or Enum node, if any.
+        tp = item.type
+        while not isinstance(tp, ca.TypeDecl):
+            tp = tp.type
+        inner = tp.type
+        if not isinstance(inner, (ca.Struct, ca.Union, ca.Enum)):
             continue
         if isinstance(inner, ca.Enum):
             has_body = inner.values is not None
@@ -447,7 +428,7 @@ def deduplicate_typedefs(ast: ca.FileAST) -> None:
                 fwd.values = None
             else:
                 fwd.decls = None
-            _set_inner_struct(item.type, fwd)
+            tp.type = fwd
         else:
             seen_structs.add(obj_id)
 
