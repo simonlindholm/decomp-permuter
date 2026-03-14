@@ -395,34 +395,42 @@ def prune_ast(fn: ca.FuncDef, ast: ca.FileAST) -> int:
     """Prune away unnecessary parts of the AST, to reduce overhead from serialization
     and from the compiler's C parser."""
 
-    temp_shared_id = 0
-    seen_structs: Set[int] = set()
-
-    def _get_inner_struct(tp: "ca.Type") -> Optional[Union[ca.Struct, ca.Union]]:
+    def _get_inner_struct(
+        tp: "Union[ca.Type, ca.Struct, ca.Union, ca.Enum]",
+    ) -> Optional[Union[ca.Struct, ca.Union, ca.Enum]]:
         """Walk through PtrDecl/ArrayDecl/TypeDecl wrappers to find a
-        Struct or Union node, if any."""
+        Struct, Union, or Enum node, if any."""
+        if isinstance(tp, (ca.Struct, ca.Union, ca.Enum)):
+            return tp
         while not isinstance(tp, ca.TypeDecl):
             tp = tp.type
         inner = tp.type
-        if isinstance(inner, (ca.Struct, ca.Union)):
+        if isinstance(inner, (ca.Struct, ca.Union, ca.Enum)):
             return inner
         return None
 
     def _set_inner_struct(
-        tp: "ca.Type", new_inner: Union[ca.Struct, ca.Union]
+        tp: "Union[ca.Type, ca.Struct, ca.Union, ca.Enum]",
+        new_inner: Union[ca.Struct, ca.Union, ca.Enum],
     ) -> None:
-        """Replace the innermost Struct/Union in the type chain."""
+        """Replace the innermost Struct/Union/Enum in the type chain."""
+        assert not isinstance(tp, (ca.Struct, ca.Union, ca.Enum))
         while not isinstance(tp, ca.TypeDecl):
             tp = tp.type
         tp.type = new_inner
 
+    temp_shared_id = 0
+    seen_structs: Set[int] = set()
     for item in ast.ext:
         if not isinstance(item, (ca.Typedef, ca.Decl)):
             continue
         inner = _get_inner_struct(item.type)
         if inner is None:
             continue
-        has_body = inner.decls is not None
+        if isinstance(inner, ca.Enum):
+            has_body = inner.values is not None
+        else:
+            has_body = inner.decls is not None
         if not has_body:
             continue
         obj_id = id(inner)
@@ -431,7 +439,10 @@ def prune_ast(fn: ca.FuncDef, ast: ca.FileAST) -> int:
                 temp_shared_id += 1
                 inner.name = f"_PermuterAnon{temp_shared_id}"
             fwd = copy.deepcopy(inner)
-            fwd.decls = None
+            if isinstance(fwd, ca.Enum):
+                fwd.values = None
+            else:
+                fwd.decls = None
             _set_inner_struct(item.type, fwd)
         else:
             seen_structs.add(obj_id)
