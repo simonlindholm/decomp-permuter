@@ -395,6 +395,49 @@ def prune_ast(fn: ca.FuncDef, ast: ca.FileAST) -> int:
     """Prune away unnecessary parts of the AST, to reduce overhead from serialization
     and from the compiler's C parser."""
 
+    temp_shared_id = 0
+    seen_structs: Dict[int, bool] = {}
+
+    def _get_inner_struct(tp: "ca.Type") -> Optional[Union[ca.Struct, ca.Union]]:
+        """Walk through PtrDecl/ArrayDecl/TypeDecl wrappers to find a
+        Struct or Union node, if any."""
+        while isinstance(tp, (ca.PtrDecl, ca.ArrayDecl)):
+            tp = tp.type
+        if isinstance(tp, ca.TypeDecl):
+            tp = tp.type
+        if isinstance(tp, (ca.Struct, ca.Union)):
+            return tp
+        return None
+
+    def _set_inner_struct(
+        tp: "ca.Type", new_inner: Union[ca.Struct, ca.Union]
+    ) -> None:
+        """Replace the innermost Struct/Union in the type chain."""
+        while isinstance(tp, (ca.PtrDecl, ca.ArrayDecl)):
+            tp = tp.type
+        if isinstance(tp, ca.TypeDecl):
+            tp.type = new_inner
+
+    for item in ast.ext:
+        if not isinstance(item, ca.Typedef):
+            continue
+        inner = _get_inner_struct(item.type)
+        if inner is None or not isinstance(inner, (ca.Struct, ca.Union)):
+            continue
+        has_body = inner.decls is not None
+        if not has_body:
+            continue
+        obj_id = id(inner)
+        if obj_id in seen_structs:
+            if not inner.name:
+                temp_shared_id += 1
+                inner.name = f"_PermuterAnon{temp_shared_id}"
+            fwd = copy.deepcopy(inner)
+            fwd.decls = None
+            _set_inner_struct(item.type, fwd)
+        else:
+            seen_structs[obj_id] = True
+
     # Create a GC graph that maps names of declarations and enumerators to indices
     # in ast.ext, as well an initial list of GC roots, consisting of everything
     # that isn't a Decl and or Typedef.
