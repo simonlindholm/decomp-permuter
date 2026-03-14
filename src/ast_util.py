@@ -396,33 +396,31 @@ def prune_ast(fn: ca.FuncDef, ast: ca.FileAST) -> int:
     and from the compiler's C parser."""
 
     temp_shared_id = 0
-    seen_structs: Dict[int, bool] = {}
+    seen_structs: Set[int] = set()
 
     def _get_inner_struct(tp: "ca.Type") -> Optional[Union[ca.Struct, ca.Union]]:
         """Walk through PtrDecl/ArrayDecl/TypeDecl wrappers to find a
         Struct or Union node, if any."""
-        while isinstance(tp, (ca.PtrDecl, ca.ArrayDecl)):
+        while not isinstance(tp, ca.TypeDecl):
             tp = tp.type
-        if isinstance(tp, ca.TypeDecl):
-            tp = tp.type
-        if isinstance(tp, (ca.Struct, ca.Union)):
-            return tp
+        inner = tp.type
+        if isinstance(inner, (ca.Struct, ca.Union)):
+            return inner
         return None
 
     def _set_inner_struct(
         tp: "ca.Type", new_inner: Union[ca.Struct, ca.Union]
     ) -> None:
         """Replace the innermost Struct/Union in the type chain."""
-        while isinstance(tp, (ca.PtrDecl, ca.ArrayDecl)):
+        while not isinstance(tp, ca.TypeDecl):
             tp = tp.type
-        if isinstance(tp, ca.TypeDecl):
-            tp.type = new_inner
+        tp.type = new_inner
 
     for item in ast.ext:
-        if not isinstance(item, ca.Typedef):
+        if not isinstance(item, (ca.Typedef, ca.Decl)):
             continue
         inner = _get_inner_struct(item.type)
-        if inner is None or not isinstance(inner, (ca.Struct, ca.Union)):
+        if inner is None:
             continue
         has_body = inner.decls is not None
         if not has_body:
@@ -436,7 +434,7 @@ def prune_ast(fn: ca.FuncDef, ast: ca.FileAST) -> int:
             fwd.decls = None
             _set_inner_struct(item.type, fwd)
         else:
-            seen_structs[obj_id] = True
+            seen_structs.add(obj_id)
 
     # Create a GC graph that maps names of declarations and enumerators to indices
     # in ast.ext, as well an initial list of GC roots, consisting of everything
