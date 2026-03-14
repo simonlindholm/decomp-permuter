@@ -426,6 +426,8 @@ def deduplicate_typedefs(ast: ca.FileAST) -> None:
     for item in ast.ext:
         if not isinstance(item, (ca.Typedef, ca.Decl)):
             continue
+        if isinstance(item.type, (ca.Struct, ca.Union, ca.Enum)):
+            continue
         inner = _get_inner_struct(item.type)
         if inner is None:
             continue
