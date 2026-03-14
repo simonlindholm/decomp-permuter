@@ -128,7 +128,9 @@ def parse_c(source: str, *, from_import: bool = False) -> ca.FileAST:
     source = re.sub(r"^#ident.*", "", source, flags=re.MULTILINE)
     try:
         parser = CParser()
-        return parser.parse(source, "<source>")
+        ast = parser.parse(source, "<source>")
+        deduplicate_typedefs(ast)
+        return ast
     except ParseError as e:
         msg = str(e)
         position, msg = msg.split(": ", 1)
@@ -391,9 +393,9 @@ def normalize_ast(fn: ca.FuncDef, ast: ca.FileAST) -> None:
     rec(fn.body)
 
 
-def prune_ast(fn: ca.FuncDef, ast: ca.FileAST) -> int:
-    """Prune away unnecessary parts of the AST, to reduce overhead from serialization
-    and from the compiler's C parser."""
+def deduplicate_typedefs(ast: ca.FileAST) -> None:
+    """Ensure multi-name typedefs sharing an anonymous struct/union/enum emit a
+    single named definition instead of duplicating the body for each typedef."""
 
     def _get_inner_struct(
         tp: "Union[ca.Type, ca.Struct, ca.Union, ca.Enum]",
@@ -446,6 +448,10 @@ def prune_ast(fn: ca.FuncDef, ast: ca.FileAST) -> int:
             _set_inner_struct(item.type, fwd)
         else:
             seen_structs.add(obj_id)
+
+def prune_ast(fn: ca.FuncDef, ast: ca.FileAST) -> int:
+    """Prune away unnecessary parts of the AST, to reduce overhead from serialization
+    and from the compiler's C parser."""
 
     # Create a GC graph that maps names of declarations and enumerators to indices
     # in ast.ext, as well an initial list of GC roots, consisting of everything
