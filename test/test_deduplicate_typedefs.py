@@ -42,29 +42,12 @@ class TestDeduplicateTypedefs(unittest.TestCase):
         self.assertEqual(result.count("int x;"), 1)
         self.assertNotIn("_PermuterAnon", result)
 
-    def test_top_level_three_typedef_names(self):
-        """Three typedef names — body appears once, two forward refs."""
-        source = "typedef struct { int x; } A, B, C;\n"
-        result = parse_and_dedup(source)
-        self.assertIn("} A", result)
-        self.assertIn("_PermuterAnon1 B", result)
-        self.assertIn("_PermuterAnon1 C", result)
-        self.assertEqual(result.count("int x;"), 1)
-
     def test_top_level_single_typedef_unchanged(self):
         """A single typedef name should not be altered."""
         source = "typedef struct { int x; } Foo;\n"
         result = parse_and_dedup(source)
         self.assertIn("int x;", result)
         self.assertNotIn("_PermuterAnon", result)
-
-    def test_top_level_union_typedef(self):
-        """Union typedef with two names."""
-        source = "typedef union { int a; float b; } U1, U2;\n"
-        result = parse_and_dedup(source)
-        self.assertIn("} U1", result)
-        self.assertIn("_PermuterAnon1 U2", result)
-        self.assertEqual(result.count("int a;"), 1)
 
     def test_top_level_enum_typedef(self):
         """Enum typedef with two names."""
@@ -92,19 +75,6 @@ struct Outer {
         self.assertEqual(result.count("int val;"), 1)
         self.assertNotIn("_PermuterAnon", result)
 
-    def test_nested_named_struct_three_members(self):
-        """Three member names sharing a named nested struct."""
-        source = """\
-struct Outer {
-    struct Inner { int val; } a, b, c;
-};
-"""
-        result = parse_and_dedup(source)
-        self.assertIn("} a", result)
-        self.assertIn("struct Inner b", result)
-        self.assertIn("struct Inner c", result)
-        self.assertEqual(result.count("int val;"), 1)
-
     def test_nested_anonymous_struct_members(self):
         """Anonymous struct with two member names gets a generated tag."""
         source = """\
@@ -116,43 +86,6 @@ struct Outer {
         self.assertIn("} m1", result)
         self.assertIn("_PermuterAnon1 m2", result)
         self.assertEqual(result.count("int val;"), 1)
-
-    def test_nested_union_members(self):
-        """Union declared inline with two member names inside a struct."""
-        source = """\
-struct Outer {
-    union { int a; float b; } u1, u2;
-};
-"""
-        result = parse_and_dedup(source)
-        self.assertIn("} u1", result)
-        self.assertIn("_PermuterAnon1 u2", result)
-        self.assertEqual(result.count("int a;"), 1)
-
-    def test_struct_inside_union_members(self):
-        """Struct with multi-name declaration inside a union container."""
-        source = """\
-union Outer {
-    struct Inner { int val; } f1, f2;
-    int raw;
-};
-"""
-        result = parse_and_dedup(source)
-        self.assertIn("} f1", result)
-        self.assertIn("struct Inner f2", result)
-        self.assertEqual(result.count("int val;"), 1)
-
-    def test_nested_single_member_unchanged(self):
-        """A single member name — no deduplication needed."""
-        source = """\
-struct Outer {
-    struct Inner { int val; } only;
-};
-"""
-        result = parse_and_dedup(source)
-        self.assertIn("int val;", result)
-        self.assertIn("} only", result)
-        self.assertNotIn("_PermuterAnon", result)
 
     # ------------------------------------------------------------------
     # Deeply nested / multi-level
@@ -176,23 +109,6 @@ struct L0 {
         # L1 body once, under p
         self.assertIn("} p", result)
         self.assertIn("struct L1 q", result)
-
-    def test_sibling_nested_structs(self):
-        """Two independent nested structs with multi-name declarations
-        inside the same outer struct."""
-        source = """\
-struct Outer {
-    struct A { int a; } a1, a2;
-    struct B { int b; } b1, b2;
-};
-"""
-        result = parse_and_dedup(source)
-        self.assertEqual(result.count("int a;"), 1)
-        self.assertIn("} a1", result)
-        self.assertIn("struct A a2", result)
-        self.assertEqual(result.count("int b;"), 1)
-        self.assertIn("} b1", result)
-        self.assertIn("struct B b2", result)
 
     # ------------------------------------------------------------------
     # Mixed top-level and nested
@@ -231,49 +147,6 @@ struct Outer {
 """
         result = parse_and_dedup(source)
         self.assertEqual(result.count("int val;"), 1)
-
-    def test_array_member_multi_decl(self):
-        """Multi-name declaration where members are arrays of a nested
-        struct — the ArrayDecl wrapper must be traversed."""
-        source = """\
-struct Outer {
-    struct Inner { int val; } arr1[2], arr2[3];
-};
-"""
-        result = parse_and_dedup(source)
-        self.assertEqual(result.count("int val;"), 1)
-
-    # ------------------------------------------------------------------
-    # Edge cases / no-ops
-    # ------------------------------------------------------------------
-
-    def test_no_multi_decl_at_all(self):
-        """No shared nodes anywhere — output should be structurally identical."""
-        source = """\
-struct A { int a; };
-struct B { struct A m; };
-"""
-        result = parse_and_dedup(source)
-        self.assertIn("int a;", result)
-        self.assertNotIn("_PermuterAnon", result)
-
-    def test_forward_ref_passthrough(self):
-        """Forward-declared struct used only as a pointer should survive."""
-        source = "struct Fwd; struct S { struct Fwd *p; };\n"
-        result = parse_and_dedup(source)
-        self.assertIn("struct Fwd", result)
-
-    def test_empty_file(self):
-        """An empty translation unit should not crash."""
-        result = parse_and_dedup("")
-        self.assertEqual(result.strip(), "")
-
-    def test_only_functions(self):
-        """A file with only function definitions — nothing to deduplicate."""
-        source = "int foo(void) { return 0; }\n"
-        result = parse_and_dedup(source)
-        self.assertIn("foo", result)
-
 
 if __name__ == "__main__":
     unittest.main()

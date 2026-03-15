@@ -402,14 +402,12 @@ def deduplicate_typedefs(ast: ca.FileAST) -> None:
 
     temp_shared_id = 0
     seen_structs: Set[int] = set()
-    visited_containers: Set[int] = set()
 
     def process_decl(item: Union[ca.Typedef, ca.Decl]) -> None:
         nonlocal temp_shared_id
         if isinstance(item.type, (ca.Struct, ca.Union, ca.Enum)):
-            # A bare struct/union/enum declaration (no wrapper). Recurse into
-            # its members but don't try to deduplicate the top-level node.
-            _recurse_into(item.type)
+            # A bare struct/union/enum declaration (no wrapper). Nothing to
+            # deduplicate at this node; the visitor will recurse into members.
             return
         # Walk through PtrDecl/ArrayDecl/TypeDecl wrappers to find a
         # Struct, Union, or Enum node, if any.
@@ -419,8 +417,6 @@ def deduplicate_typedefs(ast: ca.FileAST) -> None:
         inner = tp.type
         if not isinstance(inner, (ca.Struct, ca.Union, ca.Enum)):
             return
-        # Recurse into the inner struct/union to handle nested multi-decl cases.
-        _recurse_into(inner)
         if isinstance(inner, ca.Enum):
             has_body = inner.values is not None
         else:
@@ -441,21 +437,16 @@ def deduplicate_typedefs(ast: ca.FileAST) -> None:
         else:
             seen_structs.add(obj_id)
 
-    def _recurse_into(node: Union[ca.Struct, ca.Union, ca.Enum]) -> None:
-        """Recurse into struct/union members to deduplicate nested shared types."""
-        node_id = id(node)
-        if node_id in visited_containers:
-            return
-        visited_containers.add(node_id)
-        if isinstance(node, (ca.Struct, ca.Union)) and node.decls:
-            for decl in node.decls:
-                if isinstance(decl, (ca.Typedef, ca.Decl)):
-                    process_decl(decl)
+    class DeclVisitor(ca.NodeVisitor):
+        def visit_Decl(self, node: ca.Decl) -> None:
+            process_decl(node)
+            self.generic_visit(node)
 
-    for item in ast.ext:
-        if not isinstance(item, (ca.Typedef, ca.Decl)):
-            continue
-        process_decl(item)
+        def visit_Typedef(self, node: ca.Typedef) -> None:
+            process_decl(node)
+            self.generic_visit(node)
+
+    DeclVisitor().visit(ast)
 
 def prune_ast(fn: ca.FuncDef, ast: ca.FileAST) -> int:
     """Prune away unnecessary parts of the AST, to reduce overhead from serialization
