@@ -402,11 +402,13 @@ def deduplicate_typedefs(ast: ca.FileAST) -> None:
 
     temp_shared_id = 0
     seen_structs: Set[int] = set()
-    for item in ast.ext:
-        if not isinstance(item, (ca.Typedef, ca.Decl)):
-            continue
+
+    def process_decl(item: Union[ca.Typedef, ca.Decl]) -> None:
+        nonlocal temp_shared_id
         if isinstance(item.type, (ca.Struct, ca.Union, ca.Enum)):
-            continue
+            # A bare struct/union/enum declaration (no wrapper). Nothing to
+            # deduplicate at this node; the visitor will recurse into members.
+            return
         # Walk through PtrDecl/ArrayDecl/TypeDecl wrappers to find a
         # Struct, Union, or Enum node, if any.
         tp = item.type
@@ -414,13 +416,13 @@ def deduplicate_typedefs(ast: ca.FileAST) -> None:
             tp = tp.type
         inner = tp.type
         if not isinstance(inner, (ca.Struct, ca.Union, ca.Enum)):
-            continue
+            return
         if isinstance(inner, ca.Enum):
             has_body = inner.values is not None
         else:
             has_body = inner.decls is not None
         if not has_body:
-            continue
+            return
         obj_id = id(inner)
         if obj_id in seen_structs:
             if not inner.name:
@@ -434,6 +436,17 @@ def deduplicate_typedefs(ast: ca.FileAST) -> None:
             tp.type = fwd
         else:
             seen_structs.add(obj_id)
+
+    class DeclVisitor(ca.NodeVisitor):
+        def visit_Decl(self, node: ca.Decl) -> None:
+            process_decl(node)
+            self.generic_visit(node)
+
+        def visit_Typedef(self, node: ca.Typedef) -> None:
+            process_decl(node)
+            self.generic_visit(node)
+
+    DeclVisitor().visit(ast)
 
 def prune_ast(fn: ca.FuncDef, ast: ca.FileAST) -> int:
     """Prune away unnecessary parts of the AST, to reduce overhead from serialization
