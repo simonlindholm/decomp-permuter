@@ -258,8 +258,10 @@ def fixup_build_command(
         if skip_count > 0:
             skip_count -= 1
             continue
-        if part in ["-MF", "-o"]:
+        if part in ["-MF", "-MT", "-MQ", "-o"]:
             skip_count = 1
+            continue
+        if part in ["-M", "-MM", "-MG", "-MP", "-MD", "-MMD", "-Mno-modules"]:
             continue
         if part == ignore_part:
             continue
