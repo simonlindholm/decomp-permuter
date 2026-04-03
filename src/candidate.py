@@ -23,6 +23,7 @@ class CandidateResult:
     score: int
     hash: Optional[str]
     source: Optional[str]
+    raw_source: Optional[str] = None
     profiler: Optional[Profiler] = None
 
 
@@ -41,6 +42,7 @@ class Candidate:
     score_value: Optional[int] = field(init=False, default=None)
     score_hash: Optional[str] = field(init=False, default=None)
     _cache_source: Optional[str] = field(init=False, default=None)
+    _cache_raw_source: Optional[str] = field(init=False, default=None)
 
     @staticmethod
     @functools.lru_cache(maxsize=16)
@@ -80,11 +82,17 @@ class Candidate:
     def randomize_ast(self) -> None:
         self.randomizer.randomize(self.ast, self.fn_name)
         self._cache_source = None
+        self._cache_raw_source = None
 
     def get_source(self) -> str:
         if self._cache_source is None:
             self._cache_source = ast_util.to_c(self.ast)
         return self._cache_source
+
+    def get_raw_source(self) -> str:
+        if self._cache_raw_source is None:
+            self._cache_raw_source = ast_util.to_c(self.ast, raw_source=True)
+        return self._cache_raw_source
 
     def compile(self, compiler: Compiler, show_errors: bool = False) -> Optional[str]:
         source: str = self.get_source()
@@ -99,5 +107,5 @@ class Candidate:
             if o_file:
                 try_remove(o_file)
         return CandidateResult(
-            score=self.score_value, hash=self.score_hash, source=self.get_source()
+            score=self.score_value, hash=self.score_hash, source=self.get_source(), raw_source=self.get_raw_source()
         )
