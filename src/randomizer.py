@@ -2404,6 +2404,7 @@ def perm_inline(
     # Insert the new inline just above the main function
     ast.ext.insert(ast.ext.index(fn), fn_def)
 
+
 def perm_var_cond_block(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> None:
@@ -2432,6 +2433,7 @@ def perm_var_cond_block(
     hi = random.randrange(decl_count, len(stmts) + 1)
     if hi < lo:
         lo, hi = hi, lo
+    ensure(lo != hi)
     new_block = ca.Compound(block_items=stmts[lo:hi])
 
     cand_exprs: List[Expression] = [
@@ -2443,27 +2445,29 @@ def perm_var_cond_block(
     expr = random.choice(cand_exprs)
     ensure(not ast_util.is_effectful(expr))
     typemap = build_typemap(ast, fn)
-    type: Type = resolve_typedefs(decayed_expr_type(expr, typemap), typemap)
+
+    def make_cond(expr: Expression) -> Expression:
+        type: Type = resolve_typedefs(decayed_expr_type(expr, typemap), typemap)
+        if isinstance(type, ca.TypeDecl) and isinstance(
+            type.type, (ca.Struct, ca.Union)
+        ):
+            expr = ca.UnaryOp("&", expr)
+        return copy.deepcopy(expr)
+
+    cond = make_cond(expr)
 
     # `if (variable1 || variable2)` seems to help sometimes.
-    # If we decide to proceed with the ORing, which occurs down the line,
-    # we remove the expression from the list of candidate expressions
-    # before modifying it.
-    or_cond = random_bool(random, PROB_VAR_COND_BLOCK_OR)
-    or_cands = set()
-    if or_cond:
-        or_cands = set(cand_exprs)
-        or_cands.remove(expr)
+    if random_bool(random, PROB_VAR_COND_BLOCK_OR):
+        cand_exprs = [e for e in cand_exprs if not ast_util.equal_ast(e, expr)]
+        ensure(cand_exprs)
+        expr2 = random.choice(cand_exprs)
+        if not ast_util.is_effectful(expr2):
+            cond = ca.BinaryOp("||", cond, make_cond(expr2))
 
-    if isinstance(type, ca.TypeDecl) and isinstance(type.type, (ca.Struct, ca.Union)):
-        expr = ca.UnaryOp("&", expr)
+    stmts[lo:hi] = [
+        ca.If(cond=cond, iftrue=new_block, iffalse=copy.deepcopy(new_block))
+    ]
 
-    cond = copy.deepcopy(expr)
-
-    if or_cond and or_cands:
-        cond = ca.BinaryOp("||", cond, copy.deepcopy(random.choice(tuple(or_cands))))
-
-    stmts[lo:hi] = [ca.If(cond=cond, iftrue=new_block, iffalse=copy.deepcopy(new_block))]
 
 RandomizationPass = Callable[[ca.FuncDef, ca.FileAST, Indices, Region, Random], None]
 

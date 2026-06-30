@@ -35,12 +35,13 @@ perm_chain_assignment = 5
 perm_long_chain_assignment = 3
 perm_pad_var_decl = 1
 perm_inline = 10
-perm_var_cond_block = 10
+perm_var_cond_block = 5
 
 [ido]
 perm_float_literal = 10
 perm_sameline = 10
 perm_inline = 0
+perm_var_cond_block = 0
 
 [mwcc]
 perm_chain_assignment = 10
@@ -49,6 +50,7 @@ perm_empty_stmt = 0.5
 perm_struct_ref = 0.5
 perm_sameline = 0.5
 perm_xor_zero = 0.5
+perm_var_cond_block = 1
 
 [gcc]
 # The following passes were originally written with IDO in mind and are not beneficial for GCC
