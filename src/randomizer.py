@@ -2423,17 +2423,36 @@ def perm_var_cond_block(
     rec(fn.body)
     block = random.choice(cands)
     stmts = ast_util.get_block_stmts(block, True)
-    decl_count = 0
-    for stmt in stmts:
-        if isinstance(stmt, (ca.Decl, ca.Pragma)):
-            decl_count += 1
-        else:
-            break
-    lo = random.randrange(decl_count, len(stmts) + 1)
-    hi = random.randrange(decl_count, len(stmts) + 1)
-    if hi < lo:
-        lo, hi = hi, lo
-    ensure(lo != hi)
+
+    # Split the statements into streaks of simple statements that can be duplicated.
+    streaks: List[Tuple[int, int]] = []
+    streak_start = 0
+    for i, stmt in enumerate(stmts):
+        if isinstance(
+            stmt,
+            (
+                ca.If,
+                ca.For,
+                ca.While,
+                ca.DoWhile,
+                ca.Switch,
+                ca.Label,
+                ca.Case,
+                ca.Default,
+                ca.Compound,
+                ca.Decl,
+                ca.Typedef,
+                ca.Pragma,
+            ),
+        ):
+            streaks.append((streak_start, i))
+            streak_start = i + 1
+    streaks.append((streak_start, len(stmts)))
+    streaks = [(i, j) for i, j in streaks if i != j]
+
+    ensure(streaks)
+    lo, hi = random.choice(streaks)
+
     new_block = ca.Compound(block_items=stmts[lo:hi])
 
     cand_exprs: List[Expression] = [
