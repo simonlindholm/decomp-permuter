@@ -666,25 +666,33 @@ def prune_and_separate_context(
     Returns (source, context)."""
     try:
         ast = ast_util.parse_c(source, from_import=True)
-        orig_fn, ind = ast_util.extract_fn(ast, func_name)
-        if should_prune:
-            try:
-                ind = ast_util.prune_ast(orig_fn, ast)
-            except Exception:
-                print(
-                    "Source minimization failed! "
-                    "You could try --no-prune as a workaround."
-                )
-                raise
-        del ast.ext[ind]
-        source = ast_util.to_c(orig_fn, from_import=True)
-        context = ast_util.to_c(ast, from_import=True)
-        return source, context
     except CandidateConstructionFailure as e:
         print(e.message)
         print("Unable to split context from source.")
         print("Using the entire source as context.")
         return "", ast_util.process_pragmas(source)
+
+    try:
+        orig_fn, ind = ast_util.extract_fn(ast, func_name)
+    except CandidateConstructionFailure as e:
+        print(e.message)
+        print("Falling back to just removing function bodies.")
+        context = ast_util.to_c(ast, from_import=True)
+        return "", context
+
+    if should_prune:
+        try:
+            ind = ast_util.prune_ast(orig_fn, ast)
+        except Exception:
+            print(
+                "Source minimization failed! "
+                "You could try --no-prune as a workaround."
+            )
+            raise
+    del ast.ext[ind]
+    source = ast_util.to_c(orig_fn, from_import=True)
+    context = ast_util.to_c(ast, from_import=True)
+    return source, context
 
 
 def get_decompme_compiler_name(
@@ -972,7 +980,6 @@ def main(arg_list: List[str]) -> None:
         api_base = os.environ.get("DECOMPME_API_BASE", "https://decomp.me")
         compiler_name = get_decompme_compiler_name(compiler, settings, api_base)
         source, context = prune_and_separate_context(source, args.prune, func_name)
-        print("Uploading...")
         try:
             post_data = urllib.parse.urlencode(
                 {
