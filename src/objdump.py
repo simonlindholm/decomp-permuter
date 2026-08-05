@@ -276,7 +276,7 @@ X86_SETTINGS: ArchSettings = ArchSettings(
     # The x86 architecture has a variable instruction length. The raw bytes of
     # an instruction as displayed by objdump can line wrap if it's long enough.
     # This destroys the objdump output processor logic, so we avoid this.
-    arguments=["-d","--no-show-raw-insn"],
+    arguments=["-d", "--no-show-raw-insn"],
     branch_instructions=X86_BRANCH_INSTRUCTIONS,
     branch_likely_instructions=set(),
 )
@@ -354,7 +354,7 @@ def process_mips_reloc(reloc_row: str, prev: str, repl: str, imm: str) -> str:
     # here to avoid a crash, by pretending that lost imms are zero for
     # relocations.
     if imm != "0" and imm != "imm" and imm != "addr":
-        repl += "+" + imm if int(imm, 0) > 0 else imm
+        repl += ("" if imm.startswith("-") else "+") + imm
     if any(
         reloc in reloc_row
         for reloc in ["R_MIPS_LO16", "R_MIPS_LITERAL", "R_MIPS_GPREL16"]
