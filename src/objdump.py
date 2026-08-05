@@ -345,6 +345,39 @@ def pre_process(mnemonic: str, args: str, next_row: Optional[str]) -> Tuple[str,
     return mnemonic, args
 
 
+def imm_is_positive(imm: str) -> bool:
+    """Whether a relocated immediate is positive, for deciding on a '+'.
+
+    objdump prints jump and branch targets as BARE hex, e.g.
+
+        18:	08000047 	j	11c <func+0x11c>
+                18: R_MIPS_26	.text
+
+    which int(imm, 0) rejects ("invalid literal for int() with base 0:
+    '11c'"). The exception propagates out of the Scorer, main.py catches it
+    in try_eval_candidate, and the candidate is silently discarded — the
+    compile is paid for and nothing is reported. On one MIPS/IDO project it
+    cost 4.45% of all candidates (3927 of 88205 compiles), and it makes the
+    BASE unscoreable for any function containing such a jump, which is a
+    CandidateConstructionFailure that aborts the run outright: 3 of 16
+    functions in that sample could not be permuted at all.
+
+    Try base 0 first so decimal and 0x-prefixed immediates keep their exact
+    current meaning, then base 16 for the bare-hex case, and fall back to
+    the sign character for anything neither can parse — the value is only
+    used to choose '+', and a shape we cannot parse must not take the whole
+    candidate down with it.
+    """
+    try:
+        return int(imm, 0) > 0
+    except ValueError:
+        pass
+    try:
+        return int(imm, 16) > 0
+    except ValueError:
+        return not imm.startswith("-")
+
+
 def process_mips_reloc(reloc_row: str, prev: str, repl: str, imm: str) -> str:
     if "R_MIPS_JALR" in reloc_row or "R_MIPS_NONE" in reloc_row:
         return repl
@@ -354,7 +387,7 @@ def process_mips_reloc(reloc_row: str, prev: str, repl: str, imm: str) -> str:
     # here to avoid a crash, by pretending that lost imms are zero for
     # relocations.
     if imm != "0" and imm != "imm" and imm != "addr":
-        repl += "+" + imm if int(imm, 0) > 0 else imm
+        repl += "+" + imm if imm_is_positive(imm) else imm
     if any(
         reloc in reloc_row
         for reloc in ["R_MIPS_LO16", "R_MIPS_LITERAL", "R_MIPS_GPREL16"]
