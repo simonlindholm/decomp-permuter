@@ -37,6 +37,10 @@ perm_pad_var_decl = 1
 perm_inline = 10
 perm_var_cond_block = 5
 
+# Off by default: the transform is only known to help GCC-family compilers, so it
+# is enabled under [gcc] rather than for everyone.
+perm_alias_array = 0
+
 [ido]
 perm_float_literal = 10
 perm_sameline = 10
@@ -53,6 +57,8 @@ perm_xor_zero = 0.5
 perm_var_cond_block = 1
 
 [gcc]
+perm_alias_array = 1
+
 # The following passes were originally written with IDO in mind and are not beneficial for GCC
 perm_add_mask = 0.5
 perm_xor_zero = 0.5

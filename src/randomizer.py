@@ -2248,6 +2248,156 @@ def perm_long_chain_assignment(
     del statements[start_idx + 1 : end_idx]
 
 
+ARRAY_NAME = "aliasArray"
+
+
+def perm_alias_array(
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
+) -> None:
+    """Replace two same-typed local pointers with a two-element local array.
+
+    Two locals that hold the same address tend to be collapsed by CSE: reads of one
+    get redirected to the other's register, the copy between them dies, and only a
+    single register survives. Array elements live in memory rather than in
+    pseudo-registers, so no such equivalence exists and both values can stay live in
+    registers of their own.
+
+    Only pairs are formed, since compilers often keep a two-element pointer array in
+    registers while three or more elements force a stack frame.
+    """
+    body = fn.body.block_items
+    ensure(body)
+
+    def ptr_type_key(decl: ca.Decl) -> Optional[str]:
+        """A key that is equal exactly for pointers we can restate as one array."""
+        ptr = decl.type
+        if not isinstance(ptr, ca.PtrDecl) or not isinstance(ptr.type, ca.TypeDecl):
+            return None
+        inner = ptr.type
+        base = inner.type
+        if isinstance(base, ca.IdentifierType):
+            base_name = " ".join(base.names)
+        elif isinstance(base, (ca.Struct, ca.Union, ca.Enum)):
+            if base.name is None:
+                # Anonymous type: we cannot spell it again for the array decl.
+                return None
+            base_name = f"{type(base).__name__.lower()} {base.name}"
+        else:
+            return None
+        return "|".join(
+            [
+                " ".join(sorted(decl.quals)),
+                " ".join(sorted(ptr.quals)),
+                " ".join(sorted(inner.quals)),
+                base_name,
+            ]
+        )
+
+    groups: Dict[str, List[int]] = {}
+    for i, stmt in enumerate(body):
+        if (
+            isinstance(stmt, ca.Decl)
+            and stmt.name
+            and stmt.init is None
+            and not stmt.storage
+            and not stmt.bitsize
+        ):
+            key = ptr_type_key(stmt)
+            if key is not None:
+                groups.setdefault(key, []).append(i)
+
+    pairs = [g for g in groups.values() if len(g) >= 2]
+    ensure(pairs)
+    ia, ib = sorted(random.sample(random.choice(pairs), 2))
+    index_of = {body[ia].name: 0, body[ib].name: 1}
+
+    # Bail out if either name is declared more than once: an inner shadowing
+    # declaration would keep its own storage while its uses got rewritten.
+    decl_count: Dict[str, int] = {name: 0 for name in index_of}
+
+    class DeclCounter(ca.NodeVisitor):
+        def visit_Decl(self, node: ca.Decl) -> None:
+            if node.name in decl_count:
+                decl_count[node.name] += 1
+            self.generic_visit(node)
+
+    DeclCounter().visit(fn)
+    ensure(all(count == 1 for count in decl_count.values()))
+
+    used: Set[str] = set()
+
+    class NameCollector(ca.NodeVisitor):
+        def visit_ID(self, node: ca.ID) -> None:
+            used.add(node.name)
+
+        def visit_Decl(self, node: ca.Decl) -> None:
+            if node.name:
+                used.add(node.name)
+            self.generic_visit(node)
+
+    NameCollector().visit(ast)
+    arr = ARRAY_NAME
+    counter = 1
+    while arr in used:
+        counter += 1
+        arr = f"{ARRAY_NAME}{counter}"
+
+    # Rewrite a copy, so that a reference we failed to reach aborts the pass
+    # instead of leaving the function referring to variables that no longer exist.
+    new_body = copy.deepcopy(fn.body)
+
+    def rewrite(node: ca.Node) -> None:
+        for field, child in node.children():
+            # An ID in these positions names a member or a function, not a variable.
+            if isinstance(node, ca.StructRef) and field == "field":
+                continue
+            if isinstance(node, ca.FuncCall) and field == "name":
+                continue
+            if isinstance(node, ca.NamedInitializer) and field.startswith("name"):
+                continue
+            if isinstance(child, ca.ID) and child.name in index_of:
+                ref = ca.ArrayRef(
+                    ca.ID(arr), ca.Constant("int", str(index_of[child.name]))
+                )
+                if field.endswith("]"):
+                    attr, _, idx = field[:-1].partition("[")
+                    getattr(node, attr)[int(idx)] = ref
+                else:
+                    setattr(node, field, ref)
+            else:
+                rewrite(child)
+
+    rewrite(new_body)
+
+    # Safety net: if any reference was missed the function would refer to a variable
+    # that no longer exists, so abort the pass rather than emit broken code.
+    leftover: List[ca.ID] = []
+
+    class Checker(ca.NodeVisitor):
+        def visit_ID(self, node: ca.ID) -> None:
+            if node.name in index_of:
+                leftover.append(node)
+
+        def visit_StructRef(self, node: ca.StructRef) -> None:
+            # .field is an ID node but names a member, not a variable.
+            self.visit(node.name)
+
+    Checker().visit(new_body)
+    ensure(not leftover)
+
+    array_type = ca.ArrayDecl(
+        type=copy.deepcopy(body[ia].type),
+        dim=ca.Constant("int", "2"),
+        dim_quals=[],
+    )
+    array_decl = ast_util.make_decl(arr, array_type, quals=list(body[ia].quals))
+
+    new_items = new_body.block_items
+    new_items[ia] = array_decl
+    del new_items[ib]
+    fn.body = new_body
+
+
 def perm_pad_var_decl(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> None:
@@ -2523,6 +2673,7 @@ RANDOMIZATION_PASSES: List[RandomizationPass] = [
     perm_chain_assignment,
     perm_long_chain_assignment,
     perm_pad_var_decl,
+    perm_alias_array,
     perm_inline,
     perm_var_cond_block,
 ]
