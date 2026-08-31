@@ -14,10 +14,10 @@ class Compiler:
         self.show_errors = show_errors
         self.debug_mode = debug_mode
 
-        # A .sh compile_cmd has no shebang support on Windows, and relying on
-        # the executable bit being set is unreliable cross-platform (Windows
-        # Python never reports it, and it's easy to forget a chmod on Linux)
-        # - just always run it through bash, resolved once up front.
+        # A .sh compile_cmd has no shebang support on Windows, and Windows
+        # Python never reports the executable bit regardless of actual file
+        # permissions - just always run it through bash, resolved once up
+        # front, instead of relying on the exec bit.
         self._bash: Optional[str] = None
         if self.compile_cmd.endswith(".sh"):
             self._bash = shutil.which("bash")
