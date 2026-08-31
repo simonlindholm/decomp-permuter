@@ -1,4 +1,4 @@
-from typing import Optional, List
+from typing import Optional
 import tempfile
 import subprocess
 import shutil
@@ -17,15 +17,11 @@ class Compiler:
         bash = shutil.which("bash")
         if bash is None:
             raise Exception(
-                f"{self.compile_cmd} is a shell script, but no `bash` "
-                "executable was found on PATH. Install bash and make "
-                "sure it's on PATH (on Windows, Git for Windows provides "
-                "one)."
+                "No `bash` executable was found on PATH. Install bash and "
+                "make sure it's on PATH (on Windows, Git for Windows "
+                "provides one)."
             )
         self._bash = bash
-
-    def _base_argv(self) -> List[str]:
-        return [self._bash, self.compile_cmd]
 
     def compile(self, source: str, *, show_errors: bool = False) -> Optional[str]:
         """Try to compile a piece of C code. Returns the filename of the resulting .o
@@ -54,7 +50,7 @@ class Compiler:
         try:
             stderr = 2 if show_errors else subprocess.DEVNULL
             subprocess.check_call(
-                self._base_argv() + [c_name, "-o", o_name],
+                [self._bash, self.compile_cmd, c_name, "-o", o_name],
                 stdout=stderr,
                 stderr=stderr,
             )
