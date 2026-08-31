@@ -325,12 +325,6 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             if not os.path.isfile(fname):
                 print(f"Missing file {fname}", file=sys.stderr)
                 sys.exit(1)
-        # Windows Python never reports the exec bit for a non-.exe file even
-        # after chmod - harmless to skip since compile.sh is run via bash
-        # explicitly there anyway (see compiler.py).
-        if os.name != "nt" and not os.stat(compile_cmd).st_mode & 0o100:
-            print(f"{compile_cmd} must be marked executable.", file=sys.stderr)
-            sys.exit(1)
 
         settings: Mapping[str, object] = get_settings(d)
 

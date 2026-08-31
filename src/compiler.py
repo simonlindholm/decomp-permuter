@@ -1,5 +1,4 @@
 from typing import Optional, List
-import os
 import tempfile
 import subprocess
 import shutil
@@ -15,13 +14,24 @@ class Compiler:
         self.show_errors = show_errors
         self.debug_mode = debug_mode
 
+        # A .sh compile_cmd has no shebang support on Windows, and relying on
+        # the executable bit being set is unreliable cross-platform (Windows
+        # Python never reports it, and it's easy to forget a chmod on Linux)
+        # - just always run it through bash, resolved once up front.
+        self._bash: Optional[str] = None
+        if self.compile_cmd.endswith(".sh"):
+            self._bash = shutil.which("bash")
+            if self._bash is None:
+                raise Exception(
+                    f"{self.compile_cmd} is a shell script, but no `bash` "
+                    "executable was found on PATH. Install bash and make "
+                    "sure it's on PATH (on Windows, Git for Windows provides "
+                    "one)."
+                )
+
     def _base_argv(self) -> List[str]:
-        # Windows can't directly exec a .sh file (no shebang support) - run it
-        # through bash instead, falling back to Git for Windows' bundled bash
-        # if none is on PATH.
-        if os.name == "nt" and self.compile_cmd.endswith(".sh"):
-            bash = shutil.which("bash") or r"C:\Program Files\Git\usr\bin\bash.exe"
-            return [bash, self.compile_cmd]
+        if self._bash is not None:
+            return [self._bash, self.compile_cmd]
         return [self.compile_cmd]
 
     def compile(self, source: str, *, show_errors: bool = False) -> Optional[str]:
