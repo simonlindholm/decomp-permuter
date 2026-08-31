@@ -14,25 +14,18 @@ class Compiler:
         self.show_errors = show_errors
         self.debug_mode = debug_mode
 
-        # A .sh compile_cmd has no shebang support on Windows, and Windows
-        # Python never reports the executable bit regardless of actual file
-        # permissions - just always run it through bash, resolved once up
-        # front, instead of relying on the exec bit.
-        self._bash: Optional[str] = None
-        if self.compile_cmd.endswith(".sh"):
-            self._bash = shutil.which("bash")
-            if self._bash is None:
-                raise Exception(
-                    f"{self.compile_cmd} is a shell script, but no `bash` "
-                    "executable was found on PATH. Install bash and make "
-                    "sure it's on PATH (on Windows, Git for Windows provides "
-                    "one)."
-                )
+        bash = shutil.which("bash")
+        if bash is None:
+            raise Exception(
+                f"{self.compile_cmd} is a shell script, but no `bash` "
+                "executable was found on PATH. Install bash and make "
+                "sure it's on PATH (on Windows, Git for Windows provides "
+                "one)."
+            )
+        self._bash = bash
 
     def _base_argv(self) -> List[str]:
-        if self._bash is not None:
-            return [self._bash, self.compile_cmd]
-        return [self.compile_cmd]
+        return [self._bash, self.compile_cmd]
 
     def compile(self, source: str, *, show_errors: bool = False) -> Optional[str]:
         """Try to compile a piece of C code. Returns the filename of the resulting .o
