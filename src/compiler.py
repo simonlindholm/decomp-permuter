@@ -1,4 +1,5 @@
-from typing import Optional
+from typing import Optional, List
+import os
 import tempfile
 import subprocess
 import shutil
@@ -13,6 +14,15 @@ class Compiler:
         self.compile_cmd = compile_cmd
         self.show_errors = show_errors
         self.debug_mode = debug_mode
+
+    def _base_argv(self) -> List[str]:
+        # Windows can't directly exec a .sh file (no shebang support) - run it
+        # through bash instead, falling back to Git for Windows' bundled bash
+        # if none is on PATH.
+        if os.name == "nt" and self.compile_cmd.endswith(".sh"):
+            bash = shutil.which("bash") or r"C:\Program Files\Git\usr\bin\bash.exe"
+            return [bash, self.compile_cmd]
+        return [self.compile_cmd]
 
     def compile(self, source: str, *, show_errors: bool = False) -> Optional[str]:
         """Try to compile a piece of C code. Returns the filename of the resulting .o
@@ -41,7 +51,7 @@ class Compiler:
         try:
             stderr = 2 if show_errors else subprocess.DEVNULL
             subprocess.check_call(
-                [self.compile_cmd, c_name, "-o", o_name],
+                self._base_argv() + [c_name, "-o", o_name],
                 stdout=stderr,
                 stderr=stderr,
             )
