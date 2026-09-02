@@ -12,6 +12,7 @@ perm_cast_simple = 10
 perm_refer_to_var = 10
 perm_float_literal = 3
 perm_randomize_internal_type = 10
+perm_randomize_decl_specifiers = 5
 perm_randomize_external_type = 5
 perm_randomize_function_type = 5
 perm_split_assignment = 10

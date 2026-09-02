@@ -923,6 +923,56 @@ def perm_randomize_internal_type(
     set_decl_name(decl)
 
 
+def perm_randomize_decl_specifiers(
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
+) -> None:
+    """Add or remove static, extern, or const on pre-existing local variables.
+    Only variables mentioned within the given region are affected."""
+    names = set(get_mentioned_names(fn, region))
+    candidates: List[Tuple[ca.Decl, str]] = []
+
+    def find_type_decl(decl: ca.Decl) -> Optional[ca.TypeDecl]:
+        type: Any = decl.type
+        while not isinstance(type, ca.TypeDecl):
+            if not hasattr(type, "type"):
+                return None
+            type = type.type
+        return type
+
+    class Visitor(ca.NodeVisitor):
+        def visit_Decl(self, decl: ca.Decl) -> None:
+            if (
+                decl.name
+                and decl.name in names
+                and not isinstance(decl.type, ca.FuncDecl)
+            ):
+                storage = set(decl.storage)
+                if storage <= {"static"}:
+                    candidates.append((decl, "static"))
+                if storage <= {"extern"} and decl.init is None:
+                    candidates.append((decl, "extern"))
+                if find_type_decl(decl):
+                    candidates.append((decl, "const"))
+            self.generic_visit(decl)
+
+    Visitor().visit(fn.body)
+    ensure(candidates)
+    decl, specifier = random.choice(candidates)
+    if specifier == "const":
+        type_decl = find_type_decl(decl)
+        assert type_decl, "checked above"
+        removing = specifier in decl.quals or specifier in type_decl.quals
+        for specifiers in (decl.quals, type_decl.quals):
+            if removing and specifier in specifiers:
+                specifiers.remove(specifier)
+            elif not removing and specifier not in specifiers:
+                specifiers.append(specifier)
+    elif specifier in decl.storage:
+        decl.storage.remove(specifier)
+    else:
+        decl.storage.append(specifier)
+
+
 def perm_randomize_external_type(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> None:
@@ -2552,6 +2602,7 @@ RANDOMIZATION_PASSES: List[RandomizationPass] = [
     perm_refer_to_var,
     perm_float_literal,
     perm_randomize_internal_type,
+    perm_randomize_decl_specifiers,
     perm_randomize_external_type,
     perm_randomize_function_type,
     perm_split_assignment,
