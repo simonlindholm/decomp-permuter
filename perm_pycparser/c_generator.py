@@ -411,7 +411,8 @@ class CGenerator(object):
             assert name == 'enum'
             members = None if n.values is None else n.values.enumerators
             body_function = self._generate_enum_body
-        s = name + self._generate_attrs(n.gcc_attributes, ' ', '')
+        attrs = self._generate_attrs(n.gcc_attributes, ' ', '')
+        s = name
         s += ' ' + (n.name or '')
         if members is not None:
             # None means no members
@@ -422,7 +423,9 @@ class CGenerator(object):
             s += '{\n'
             s += body_function(members)
             self.indent_level -= 2
-            s += self._make_indent() + '}'
+            s += self._make_indent() + '}' + attrs
+        else:
+            s += attrs
         return s
 
     def _generate_struct_union_body(self, members):
