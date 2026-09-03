@@ -325,7 +325,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             if not os.path.isfile(fname):
                 print(f"Missing file {fname}", file=sys.stderr)
                 sys.exit(1)
-        if not os.stat(compile_cmd).st_mode & 0o100:
+        if os.name != "nt" and not os.stat(compile_cmd).st_mode & 0o100:
             print(f"{compile_cmd} must be marked executable.", file=sys.stderr)
             sys.exit(1)
 
@@ -371,7 +371,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
             ign_branch_targets=options.ign_branch_targets,
             objdump_command=objdump_command,
         )
-        c_source = preprocess(base_c)
+        c_source = preprocess(base_c, directory=d)
 
         try:
             permuter = Permuter(
