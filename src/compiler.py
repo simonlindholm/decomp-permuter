@@ -17,9 +17,8 @@ class Compiler:
         bash = shutil.which("bash")
         if bash is None:
             raise Exception(
-                "No `bash` executable was found on PATH. Install bash and "
-                "make sure it's on PATH (on Windows, Git for Windows "
-                "provides one)."
+                "No `bash` executable was found on PATH. Install bash and make "
+                "sure it's on PATH (on Windows, Git for Windows provides one)."
             )
         self._bash = bash
 
