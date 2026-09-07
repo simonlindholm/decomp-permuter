@@ -242,6 +242,24 @@ class TestPermMacros(unittest.TestCase):
         )
         self.assertEqual(score, 0)
 
+    def test_remove_var(self) -> None:
+        score = self.go(
+            "int foo(int); void test() { int i = 0, j = 0; ",
+            "}",
+            "++i; foo(j);",
+            "++i; foo(i);",
+        )
+        self.assertEqual(score, 0)
+
+    def test_remove_var_replace_with_arg(self) -> None:
+        score = self.go(
+            "int foo(int); void test(int x) { int i = 0; ",
+            "}",
+            "foo(i);",
+            "foo(x);",
+        )
+        self.assertEqual(score, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

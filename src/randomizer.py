@@ -2539,6 +2539,52 @@ def perm_alias_array(
     visit_replace(fn.body, callback)
 
 
+def perm_remove_var(
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
+) -> None:
+    """Remove a variable, replacing all its instances with
+       a randomly chosen variable of similar type."""
+    mentioned_names = set(get_mentioned_names(fn, region))
+    typemap = build_typemap(ast, fn)
+    cands_by_type: List[Tuple[Type, List[Tuple[int, ca.Decl]]]] = []
+
+    def add_cand(tp: Type, stmt_idx: int, name: str) -> None:
+        for t, arr in cands_by_type:
+            if same_type(t, tp, typemap, allow_similar=True):
+                break
+        else:
+            arr = []
+            cands_by_type.append((tp, arr))
+        arr.append((stmt_idx, name))
+
+    stmts = ast_util.get_block_stmts(fn.body, False)
+    for i, decl in enumerate(stmts):
+        if isinstance(decl, ca.Decl) and decl.name:
+            if decl.name not in mentioned_names:
+                continue
+            tp = get_decl_type(decl)
+            add_cand(tp, i, decl.name)
+
+    assert isinstance(fn.decl.type, ca.FuncDecl)
+    for decl in fn.decl.type.args or []:
+        if decl.name:
+            add_cand(get_decl_type(decl), -1, decl.name)
+
+    cands = [(tp, names) for tp, names in cands_by_type if len(names) >= 2]
+    ensure(cands)
+    tp, names = random.choice(cands)
+    (i1, name1), (i2, name2) = random.sample(names, 2)
+
+    ensure(i1 != -1)
+    del stmts[i1]
+
+    def callback(node: ca.Node, is_expr: bool) -> Optional[ca.Node]:
+        if not isinstance(node, ca.ID) or node.name != name1:
+            return None
+        return ca.ID(name2)
+
+    visit_replace(fn.body, callback)
+
 RandomizationPass = Callable[[ca.FuncDef, ca.FileAST, Indices, Region, Random], None]
 
 RANDOMIZATION_PASSES: List[RandomizationPass] = [
@@ -2577,6 +2623,7 @@ RANDOMIZATION_PASSES: List[RandomizationPass] = [
     perm_inline,
     perm_var_cond_block,
     perm_alias_array,
+    perm_remove_var,
 ]
 
 

@@ -37,6 +37,7 @@ perm_pad_var_decl = 1
 perm_inline = 10
 perm_var_cond_block = 5
 perm_alias_array = 1
+perm_remove_var = 5
 
 [ido]
 perm_float_literal = 10
