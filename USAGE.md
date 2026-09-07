@@ -24,3 +24,11 @@ length difference, so it is 0 exactly when the candidate links to the same bytes
 helps in projects whose symbols don't contain a "." (e.g. `func_80012345`), where the
 default scorer can't tell a relocation slot from a register difference and gets stuck
 above 0. `--debug` prints the differing instructions. Not available together with `-J`.
+
+## Restarting from the best candidate
+
+A long run tends to plateau at the base score. Restarting the permuter with the best
+`output-<score>-*/source.c` copied over `base.c` (and a fresh seed) usually gets further
+than continuing the same run: on one 72-mismatch function, eight such restarts got the
+score down to 36, with most of the drop coming right after each restart. A `--stop-on-zero`
+hit found this way is still only a candidate until the full build confirms the bytes.
