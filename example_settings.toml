@@ -3,3 +3,6 @@ compiler_type = "ido" # examples: base, ido, mwcc, gcc
 
 [weight_overrides]
 perm_temp_for_expr = 100
+
+# Scoring mode: "mnemonic" (default) or "reloc-masked" (MIPS only, see USAGE.md).
+# score_mode = "reloc-masked"

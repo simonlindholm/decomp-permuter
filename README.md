@@ -101,6 +101,9 @@ permuter is currently quite bad at resolving stack differences). For more detail
 see scorer.py. It's far from a perfect system, and should probably be tweaked to
 look at e.g. the register diff graph.
 
+On MIPS, `--score-mode reloc-masked` compares instruction words with the linker-filled
+fields masked instead; see USAGE.md.
+
 **What sort of non-matchings are the permuter good at?** It's generally best towards
 the end, when mostly regalloc changes remain. If there are reorderings or functional
 changes, it's often easy to resolve those by hand, and neither the scorer nor the

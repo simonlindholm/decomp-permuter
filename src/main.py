@@ -51,6 +51,7 @@ from .preprocess import preprocess
 from .printer import Printer
 from .profiler import Profiler
 from .randomizer import RANDOMIZATION_PASSES
+from .reloc_scorer import RelocMaskedScorer
 from .scorer import Scorer
 
 MIN_PRIO = 0.01
@@ -85,6 +86,7 @@ class Options:
     debug_mode: bool = False
     speed: int = 100
     ign_branch_targets: bool = False
+    score_mode: Optional[str] = None
 
 
 def restricted_float(lo: float, hi: float) -> Callable[[str], float]:
@@ -360,14 +362,36 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
 
         objdump_command = json_prop(settings, "objdump_command", str, "") or None
 
-        scorer = Scorer(
-            target_o,
-            stack_differences=options.stack_differences,
-            algorithm=options.algorithm,
-            debug_mode=options.debug_mode,
-            ign_branch_targets=options.ign_branch_targets,
-            objdump_command=objdump_command,
+        score_mode = options.score_mode or json_prop(
+            settings, "score_mode", str, "mnemonic"
         )
+        scorer: Scorer
+        if score_mode == "reloc-masked":
+            if options.use_network:
+                print(
+                    "--score-mode reloc-masked can't be used with -J "
+                    "(remote evaluators use the default scorer)",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            scorer = RelocMaskedScorer(
+                target_o,
+                fn_name=fn_name,
+                debug_mode=options.debug_mode,
+                objdump_command=objdump_command,
+            )
+        elif score_mode == "mnemonic":
+            scorer = Scorer(
+                target_o,
+                stack_differences=options.stack_differences,
+                algorithm=options.algorithm,
+                debug_mode=options.debug_mode,
+                ign_branch_targets=options.ign_branch_targets,
+                objdump_command=objdump_command,
+            )
+        else:
+            print(f"Unknown score_mode {score_mode!r}", file=sys.stderr)
+            sys.exit(1)
         c_source = preprocess(base_c)
 
         try:
@@ -702,6 +726,14 @@ def main() -> None:
         help="Diff algorithm to use",
     )
     parser.add_argument(
+        "--score-mode",
+        dest="score_mode",
+        choices=["mnemonic", "reloc-masked"],
+        help="""Scoring mode (default: the score_mode setting, else "mnemonic").
+            "reloc-masked" (MIPS only) compares instruction words with the
+            linker-filled fields masked; see USAGE.md.""",
+    )
+    parser.add_argument(
         "--keep-prob",
         dest="keep_prob",
         metavar="PROB",
@@ -808,6 +840,7 @@ def main() -> None:
         debug_mode=args.debug_mode,
         speed=args.speed,
         ign_branch_targets=args.ign_branch_targets,
+        score_mode=args.score_mode,
     )
 
     run(options)

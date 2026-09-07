@@ -13,3 +13,14 @@ does all this for you. See README.md for more details.
   - `<dir>/compile.sh <dir>/base.c -o <dir>/base.o`
   - `./permuter.py <dir> --debug`
 * `./permuter.py <dir>`
+
+## Scoring modes
+
+`--score-mode reloc-masked` (or `score_mode = "reloc-masked"` in settings.toml) switches
+MIPS targets from the default mnemonic diff to a comparison of raw instruction words,
+with the fields the linker fills in masked based on the target's relocation records
+(see `src/reloc_scorer.py`). The score is the number of instructions that differ plus the
+length difference, so it is 0 exactly when the candidate links to the same bytes. This
+helps in projects whose symbols don't contain a "." (e.g. `func_80012345`), where the
+default scorer can't tell a relocation slot from a register difference and gets stuck
+above 0. `--debug` prints the differing instructions. Not available together with `-J`.
