@@ -2543,10 +2543,10 @@ def perm_remove_var(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> None:
     """Remove a variable, replacing all its instances with
-       a randomly chosen variable of similar type."""
+    a randomly chosen variable of similar type."""
     mentioned_names = set(get_mentioned_names(fn, region))
     typemap = build_typemap(ast, fn)
-    cands_by_type: List[Tuple[Type, List[Tuple[int, ca.Decl]]]] = []
+    cands_by_type: List[Tuple[Type, List[Tuple[int, str]]]] = []
 
     def add_cand(tp: Type, stmt_idx: int, name: str) -> None:
         for t, arr in cands_by_type:
@@ -2566,9 +2566,10 @@ def perm_remove_var(
             add_cand(tp, i, decl.name)
 
     assert isinstance(fn.decl.type, ca.FuncDecl)
-    for decl in fn.decl.type.args or []:
-        if decl.name:
-            add_cand(get_decl_type(decl), -1, decl.name)
+    if fn.decl.type.args is not None:
+        for param in fn.decl.type.args.params:
+            if isinstance(param, ca.Decl) and param.name:
+                add_cand(get_decl_type(param), -1, param.name)
 
     cands = [(tp, names) for tp, names in cands_by_type if len(names) >= 2]
     ensure(cands)
@@ -2584,6 +2585,7 @@ def perm_remove_var(
         return ca.ID(name2)
 
     visit_replace(fn.body, callback)
+
 
 RandomizationPass = Callable[[ca.FuncDef, ca.FileAST, Indices, Region, Random], None]
 
