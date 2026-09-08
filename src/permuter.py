@@ -162,9 +162,9 @@ class Permuter:
     def _need_to_send_source(self, result: CandidateResult) -> bool:
         return self._need_all_sources or self.should_output(result)
 
-    def _eval_candidate(self, seed: int) -> CandidateResult:
+    def _eval_candidate(self, seed: int, timer: Timer) -> CandidateResult:
         profiler = Profiler()
-        timer = Timer()
+        profiler.add_stat(Profiler.StatType.ipc, timer.tick())
 
         # Determine if we should keep the last candidate.
         # Don't keep 0-score candidates; we'll only create new, worse, zeroes.
@@ -264,10 +264,10 @@ class Permuter:
             return itertools.repeat(self._force_seed)
         return iter([self._force_seed])
 
-    def try_eval_candidate(self, seed: int) -> EvalResult:
+    def try_eval_candidate(self, seed: int, timer: Timer) -> EvalResult:
         """Evaluate a seed for the permuter."""
         try:
-            return self._eval_candidate(seed)
+            return self._eval_candidate(seed, timer)
         except _CompileFailure:
             return EvalError(exc_str=None, seed=self._cur_seed)
         except Exception:

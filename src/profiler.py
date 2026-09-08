@@ -8,6 +8,7 @@ class Profiler:
         stringify = 2
         compile = 3
         score = 4
+        ipc = 5
 
     def __init__(self) -> None:
         self.time_stats = {x: 0.0 for x in Profiler.StatType}

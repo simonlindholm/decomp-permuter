@@ -49,7 +49,7 @@ from .permuter import (
 )
 from .preprocess import preprocess
 from .printer import Printer
-from .profiler import Profiler
+from .profiler import Profiler, Timer
 from .randomizer import RANDOMIZATION_PASSES
 from .scorer import Scorer
 
@@ -243,6 +243,7 @@ def multiprocess_worker(
     output_queue: "Queue[Feedback]",
 ) -> None:
     try:
+        timer = Timer()
         while True:
             # Read a work item from the queue. If none is immediately available,
             # tell the main thread to fill the queues more, and then block on
@@ -262,7 +263,7 @@ def multiprocess_worker(
 
             start = time.time()
 
-            result = permuter.try_eval_candidate(seed)
+            result = permuter.try_eval_candidate(seed, timer)
             if isinstance(result, CandidateResult) and permuter.should_output(result):
                 permuter.record_result(result)
 
@@ -271,6 +272,7 @@ def multiprocess_worker(
 
                 sleep_time = (end - start) * ((100 / permuter.speed) - 1)
                 time.sleep(sleep_time)
+                timer.tick()
 
             output_queue.put((WorkDone(permuter_index, result), -1, None))
             output_queue.put((NeedMoreWork(), -1, None))
@@ -416,13 +418,15 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
     if options.threads == 1 and not options.use_network:
         # Simple single-threaded mode. This is not technically needed, but
         # makes the permuter easier to debug.
+        timer = Timer()
         for permuter_index, seed in cycle_seeds(context.permuters):
             heartbeat()
             permuter = context.permuters[permuter_index]
 
             start = time.time()
 
-            result = permuter.try_eval_candidate(seed)
+            result = permuter.try_eval_candidate(seed, timer)
+
             if post_score(context, permuter, result, None):
                 found_zero = True
                 if options.stop_on_zero:
@@ -433,6 +437,7 @@ def run_inner(options: Options, heartbeat: Callable[[], None]) -> List[int]:
 
                 sleep_time = (end - start) * ((100 / permuter.speed) - 1)
                 time.sleep(sleep_time)
+                timer.tick()
     else:
         seed_iterators: List[Optional[Iterator[int]]] = [
             permuter.seed_iterator() for permuter in context.permuters

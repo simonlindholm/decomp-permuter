@@ -25,7 +25,7 @@ from ..helpers import (
     static_assert_unreachable,
 )
 from ..permuter import EvalError, EvalResult, Permuter
-from ..profiler import Profiler
+from ..profiler import Profiler, Timer
 from ..scorer import Scorer
 from .core import (
     FilePort,
@@ -202,6 +202,7 @@ def multiprocess_worker(
     permuters: Dict[str, Permuter] = {}
     timestamp = 0
 
+    timer = Timer()
     while True:
         work, required_timestamp = worker_queue.get()
         while True:
@@ -212,6 +213,7 @@ def multiprocess_worker(
                 break
             if isinstance(task, AddPermuterLocal):
                 permuters[task.perm_id] = task.permuter
+                timer.tick()
             elif isinstance(task, RemovePermuter):
                 del permuters[task.perm_id]
             else:
@@ -220,7 +222,7 @@ def multiprocess_worker(
         time_before = time.time()
 
         permuter = permuters[work.perm_id]
-        result = permuter.try_eval_candidate(work.seed)
+        result = permuter.try_eval_candidate(work.seed, timer)
         if isinstance(result, CandidateResult) and permuter.should_output(result):
             permuter.record_result(result)
 
