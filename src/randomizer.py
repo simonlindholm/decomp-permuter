@@ -1314,6 +1314,38 @@ def perm_condition(
         )
         node.cond = ca.BinaryOp(op, expr, zero)
 
+def perm_reverse_cond(
+    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
+) -> None:
+    """Change if(x) y else z; into if(!x) z else y;. Includes ternary operators."""
+    cands: List[Union[ca.If, ca.TernaryOp]] = []
+
+    class Visitor(ca.NodeVisitor):
+        def visit_If(self, node: ca.If) -> None:
+            if node.iffalse:  # Must have an else.
+                cands.append(node)
+            self.generic_visit(node)
+
+        def visit_TernaryOp(self, node: ca.TernaryOp) -> None:
+            cands.append(node)
+            self.generic_visit(node)
+
+    Visitor().visit(fn.body)
+    ensure(cands)
+    node = random.choice(cands)
+    if not node.cond:
+        raise RandomizationFailure
+
+    if isinstance(node.cond, ca.UnaryOp) and node.cond.op == "!":
+        ensure(not isinstance(node.cond.expr, ca.Typename))
+        node.cond = node.cond.expr
+    else:
+        node.cond = ca.UnaryOp("!", node.cond)
+
+    tmp = node.iftrue
+    node.iftrue = node.iffalse
+    node.iffalse = tmp
+
 
 def perm_add_self_assignment(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
@@ -2626,6 +2658,7 @@ RANDOMIZATION_PASSES: List[RandomizationPass] = [
     perm_var_cond_block,
     perm_alias_array,
     perm_remove_var,
+    perm_reverse_cond,
 ]
 
 
