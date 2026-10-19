@@ -24,6 +24,7 @@ from . import ast_util
 from .ast_util import Block, Indices, Statement, Expression, to_c_raw
 from .ast_types import (
     SimpleType,
+    UnknownIdentifierType,
     Type,
     TypeMap,
     allowed_basic_type,
@@ -2697,5 +2698,7 @@ class Randomizer:
             try:
                 method(fn, ast, indices, region, self.random)
                 break
-            except RandomizationFailure:
+            except (RandomizationFailure, UnknownIdentifierType):
+                # Nothing is known about the type of some identifier in the code (a function that is called
+                # without a declaration, say): try another randomization.
                 pass

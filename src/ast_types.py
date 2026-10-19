@@ -99,6 +99,10 @@ def struct_member_type(struct: StructUnion, field_name: str, typemap: TypeMap) -
     assert False, f"No field {field_name} in struct {struct.name}"
 
 
+class UnknownIdentifierType(KeyError):
+    """An identifier with no declaration in the file, such as a function that is called but never declared."""
+
+
 def expr_type(node: ca.Node, typemap: TypeMap) -> Type:
     def rec(sub_expr: ca.Node) -> Type:
         return expr_type(sub_expr, typemap)
@@ -124,6 +128,8 @@ def expr_type(node: ca.Node, typemap: TypeMap) -> Type:
             return basic_type("int")
         return basic_type(node.type.split(" "))
     if isinstance(node, ca.ID):
+        if node.name not in typemap.var_types:
+            raise UnknownIdentifierType(node.name)
         return typemap.var_types[node.name]
     if isinstance(node, ca.UnaryOp):
         if node.op in ["p++", "p--", "++", "--"]:
