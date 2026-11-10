@@ -702,13 +702,21 @@ def get_decompme_compiler_name(
     decompme_settings = json_dict(settings, "decompme")
     compiler_mappings = json_dict(decompme_settings, "compilers")
 
-    compiler_path = compiler[0]
+    binaries = []
+    ind = 0
+    while True:
+        binaries.append(compiler[ind])
+        try:
+            ind = compiler.index("|", ind) + 1
+        except ValueError:
+            break
 
-    for path, compiler_name in compiler_mappings.items():
-        assert isinstance(compiler_name, str)
+    for compiler_path in binaries:
+        for path, compiler_name in compiler_mappings.items():
+            assert isinstance(compiler_name, str)
 
-        if fnmatch.fnmatch(compiler_path, path):
-            return compiler_name
+            if fnmatch.fnmatch(compiler_path, path):
+                return compiler_name
 
     available_ids: List[str] = []
     try:
@@ -723,23 +731,24 @@ def get_decompme_compiler_name(
     except Exception as e:
         print(f"Failed to request available compilers from decomp.me:\n{e}")
 
+    what = "compiler path " if len(binaries) == 1 else "any of the compiler paths "
+    what += ", ".join(f'"{p}"' for p in binaries)
     print()
-    print(
-        f'Unable to map compiler path "{compiler_path}" to something '
-        "decomp.me understands."
+    print(f"Unable to map {what} to something decomp.me understands.")
+    trail = "permuter_settings.toml, where ... is one of:\n\n" + ", ".join(
+        available_ids
     )
-    trail = "permuter_settings.toml, where ... is one of: " + ", ".join(available_ids)
     if compiler_mappings:
         print(
             "Please add an entry: (wildcards allowed!)\n\n"
-            f'"{compiler_path}" = "..."\n\n'
+            f'"{binaries[0]}" = "..."\n\n'
             f"to the [decompme.compilers] section of {trail}"
         )
     else:
         print(
             "Please add a section: (wildcards allowed!)\n\n"
             "[decompme.compilers]\n"
-            f'"{compiler_path}" = "..."\n\n'
+            f'"{binaries[0]}" = "..."\n\n'
             f"to {trail}"
         )
     sys.exit(1)
