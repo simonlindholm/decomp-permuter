@@ -1314,6 +1314,7 @@ def perm_condition(
         )
         node.cond = ca.BinaryOp(op, expr, zero)
 
+
 def perm_reverse_cond(
     fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
 ) -> None:
@@ -1322,7 +1323,7 @@ def perm_reverse_cond(
 
     class Visitor(ca.NodeVisitor):
         def visit_If(self, node: ca.If) -> None:
-            if node.iffalse:  # Must have an else.
+            if node.iffalse is not None:
                 cands.append(node)
             self.generic_visit(node)
 
@@ -1338,10 +1339,12 @@ def perm_reverse_cond(
 
     if isinstance(node.cond, ca.UnaryOp) and node.cond.op == "!":
         ensure(not isinstance(node.cond.expr, ca.Typename))
+        assert not isinstance(node.cond.expr, ca.Typename)
         node.cond = node.cond.expr
     else:
         node.cond = ca.UnaryOp("!", node.cond)
 
+    assert node.iffalse is not None
     tmp = node.iftrue
     node.iftrue = node.iffalse
     node.iffalse = tmp
